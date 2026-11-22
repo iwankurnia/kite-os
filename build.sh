@@ -45,6 +45,9 @@ lb config
 lb build
 cd ..
 iso=$(find live -maxdepth 1 -name '*.iso' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d' ' -f2-)
+# auto/build pipes lb build through tee (no pipefail in sh), so a failed
+# build shows up here as a missing ISO.
+[ -n "$iso" ] || { echo "live-build failed, no ISO produced: see live/build.log" >&2; exit 1; }
 dest=out/kiteos-$(date +%Y%m%d)-amd64.iso
 mv "$iso" "$dest"
 sha256sum "$dest" > "$dest.sha256"

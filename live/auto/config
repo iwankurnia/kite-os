@@ -9,6 +9,7 @@ lb config noauto \
     --mirror-binary https://deb.debian.org/debian/ \
     --mirror-chroot-security "${KITE_SECURITY_MIRROR:-http://security.debian.org/debian-security/}" \
     --mirror-binary-security https://security.debian.org/debian-security/ \
+    --debootstrap-options "--include=ca-certificates" \
     --updates true \
     --security true \
     --apt-recommends false \
