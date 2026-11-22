@@ -75,7 +75,8 @@ check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$
 check "new users get the shelf layout" test -f "$CH/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
 check "launcher theme installed" test -f "$CH/usr/share/rofi/themes/kite-launcher.rasi"
 check "Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/45kite-user-init
-# A stand-in Brave package installed after kite-desktop, like on the ISO.
+# A stand-in Brave package installed after kite-desktop. (The ISO build
+# unpacks Brave first; dpkg-divert --rename handles that order too.)
 d=$W/stub-brave; mkdir -p "$d/DEBIAN" "$d/opt/brave.com/brave" "$d/usr/bin"
 printf 'Package: brave-browser\nVersion: 0.0-stub\nArchitecture: all\nMaintainer: test <t@localhost>\nDescription: test stand-in\n' > "$d/DEBIAN/control"
 printf '#!/bin/sh\necho "$@" > /tmp/brave-args\n' > "$d/opt/brave.com/brave/brave-browser"; chmod 755 "$d/opt/brave.com/brave/brave-browser"

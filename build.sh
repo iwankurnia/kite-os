@@ -50,5 +50,6 @@ iso=$(find live -maxdepth 1 -name '*.iso' -printf '%T@ %p\n' | sort -nr | head -
 [ -n "$iso" ] || { echo "live-build failed, no ISO produced: see live/build.log" >&2; exit 1; }
 dest=out/kiteos-$(date +%Y%m%d)-amd64.iso
 mv "$iso" "$dest"
-sha256sum "$dest" > "$dest.sha256"
+# Bare file name, so "sha256sum -c" works next to the downloaded ISO.
+(cd out && sha256sum "${dest#out/}" > "${dest#out/}.sha256")
 echo "==> done: $dest ($(du -h "$dest" | cut -f1))"
