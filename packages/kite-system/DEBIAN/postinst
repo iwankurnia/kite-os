@@ -1,0 +1,36 @@
+#!/bin/sh
+set -e
+
+build_plymouth_theme() {
+    /usr/lib/kite/kite-plymouth-theme || return 0
+    theme=/usr/share/plymouth/themes/kite/kite.plymouth
+    if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+        # Debian
+        plymouth-set-default-theme kite || true
+    elif update-alternatives --list default.plymouth >/dev/null 2>&1; then
+        # Ubuntu-style alternatives
+        update-alternatives --install /usr/share/plymouth/themes/default.plymouth \
+            default.plymouth "$theme" 150 >/dev/null || true
+        update-alternatives --set default.plymouth "$theme" >/dev/null || true
+    fi
+}
+
+case "$1" in
+    configure)
+        build_plymouth_theme
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemctl restart kite-zswap.service || true
+            systemctl try-restart earlyoom.service || true
+        fi
+        systemctl enable kite-zswap.service >/dev/null 2>&1 || true
+        systemctl enable kite-hibernate-firstboot.service >/dev/null 2>&1 || true
+        systemctl enable earlyoom.service >/dev/null 2>&1 || true
+        systemctl enable fstrim.timer >/dev/null 2>&1 || true
+        # sysctl.d applies at boot; apply now if we are on a live system
+        if [ -d /run/systemd/system ]; then
+            sysctl -q -p /usr/lib/sysctl.d/60-kite.conf || true
+        fi
+        ;;
+esac
+exit 0

@@ -1,0 +1,17 @@
+# Safety net: if hibernation was not configured during installation (or the
+# system was installed another way), set it up on the first boot. It becomes
+# usable after the next reboot (the kernel command line changes).
+[Unit]
+Description=KiteOS: configure hibernation (first boot)
+ConditionPathExists=!/etc/default/grub.d/kite-resume.cfg
+ConditionKernelCommandLine=!boot=live
+After=local-fs.target
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/kite-hibernate-setup --apply
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=multi-user.target

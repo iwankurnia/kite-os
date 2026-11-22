@@ -1,0 +1,14 @@
+Package: kite-storage
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: KiteOS builder <root@localhost>
+Depends: bash, apt, dpkg, coreutils, diffutils, util-linux, e2fsprogs, udev, yad, pkexec, sudo
+Recommends: mate-polkit | lxpolkit, libnotify-bin
+Description: KiteOS — keep apps and their data on an external disk
+ "Apps & Storage" (kite-apps) and the kite-storage command install apps on
+ the internal disk and then, if you choose, copy their program files and/or
+ their settings and data to an external USB/SD disk and link them back with
+ symlinks. Moved apps keep upgrading normally; APT refuses to touch them
+ while the disk is unplugged, and their launchers explain what is missing.

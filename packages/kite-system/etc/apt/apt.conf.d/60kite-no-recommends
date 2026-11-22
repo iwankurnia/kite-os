@@ -1,0 +1,4 @@
+// KiteOS keeps the system small: "Recommends" are not installed automatically.
+// Install one explicitly if an app needs it, or delete this file to restore
+// Debian's default behaviour.
+APT::Install-Recommends "false";

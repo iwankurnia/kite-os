@@ -1,0 +1,33 @@
+---
+componentName:  kite
+welcomeStyleCalamares: true
+welcomeExpandingLogo: true
+windowExpanding: normal
+windowSize: 800px,560px
+windowPlacement: center
+strings:
+    productName:         KiteOS
+    shortProductName:    KiteOS
+    version:             1.0 (Debian 13)
+    shortVersion:        "1.0"
+    versionedName:       KiteOS 1.0
+    shortVersionedName:  KiteOS 1.0
+    bootloaderEntryName: KiteOS
+    productUrl:          https://www.debian.org
+    supportUrl:          https://www.debian.org/support
+    knownIssuesUrl:      https://bugs.debian.org
+    releaseNotesUrl:     https://www.debian.org/releases/trixie/releasenotes
+    donateUrl:           https://www.debian.org
+sidebar: widget
+navigation: widget
+images:
+    productLogo:         "kite-logo.png"
+    productIcon:         "kite-logo.png"
+    productWelcome:      "welcome.png"
+slideshow:               "show.qml"
+style:
+   SidebarBackground:    "#141821"
+   SidebarText:          "#e8eaed"
+   SidebarTextCurrent:   "#ffffff"
+   SidebarBackgroundCurrent: "#2b5797"
+slideshowAPI: 2

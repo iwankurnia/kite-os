@@ -1,0 +1,14 @@
+[Unit]
+Description=KiteOS: enable zswap compressed swap cache
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=swap.target sysinit.target
+ConditionPathExists=/sys/module/zswap/parameters/enabled
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/kite/kite-zswap
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Apps & Storage
+Comment=Install apps, keep apps or folders on an external disk, update the system
+Exec=kite-apps
+Icon=system-software-install
+Categories=System;Settings;PackageManager;
+Keywords=install;software;store;external;usb;disk;update;
+Terminal=false

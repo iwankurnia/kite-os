@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Launcher
+Comment=Search and open apps (or tap the Search key)
+Exec=kite-launcher
+Icon=kite-launcher
+Terminal=false
+StartupNotify=false

@@ -1,0 +1,12 @@
+[Unit]
+Description=KiteOS: Chromebook keyboard and audio setup
+After=local-fs.target systemd-udev-settle.service
+Before=keyd.service sound.target display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/kite/chromebook/kite-chromebook-setup
+
+[Install]
+WantedBy=multi-user.target

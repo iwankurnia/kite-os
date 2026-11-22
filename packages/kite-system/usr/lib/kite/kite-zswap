@@ -1,0 +1,32 @@
+#!/bin/sh
+# Enable zswap: a compressed cache in RAM in front of the disk swap file.
+# Unlike zram, zswap works together with hibernation. Settings: /etc/kite/zswap.conf
+set -u
+ENABLED=1
+COMPRESSOR=zstd
+ZPOOL=zsmalloc
+MAX_POOL_PERCENT=25
+SHRINKER=1
+[ -r /etc/kite/zswap.conf ] && . /etc/kite/zswap.conf
+
+P=/sys/module/zswap/parameters
+if [ ! -d "$P" ]; then
+    echo "kite-zswap: zswap not available in this kernel"
+    exit 0
+fi
+setp() {
+    if [ -e "$P/$1" ]; then
+        echo "$2" > "$P/$1" 2>/dev/null || echo "kite-zswap: could not set $1=$2" >&2
+    fi
+}
+if [ "$ENABLED" != 1 ]; then
+    setp enabled N
+    exit 0
+fi
+modprobe -q "$COMPRESSOR" 2>/dev/null || true
+setp compressor "$COMPRESSOR"
+setp zpool "$ZPOOL"                 # parameter dropped in newer kernels; ignored then
+setp max_pool_percent "$MAX_POOL_PERCENT"
+if [ "$SHRINKER" = 1 ]; then setp shrinker_enabled Y; else setp shrinker_enabled N; fi
+setp enabled Y
+echo "kite-zswap: enabled ($(cat $P/compressor 2>/dev/null), max ${MAX_POOL_PERCENT}% of RAM)"

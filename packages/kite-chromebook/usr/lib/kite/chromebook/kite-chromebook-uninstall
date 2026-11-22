@@ -1,0 +1,17 @@
+#!/bin/bash
+# Undo the UCM overlay: delete our files, restore what we replaced.
+set -u
+STATE=/var/lib/kite/chromebook
+UCM_DST=/usr/share/alsa/ucm2
+[ -f "$STATE/ucm-files.list" ] || exit 0
+while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    rel=${f#"$UCM_DST"/}
+    if [ -e "$STATE/ucm-backup/$rel" ]; then
+        cp -a "$STATE/ucm-backup/$rel" "$f"
+    else
+        rm -f "$f"
+    fi
+done < "$STATE/ucm-files.list"
+rm -rf "$STATE"
+rm -f /etc/keyd/kite-chromebook.conf /etc/modprobe.d/kite-chromebook-sof.conf

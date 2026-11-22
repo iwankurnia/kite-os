@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+# Docs from packages installed before the dpkg exclude was in place.
+find /usr/share/doc -mindepth 1 -maxdepth 2 ! -name copyright ! -type d -delete 2>/dev/null || true
+apt-get clean
+rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*

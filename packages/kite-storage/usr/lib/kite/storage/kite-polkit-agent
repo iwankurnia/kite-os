@@ -1,0 +1,10 @@
+#!/bin/sh
+# Start whichever graphical polkit agent is installed (password prompts).
+for a in /usr/libexec/polkit-mate-authentication-agent-1 \
+         /usr/lib/x86_64-linux-gnu/polkit-mate/polkit-mate-authentication-agent-1 \
+         /usr/bin/lxpolkit \
+         /usr/libexec/polkit-gnome-authentication-agent-1 \
+         /usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1; do
+    [ -x "$a" ] && exec "$a"
+done
+exit 0

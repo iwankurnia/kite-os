@@ -1,0 +1,7 @@
+# Sourced by /etc/X11/Xsession. Per-user KiteOS defaults (never blocks login).
+if [ -x /usr/lib/kite/desktop/kite-user-init ]; then
+    /usr/lib/kite/desktop/kite-user-init >>"$HOME/.xsession-errors" 2>&1 || true
+fi
+# Skip the "which panel layout?" question; KiteOS ships its own.
+XFCE_PANEL_MIGRATE_DEFAULT=1
+export XFCE_PANEL_MIGRATE_DEFAULT

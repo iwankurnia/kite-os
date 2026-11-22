@@ -1,0 +1,2 @@
+# Re-apply the Chromebook UCM overlay whenever alsa-ucm-conf is upgraded.
+interest-noawait /usr/share/alsa/ucm2

@@ -1,0 +1,15 @@
+[user]
+pinned=brave-browser;onlyoffice-desktopeditors;thunar;xfce4-terminal;kite-apps;xfce-settings-manager;
+indicatorStyle=1
+inactiveIndicatorStyle=4
+indicatorOrientation=0
+indicatorColorFromTheme=false
+indicatorColor=rgb(138,180,248)
+inactiveColor=rgba(232,234,237,0.6)
+showPreviews=true
+noWindowsListIfSingle=true
+onlyDisplayVisible=false
+showWindowCount=false
+middleButtonBehavior=1
+forceIconSize=true
+iconSize=30

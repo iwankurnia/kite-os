@@ -1,0 +1,113 @@
+#!/bin/bash
+# kite-chromebook-setup — apply Chromebook-specific hardware fixes at boot.
+# Does nothing on other machines. Safe to run any number of times.
+#   --ucm-only   only (re)install the audio UCM profiles (used by the dpkg trigger)
+set -euo pipefail
+
+LIB=/usr/lib/kite/chromebook
+STATE=/var/lib/kite/chromebook
+UCM_SRC=/usr/share/kite/chromebook/alsa-ucm-conf-cros
+UCM_DST=${KITE_UCM_DST:-/usr/share/alsa/ucm2}
+KEYD_CONF=/etc/keyd/kite-chromebook.conf
+SOF_CONF=/etc/modprobe.d/kite-chromebook-sof.conf
+
+log() { echo "kite-chromebook-setup: $*"; }
+
+dmi() { tr '[:upper:]' '[:lower:]' < "/sys/class/dmi/id/$1" 2>/dev/null || true; }
+
+is_chromebook() {
+    [ "$(dmi sys_vendor)" = google ] || [ "$(dmi product_family)" = google ] ||
+        [[ "$(dmi product_family)" == google_* ]] || [ -c /dev/cros_ec ]
+}
+
+# Platforms whose audio uses Intel SOF (from WeirdTreeThing/chromebook-linux-audio).
+uses_sof() {
+    case "$(dmi product_family)" in
+        google_octopus|google_hatch|google_puff|google_dedede|google_volteer|\
+        google_brya|google_brask|google_brox|google_nissa|google_rex|google_trulo) return 0 ;;
+    esac
+    return 1
+}
+
+# Copy one tree over another file by file, backing up anything we replace.
+# Prints the relative path of every file that changed.
+overlay_tree() {
+    local src=$1 dst=$2 rel target
+    while IFS= read -r -d '' rel; do
+        rel=${rel#./}
+        target="$dst/$rel"
+        cmp -s "$src/$rel" "$target" && continue
+        if [ -e "$target" ] && [ ! -e "$STATE/ucm-backup/$rel" ] && ! grep -qxF "$target" "$STATE/ucm-files.list" 2>/dev/null; then
+            mkdir -p "$(dirname "$STATE/ucm-backup/$rel")"
+            cp -a "$target" "$STATE/ucm-backup/$rel"
+        fi
+        mkdir -p "$(dirname "$target")"
+        cp "$src/$rel" "$target"
+        echo "$target"
+    done < <(cd "$src" && find . -type f -print0)
+}
+
+install_ucm() {
+    mkdir -p "$STATE"
+    local changed
+    changed=$( { overlay_tree "$UCM_SRC/ucm2" "$UCM_DST"
+                 overlay_tree "$UCM_SRC/overrides" "$UCM_DST/conf.d"; } )
+    if [ -n "$changed" ]; then
+        printf '%s\n' "$changed" >> "$STATE/ucm-files.list"
+        sort -u -o "$STATE/ucm-files.list" "$STATE/ucm-files.list"
+        log "installed/updated $(printf '%s\n' "$changed" | wc -l) audio UCM files"
+        return 0
+    fi
+    return 1
+}
+
+setup_sof() {
+    # With MrChromebox firmware sys_vendor is "Google" and the kernel picks SOF
+    # by itself. Some HP boards report another vendor; force SOF there.
+    if uses_sof && [ "$(dmi sys_vendor)" != google ]; then
+        if [ ! -f "$SOF_CONF" ]; then
+            echo "options snd-intel-dspcfg dsp_driver=3" > "$SOF_CONF"
+            log "forcing the SOF audio driver (takes effect after reboot)"
+        fi
+    else
+        rm -f "$SOF_CONF"
+    fi
+    if uses_sof && [ ! -d /lib/firmware/intel/sof ] && [ ! -d /usr/lib/firmware/intel/sof ]; then
+        log "WARNING: SOF firmware missing — install firmware-sof-signed"
+    fi
+}
+
+setup_keyboard() {
+    local tmp
+    mkdir -p /etc/keyd
+    tmp=$(mktemp)
+    "$LIB/kite-keyd-gen" -o "$tmp"
+    if ! cmp -s "$tmp" "$KEYD_CONF"; then
+        install -m 644 "$tmp" "$KEYD_CONF"
+        log "keyboard map written to $KEYD_CONF"
+        if systemctl is-active --quiet keyd 2>/dev/null; then
+            keyd reload 2>/dev/null || systemctl restart keyd || true
+        fi
+    fi
+    rm -f "$tmp"
+}
+
+main() {
+    if ! is_chromebook; then
+        log "not a Chromebook — nothing to do"
+        rm -f "$KEYD_CONF"
+        exit 0
+    fi
+    if [ "${1:-}" = --ucm-only ]; then
+        install_ucm || true
+        exit 0
+    fi
+    log "Chromebook detected: $(dmi product_name) ($(dmi product_family))"
+    if install_ucm; then
+        command -v alsactl >/dev/null && alsactl init >/dev/null 2>&1 || true
+    fi
+    setup_sof
+    setup_keyboard
+}
+
+main "$@"

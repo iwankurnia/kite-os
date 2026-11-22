@@ -1,0 +1,11 @@
+Package: kite-system
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: KiteOS builder <root@localhost>
+Depends: systemd, initramfs-tools, e2fsprogs, util-linux, plymouth, plymouth-themes, earlyoom, upower, debianutils, kmod
+Recommends: grub-common
+Description: KiteOS system tuning for low-memory laptops
+ Hibernation setup (kite-hibernate-setup), zswap compressed swap cache,
+ memory/OOM tuning, small journal, quiet boot with the KiteOS splash.

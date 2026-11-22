@@ -1,0 +1,28 @@
+#!/bin/sh
+# live-build configuration for the KiteOS live/installer ISO (Debian 13 "trixie").
+set -e
+lb config noauto \
+    --distribution trixie \
+    --archive-areas "main contrib non-free non-free-firmware" \
+    --mirror-bootstrap "${KITE_MIRROR:-http://deb.debian.org/debian/}" \
+    --mirror-chroot "${KITE_MIRROR:-http://deb.debian.org/debian/}" \
+    --mirror-binary http://deb.debian.org/debian/ \
+    --mirror-chroot-security http://security.debian.org/debian-security/ \
+    --mirror-binary-security http://security.debian.org/debian-security/ \
+    --updates true \
+    --security true \
+    --apt-recommends false \
+    --debian-installer none \
+    --firmware-binary false \
+    --firmware-chroot false \
+    --binary-images iso-hybrid \
+    --bootloaders "grub-efi" \
+    --uefi-secure-boot disable \
+    --memtest none \
+    --image-name kiteos \
+    --iso-application "KiteOS" \
+    --iso-publisher "KiteOS" \
+    --iso-volume "KiteOS" \
+    --bootappend-live "boot=live components quiet splash username=kite user-fullname=KiteOS hostname=kiteos locales=en_GB.UTF-8 keyboard-layouts=us" \
+    --cache true \
+    "${@}"

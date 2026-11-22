@@ -1,0 +1,8 @@
+#!/bin/sh
+# Toggle the full-screen app launcher (bound to a tap on the Search key).
+uid=$(id -u)
+if pgrep -u "$uid" -x rofi >/dev/null 2>&1; then
+    pkill -u "$uid" -x rofi
+    exit 0
+fi
+exec rofi -show drun -theme kite-launcher

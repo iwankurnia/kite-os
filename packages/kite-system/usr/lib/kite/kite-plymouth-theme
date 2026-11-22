@@ -1,0 +1,40 @@
+#!/bin/sh
+# Build the KiteOS boot splash from Debian's "spinner" theme: same animation,
+# KiteOS logo in the middle, dark ChromeOS-like background.
+#   kite-plymouth-theme [SRC_DIR] [DST_DIR] [WATERMARK_PNG]
+set -eu
+src=${1:-/usr/share/plymouth/themes/spinner}
+dst=${2:-/usr/share/plymouth/themes/kite}
+mark=${3:-/usr/share/kite/plymouth/watermark.png}
+
+if [ ! -f "$src/spinner.plymouth" ]; then
+    echo "kite-plymouth-theme: $src/spinner.plymouth not found (install plymouth-themes)" >&2
+    exit 1
+fi
+rm -rf "$dst"
+mkdir -p "$dst"
+# Real copies, not symlinks: the initramfs hook copies this directory as is.
+cp "$src"/*.png "$dst"/ 2>/dev/null || true
+cp "$mark" "$dst/watermark.png"
+awk -v dir="$dst" '
+    function flush() {
+        print "WatermarkHorizontalAlignment=.5"
+        print "WatermarkVerticalAlignment=.45"
+        print "VerticalAlignment=.68"
+        print "BackgroundStartColor=0x202124"
+        print "BackgroundEndColor=0x202124"
+        flushed = 1
+    }
+    /^\[/ {
+        if (sec == "[two-step]" && !flushed) { flush(); print "" }
+        sec = $0; print; next
+    }
+    sec == "[Plymouth Theme]" && /^(Name|Description)\[/ { next }
+    sec == "[Plymouth Theme]" && /^Name=/        { print "Name=KiteOS"; next }
+    sec == "[Plymouth Theme]" && /^Description=/ { print "Description=KiteOS boot splash"; next }
+    sec == "[two-step]" && /^ImageDir=/ { print "ImageDir=" dir; next }
+    sec == "[two-step]" && /^(Watermark(Horizontal|Vertical)Alignment|VerticalAlignment|Background(Start|End)Color)=/ { next }
+    sec == "[two-step]" && /^$/ { next }
+    { print }
+    END { if (sec == "[two-step]" && !flushed) flush() }
+' "$src/spinner.plymouth" > "$dst/kite.plymouth"

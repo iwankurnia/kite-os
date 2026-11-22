@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Power
+Comment=Lock, sleep, hibernate, restart or shut down
+Exec=xfce4-session-logout
+Icon=system-shutdown-symbolic
+Terminal=false
+StartupNotify=false

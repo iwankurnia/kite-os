@@ -1,0 +1,125 @@
+#!/usr/bin/python3
+"""Per-user KiteOS setup. Runs from /etc/X11/Xsession.d before XFCE starts.
+
+* Keyboard shortcuts: XFCE only honours custom shortcuts as a complete list,
+  so on first login we copy the system defaults of the *installed* XFCE
+  version and add the KiteOS bindings on top. Never touched again after that.
+* Wallpaper: every connected monitor that has no wallpaper yet gets the
+  KiteOS one (xfdesktop stores it per connector name, e.g. eDP-1, HDMI-1).
+"""
+import copy
+import os
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+WALLPAPER = "/usr/share/backgrounds/kite/kite-default.png"
+CHANNEL_DIR = os.path.expanduser("~/.config/xfce4/xfconf/xfce-perchannel-xml")
+
+KITE_SHORTCUTS = {
+    "commands": {
+        "<Super>space": "kite-launcher",       # Search key tap (via keyd)
+        "<Super>w": "kite-overview",           # top-row overview key (via keyd)
+        "<Super>l": "xflock4",                 # Search+L, like ChromeOS
+        "<Primary><Alt>t": "exo-open --launch TerminalEmulator",
+        "<Primary><Shift>Escape": "xfce4-taskmanager",
+    },
+    "xfwm4": {},
+}
+
+
+def system_file(name):
+    dirs = os.environ.get("XDG_CONFIG_DIRS", "/etc/xdg").split(":") + ["/etc/xdg"]
+    for d in dirs:
+        p = os.path.join(d, "xfce4/xfconf/xfce-perchannel-xml", name)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def setup_shortcuts():
+    user_file = os.path.join(CHANNEL_DIR, "xfce4-keyboard-shortcuts.xml")
+    if os.path.exists(user_file):
+        return
+    src = system_file("xfce4-keyboard-shortcuts.xml")
+    if not src:
+        return
+    tree = ET.parse(src)
+    root = tree.getroot()
+    for section, extra in KITE_SHORTCUTS.items():
+        sec = root.find(f"./property[@name='{section}']")
+        if sec is None:
+            continue
+        default = sec.find("./property[@name='default']")
+        if default is None:
+            continue
+        for old in sec.findall("./property[@name='custom']"):
+            sec.remove(old)
+        custom = copy.deepcopy(default)
+        custom.set("name", "custom")
+        for key, cmd in extra.items():
+            for p in custom.findall("./property"):
+                if p.get("name") == key:
+                    custom.remove(p)
+            ET.SubElement(custom, "property", name=key, type="string", value=cmd)
+        ET.SubElement(custom, "property", name="override", type="bool", value="true")
+        sec.append(custom)
+    os.makedirs(CHANNEL_DIR, exist_ok=True)
+    tree.write(user_file, encoding="UTF-8", xml_declaration=True)
+
+
+def connected_outputs():
+    try:
+        out = subprocess.run(["xrandr", "--query"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [line.split()[0] for line in out.splitlines() if " connected" in line]
+
+
+def child(parent, name, typ="empty", value=None):
+    for p in parent.findall("./property"):
+        if p.get("name") == name:
+            return p, False
+    attrs = {"name": name, "type": typ}
+    if value is not None:
+        attrs["value"] = value
+    return ET.SubElement(parent, "property", attrs), True
+
+
+def setup_wallpaper():
+    outputs = connected_outputs()
+    if not outputs:
+        return
+    path = os.path.join(CHANNEL_DIR, "xfce4-desktop.xml")
+    if os.path.exists(path):
+        tree = ET.parse(path)
+        root = tree.getroot()
+    else:
+        root = ET.Element("channel", name="xfce4-desktop", version="1.0")
+        tree = ET.ElementTree(root)
+    backdrop, _ = child(root, "backdrop")
+    screen0, _ = child(backdrop, "screen0")
+    changed = False
+    for out in outputs:
+        mon, _ = child(screen0, "monitor" + out)
+        ws, _ = child(mon, "workspace0")
+        _, new = child(ws, "last-image", "string", WALLPAPER)
+        changed |= new
+        _, new = child(ws, "image-style", "int", "5")
+        changed |= new
+    if changed:
+        os.makedirs(CHANNEL_DIR, exist_ok=True)
+        tree.write(path, encoding="UTF-8", xml_declaration=True)
+
+
+def main():
+    for step in (setup_shortcuts, setup_wallpaper):
+        try:
+            step()
+        except Exception as exc:  # never block the login
+            print(f"kite-user-init: {step.__name__}: {exc}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

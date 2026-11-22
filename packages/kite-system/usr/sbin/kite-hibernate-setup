@@ -1,0 +1,361 @@
+#!/bin/bash
+# kite-hibernate-setup — make hibernation (suspend-to-disk) work on KiteOS.
+#
+# What it does:
+#   1. Makes sure there is swap space at least as large as RAM (+1 GiB headroom).
+#      Uses an existing swap partition if it is big enough, otherwise creates
+#      (or grows) /swapfile on the root file system.
+#   2. Points the kernel at it: resume=/resume_offset= on the GRUB command line
+#      (in /etc/default/grub.d/kite-resume.cfg) and RESUME= in the initramfs.
+#   3. Only once all of that is in place, switches lid-close to
+#      "suspend, then hibernate" and the critical-battery action to hibernate.
+#
+# It is safe to run repeatedly. The Calamares installer runs it with
+# --no-update inside the new system; run it yourself with --check at any time.
+#
+# Exit codes: 0 ok, 1 not ready / error, 2 usage.
+
+set -euo pipefail
+
+PROG=kite-hibernate-setup
+SWAPFILE=${KITE_SWAPFILE:-/swapfile}
+GRUB_DROPIN=/etc/default/grub.d/kite-resume.cfg
+RESUME_CONF=/etc/initramfs-tools/conf.d/resume
+# 70-* so these sort after the package defaults in /usr/lib/.../60-kite.conf
+LOGIND_DROPIN=/etc/systemd/logind.conf.d/70-kite-hibernate.conf
+SLEEP_DROPIN=/etc/systemd/sleep.conf.d/70-kite-hibernate.conf
+UPOWER_CONF=/etc/UPower/UPower.conf
+FSTAB=${KITE_FSTAB:-/etc/fstab}
+HIBERNATE_DELAY=${KITE_HIBERNATE_DELAY:-60min}
+
+log()  { printf '%s: %s\n' "$PROG" "$*"; }
+warn() { printf '%s: warning: %s\n' "$PROG" "$*" >&2; }
+die()  { printf '%s: error: %s\n' "$PROG" "$*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+Usage: $PROG [--apply] [--no-update] [--size MiB]
+       $PROG --check
+
+  --apply       Create/resize swap and write the resume configuration (default).
+  --no-update   Do not run update-initramfs / update-grub afterwards
+                (the installer regenerates both itself).
+  --size MiB    Swap file size to use instead of RAM + 1 GiB.
+  --check       Report whether hibernation is ready; changes nothing.
+EOF
+}
+
+# ---------------------------------------------------------------- helpers --
+
+ram_mib() {
+    awk '/^MemTotal:/ { printf "%d\n", $2 / 1024 }' /proc/meminfo
+}
+
+# RAM + 1 GiB, rounded up to a multiple of 256 MiB, never below 2 GiB.
+target_swap_mib() {
+    local ram=$1 t
+    t=$(( ram + 1024 ))
+    t=$(( (t + 255) / 256 * 256 ))
+    (( t < 2048 )) && t=2048
+    echo "$t"
+}
+
+in_chroot() {
+    if command -v ischroot >/dev/null 2>&1; then
+        ischroot && return 0
+    fi
+    # Fallback: compare our root with PID 1's root.
+    [ "$(stat -c %d:%i / 2>/dev/null)" != "$(stat -c %d:%i /proc/1/root/. 2>/dev/null)" ]
+}
+
+# Print the fstab field (2=mountpoint 3=fstype 1=device) for the "/" entry.
+fstab_root_field() {
+    awk -v f="$1" '$1 !~ /^#/ && $2 == "/" { print $f; exit }' "$FSTAB" 2>/dev/null
+}
+
+root_uuid() {
+    local dev
+    dev=$(fstab_root_field 1)
+    case "$dev" in
+        UUID=*) echo "${dev#UUID=}"; return ;;
+        /dev/*) blkid -s UUID -o value "$dev" 2>/dev/null && return ;;
+    esac
+    findmnt -n -o UUID / 2>/dev/null || true
+}
+
+root_fstype() {
+    local t
+    t=$(fstab_root_field 3)
+    [ -n "$t" ] && [ "$t" != auto ] && { echo "$t"; return; }
+    findmnt -n -o FSTYPE / 2>/dev/null || stat -f -c %T /
+}
+
+# Swap partitions listed in fstab, as "device size_mib" lines.
+fstab_swap_partitions() {
+    local spec dev
+    awk '$1 !~ /^#/ && $3 == "swap" { print $1 }' "$FSTAB" 2>/dev/null |
+    while read -r spec; do
+        case "$spec" in
+            /*) [ -b "$spec" ] || continue; dev=$spec ;;   # skip swap files
+            UUID=*|LABEL=*|PARTUUID=*) dev=$(blkid -t "$spec" -o device 2>/dev/null | head -n1) ;;
+            *) continue ;;
+        esac
+        [ -n "$dev" ] && [ -b "$dev" ] || continue
+        echo "$dev $(( $(blockdev --getsize64 "$dev") / 1048576 ))"
+    done
+}
+
+file_is_swap() {
+    [ "$(blkid -p -o value -s TYPE "$1" 2>/dev/null || true)" = swap ]
+}
+
+swap_active() {
+    awk 'NR > 1 { print $1 }' /proc/swaps 2>/dev/null | grep -qxF "$1"
+}
+
+# Physical offset (in PAGE_SIZE units) of the first extent of a swap file.
+swapfile_offset() {
+    local file=$1 fstype=$2 off bs page
+    case "$fstype" in
+        btrfs)
+            btrfs inspect-internal map-swapfile -r "$file"
+            ;;
+        *)
+            off=$(filefrag -v "$file" | parse_filefrag_offset)
+            [ -n "$off" ] || die "could not read the physical offset of $file (filefrag)"
+            bs=$(stat -f -c %S "$file")
+            page=$(getconf PAGESIZE)
+            echo $(( off * bs / page ))
+            ;;
+    esac
+}
+
+# Reads `filefrag -v` output on stdin, prints the first physical block.
+parse_filefrag_offset() {
+    awk '$1 == "0:" { sub(/\.\.$/, "", $4); print $4; exit }'
+}
+
+create_swapfile() {
+    local size=$1 fstype=$2
+    if swap_active "$SWAPFILE"; then
+        in_chroot || swapoff "$SWAPFILE"
+    fi
+    rm -f "$SWAPFILE"
+    log "creating ${size} MiB swap file at $SWAPFILE (this can take a minute)"
+    case "$fstype" in
+        btrfs)
+            warn "btrfs: the swap file must not live in a snapshotted subvolume"
+            btrfs filesystem mkswapfile --size "${size}m" "$SWAPFILE"
+            ;;
+        ext4|ext3|ext2|xfs)
+            ( umask 077; : > "$SWAPFILE" )
+            if ! fallocate -l "${size}MiB" "$SWAPFILE" 2>/dev/null; then
+                dd if=/dev/zero of="$SWAPFILE" bs=1M count="$size" status=none
+            fi
+            chmod 600 "$SWAPFILE"
+            mkswap -L kite-swap "$SWAPFILE" >/dev/null
+            ;;
+        *)
+            die "root file system '$fstype' is not supported for a hibernation swap file (use ext4)"
+            ;;
+    esac
+}
+
+ensure_fstab_swapfile() {
+    local tmp
+    tmp=$(mktemp)
+    awk -v f="$SWAPFILE" '$1 != f' "$FSTAB" > "$tmp"
+    printf '%s none swap defaults,pri=0 0 0\n' "$SWAPFILE" >> "$tmp"
+    cat "$tmp" > "$FSTAB"
+    rm -f "$tmp"
+}
+
+write_resume_config() {
+    local uuid=$1 offset=${2:-}
+    local params="resume=UUID=$uuid"
+    [ -n "$offset" ] && params="$params resume_offset=$offset"
+
+    mkdir -p "$(dirname "$RESUME_CONF")" "$(dirname "$GRUB_DROPIN")"
+    printf '# Written by %s — re-run it rather than editing this file.\nRESUME=UUID=%s\n' \
+        "$PROG" "$uuid" > "$RESUME_CONF"
+    {
+        printf '# Written by %s — re-run it rather than editing this file.\n' "$PROG"
+        # Appended in a drop-in because the installer rewrites /etc/default/grub
+        # and strips any resume= it finds there.
+        # shellcheck disable=SC2016  # ${...} must stay literal for GRUB to expand
+        printf 'GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} %s"\n' "$params"
+    } > "$GRUB_DROPIN"
+    log "resume device: UUID=$uuid${offset:+ offset=$offset}"
+}
+
+enable_hibernate_power_policy() {
+    mkdir -p "$(dirname "$LOGIND_DROPIN")" "$(dirname "$SLEEP_DROPIN")"
+    cat > "$LOGIND_DROPIN" <<EOF
+# Written by $PROG once hibernation was configured.
+[Login]
+HandleLidSwitch=suspend-then-hibernate
+HandleLidSwitchExternalPower=suspend
+EOF
+    cat > "$SLEEP_DROPIN" <<EOF
+# Written by $PROG once hibernation was configured.
+# Closing the lid suspends; after $HIBERNATE_DELAY asleep (or when the battery
+# runs low) the machine wakes briefly and hibernates, so nothing is lost.
+[Sleep]
+AllowHibernation=yes
+AllowSuspendThenHibernate=yes
+HibernateDelaySec=$HIBERNATE_DELAY
+EOF
+    if [ -f "$UPOWER_CONF" ]; then
+        if grep -q '^CriticalPowerAction=' "$UPOWER_CONF"; then
+            sed -i 's/^CriticalPowerAction=.*/CriticalPowerAction=Hibernate/' "$UPOWER_CONF"
+        else
+            printf '\nCriticalPowerAction=Hibernate\n' >> "$UPOWER_CONF"
+        fi
+    fi
+}
+
+regenerate_boot_files() {
+    log "regenerating initramfs and GRUB configuration"
+    update-initramfs -u -k all
+    if command -v update-grub >/dev/null 2>&1; then
+        update-grub
+    else
+        warn "update-grub not found; add the resume= parameters to your boot loader yourself"
+    fi
+}
+
+# ------------------------------------------------------------------ apply --
+
+do_apply() {
+    local update=$1 size_override=$2
+    [ "$(id -u)" -eq 0 ] || die "must be run as root (try: sudo $PROG)"
+
+    local ram target fstype uuid dev size
+    ram=$(ram_mib)
+    target=${size_override:-$(target_swap_mib "$ram")}
+    log "RAM: ${ram} MiB — hibernation swap needed: ${target} MiB"
+
+    # Prefer an existing, big-enough swap partition.
+    while read -r dev size; do
+        [ -n "${dev:-}" ] || continue
+        if (( size >= ram )); then
+            uuid=$(blkid -s UUID -o value "$dev")
+            log "using swap partition $dev (${size} MiB)"
+            write_resume_config "$uuid" ""
+            enable_hibernate_power_policy
+            [ "$update" = 1 ] && regenerate_boot_files
+            log "done — reboot once, then hibernate from the power menu"
+            return 0
+        fi
+    done < <(fstab_swap_partitions)
+
+    fstype=$(root_fstype)
+    uuid=$(root_uuid)
+    [ -n "$uuid" ] || die "could not determine the UUID of the root file system"
+
+    local have=0
+    if [ -f "$SWAPFILE" ]; then
+        have=$(( $(stat -c %s "$SWAPFILE") / 1048576 ))
+    fi
+    if [ -f "$SWAPFILE" ] && (( have >= target )) && file_is_swap "$SWAPFILE"; then
+        log "keeping existing swap file ($have MiB)"
+    else
+        local avail
+        avail=$(df --output=avail -BM / | tail -n1 | tr -dc '0-9')
+        (( avail + have > target + 1024 )) ||
+            die "not enough free space on / for a ${target} MiB swap file (free: ${avail} MiB)"
+        create_swapfile "$target" "$fstype"
+    fi
+    ensure_fstab_swapfile
+
+    local offset
+    offset=$(swapfile_offset "$SWAPFILE" "$fstype")
+    write_resume_config "$uuid" "$offset"
+    enable_hibernate_power_policy
+
+    if ! in_chroot && ! swap_active "$SWAPFILE"; then
+        swapon "$SWAPFILE" || warn "could not activate $SWAPFILE now; it will be active after reboot"
+    fi
+    [ "$update" = 1 ] && regenerate_boot_files
+    log "done — reboot once, then hibernate from the power menu"
+}
+
+# ------------------------------------------------------------------ check --
+
+do_check() {
+    local ok=1 ram line
+    ram=$(ram_mib)
+    printf 'RAM:                 %s MiB\n' "$ram"
+
+    local best=0 name size
+    while read -r name _ size _; do
+        [ -n "${name:-}" ] || continue
+        case "$name" in /dev/zram*) continue ;; esac   # zram can't hold an image
+        size=$(( size / 1024 ))
+        printf 'Active swap:         %s (%s MiB)\n' "$name" "$size"
+        (( size > best )) && best=$size
+    done < <(awk 'NR > 1' /proc/swaps)
+    if (( best < ram )); then
+        printf '  ✗ no active disk swap at least as large as RAM\n'; ok=0
+    fi
+
+    line=$(tr ' ' '\n' < /proc/cmdline | grep -E '^resume(_offset)?=' | tr '\n' ' ' || true)
+    printf 'Kernel resume args:  %s\n' "${line:-<none>}"
+    [ -n "$line" ] || { printf '  ✗ resume= missing from the running kernel command line (reboot after setup?)\n'; ok=0; }
+
+    if grep -qw disk /sys/power/state 2>/dev/null; then
+        printf 'Kernel support:      yes\n'
+    else
+        printf '  ✗ kernel reports no hibernation support (/sys/power/state)\n'; ok=0
+    fi
+
+    if [ -r /sys/kernel/security/lockdown ]; then
+        local lk
+        lk=$(cat /sys/kernel/security/lockdown)
+        printf 'Kernel lockdown:     %s\n' "$lk"
+        case "$lk" in
+            *"[none]"*) ;;
+            *) printf '  ✗ lockdown is active (Secure Boot on?) — Debian disables hibernation then\n'; ok=0 ;;
+        esac
+    fi
+
+    if command -v busctl >/dev/null 2>&1; then
+        local can
+        can=$(busctl call org.freedesktop.login1 /org/freedesktop/login1 \
+              org.freedesktop.login1.Manager CanHibernate 2>/dev/null | awk '{print $2}' | tr -d '"' || true)
+        printf 'logind CanHibernate: %s\n' "${can:-unknown}"
+        [ "${can:-}" = yes ] || ok=0
+    fi
+
+    if (( ok )); then
+        echo "Hibernation looks ready. Test it with: systemctl hibernate"
+        return 0
+    fi
+    echo "Hibernation is NOT ready. Fix: sudo $PROG, then reboot."
+    return 1
+}
+
+# ------------------------------------------------------------------- main --
+
+main() {
+    local mode=apply update=1 size=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --apply) mode=apply ;;
+            --check|--status) mode=check ;;
+            --no-update) update=0 ;;
+            --size) shift; size=${1:-}; [[ "$size" =~ ^[0-9]+$ ]] || { usage; exit 2; } ;;
+            -h|--help) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
+    case "$mode" in
+        apply) do_apply "$update" "$size" ;;
+        check) do_check ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

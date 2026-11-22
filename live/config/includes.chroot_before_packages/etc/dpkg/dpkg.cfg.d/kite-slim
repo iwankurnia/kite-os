@@ -1,0 +1,6 @@
+# KiteOS: don't install package documentation (saves ~150 MB on a 32 GB eMMC).
+# Licence files are kept.
+path-exclude=/usr/share/doc/*
+path-include=/usr/share/doc/*/copyright
+path-exclude=/usr/share/doc-base/*
+path-exclude=/usr/share/gtk-doc/*

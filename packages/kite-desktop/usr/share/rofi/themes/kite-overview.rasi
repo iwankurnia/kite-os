@@ -1,0 +1,12 @@
+/* KiteOS window overview: opened by the "overview" key (or Super+W). */
+@import "kite-launcher"
+
+configuration {
+    window-thumbnail:      true;
+    window-format:         "{t}";
+    kb-cancel:             "Escape,Super+w";
+}
+
+entry { placeholder: "Search open windows"; }
+listview { columns: 3; lines: 2; }
+element-icon { size: 200px; }

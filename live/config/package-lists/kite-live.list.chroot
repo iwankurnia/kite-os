@@ -1,0 +1,6 @@
+# Live session + graphical installer (removed from the installed system)
+live-boot
+live-config
+live-config-systemd
+calamares
+calamares-settings-debian

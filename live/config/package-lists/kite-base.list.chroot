@@ -1,0 +1,51 @@
+# Kernel and firmware for the HP Chromebook 11 G8 EE (Gemini Lake, Intel
+# Wi-Fi 9560, SOF audio) — only what this hardware needs, to keep it small.
+linux-image-amd64
+firmware-linux-free
+firmware-iwlwifi
+firmware-sof-signed
+firmware-realtek
+intel-microcode
+intel-media-va-driver
+libgl1-mesa-dri
+
+# Core system
+systemd-sysv
+systemd-timesyncd
+dbus-user-session
+initramfs-tools
+sudo
+polkitd
+pkexec
+locales
+console-setup
+keyboard-configuration
+tzdata
+ca-certificates
+bash-completion
+less
+nano
+curl
+zstd
+unzip
+e2fsprogs
+dosfstools
+exfatprogs
+btrfs-progs
+grub-efi-amd64
+efibootmgr
+
+# Network, Bluetooth, sound, power
+network-manager
+wpasupplicant
+bluez
+pipewire
+pipewire-pulse
+pipewire-alsa
+wireplumber
+alsa-utils
+alsa-ucm-conf
+upower
+earlyoom
+plymouth
+plymouth-themes

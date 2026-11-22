@@ -1,0 +1,6 @@
+# a && b || continue/die is used deliberately with side-effect-free tests
+disable=SC2015
+# config files sourced at runtime
+disable=SC1091
+# typographic quotes inside user-facing messages are intended
+disable=SC1111

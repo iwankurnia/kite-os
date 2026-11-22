@@ -1,0 +1,4 @@
+# Browser and office suite, from their vendors' APT repositories
+# (added by scripts/fetch-vendor-keys.sh into config/archives/).
+brave-browser
+onlyoffice-desktopeditors

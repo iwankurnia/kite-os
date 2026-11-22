@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+case "$1" in
+    remove|purge)
+        update-alternatives --remove default.plymouth /usr/share/plymouth/themes/kite/kite.plymouth >/dev/null 2>&1 || true
+        rm -rf /usr/share/plymouth/themes/kite
+        ;;
+esac
+if [ "$1" = purge ]; then
+    rm -f /etc/default/grub.d/kite-resume.cfg \
+          /etc/systemd/logind.conf.d/70-kite-hibernate.conf \
+          /etc/systemd/sleep.conf.d/70-kite-hibernate.conf
+fi
+exit 0

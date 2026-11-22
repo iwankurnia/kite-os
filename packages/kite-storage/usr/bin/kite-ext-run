@@ -1,0 +1,20 @@
+#!/bin/sh
+# Start an app whose files are on the external disk. If the disk is not
+# connected, say so instead of failing silently.
+EXT_UUID=""
+EXT_MOUNT=/mnt/kite-external
+# shellcheck disable=SC1091
+[ -r /etc/kite/storage.conf ] && . /etc/kite/storage.conf
+if [ -n "$EXT_UUID" ] && [ ! -f "$EXT_MOUNT/kite/.kite-storage" ]; then
+    msg="This app is stored on your external disk, which is not connected.\n\nConnect the disk and open the app again."
+    if command -v yad >/dev/null 2>&1; then
+        yad --title="External disk needed" --image=drive-removable-media --text="$msg" \
+            --button=OK:0 --center --width=380 --fixed >/dev/null 2>&1
+    elif command -v notify-send >/dev/null 2>&1; then
+        notify-send -i drive-removable-media "External disk needed" "$(printf '%b' "$msg")"
+    else
+        printf '%b\n' "$msg" >&2
+    fi
+    exit 1
+fi
+exec "$@"

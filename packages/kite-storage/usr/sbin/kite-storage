@@ -1,0 +1,666 @@
+#!/bin/bash
+# kite-storage — keep apps and their data on an external disk.
+#
+# Apps are always installed to the internal disk first (apt does that), then
+# their private directories are copied to the external disk, verified, and the
+# originals replaced by symlinks. dpkg follows directory symlinks, so later
+# upgrades write straight to the external disk.
+#
+#   kite-storage status
+#   kite-storage setup DEVICE [--format] [--label NAME]
+#   kite-storage install [--app-ext] [--data-ext] [--user USER] PKG...
+#   kite-storage move-app PKG...            kite-storage restore-app PKG...
+#   kite-storage move-data PKG --user USER  kite-storage restore-data PKG --user USER
+#   kite-storage move-dir DIR [--user USER] kite-storage restore-dir DIR
+#   kite-storage candidates PKG...          (what move-app would move)
+#   kite-storage verify [--repair] [--quiet]
+#   kite-storage update                     (apt full-upgrade with checks)
+#   kite-storage apt-pre-install            (APT hook, reads stdin)
+
+set -euo pipefail
+shopt -s nullglob
+
+PROG=kite-storage
+CONF=${KITE_STORAGE_CONF:-/etc/kite/storage.conf}
+STATE_DIR=${KITE_STATE_DIR:-/var/lib/kite/storage}
+STATE=$STATE_DIR/moved.tsv
+APPS_DB=${KITE_APPS_DB:-/usr/share/kite/storage/apps}
+DESKTOP_OVERRIDES=${KITE_DESKTOP_OVERRIDES:-/usr/local/share/applications}
+UDEV_RULE=/etc/udev/rules.d/90-kite-storage.rules
+MIN_DIR_MIB=${KITE_MIN_DIR_MIB:-2}
+QUIET=0
+
+# Defaults; overridden by $CONF.
+EXT_UUID=""
+EXT_MOUNT=/mnt/kite-external
+EXT_FSTYPE=""   # informational, written by setup
+export EXT_FSTYPE
+# shellcheck disable=SC1090
+[ -r "$CONF" ] && . "$CONF"
+EXT_MOUNT=${KITE_EXT_MOUNT:-$EXT_MOUNT}
+
+log()  { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
+warn() { printf '%s: warning: %s\n' "$PROG" "$*" >&2; }
+die()  { printf '%s: error: %s\n' "$PROG" "$*" >&2; exit 1; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "this needs root (run it with sudo, or use the Apps & Storage tool)"; }
+
+# Directories that belong to many packages and must never be moved as a whole.
+SHARED_DIRS_RE='^/(opt|usr|usr/lib|usr/lib64|usr/lib/x86_64-linux-gnu|usr/libexec|usr/share|usr/local|usr/bin|usr/sbin|etc|var|var/lib)$'
+SHARED_NAMES_RE='^/usr/(share|lib|lib/x86_64-linux-gnu)/(doc|man|info|locale|icons|pixmaps|applications|mime|metainfo|appdata|menu|bash-completion|zsh|fish|fonts|dbus-1|polkit-1|glib-2\.0|gtk-[0-9.]+|gtk-doc|lintian|help|sounds|themes|thumbnailers|X11|alsa|systemd|udev|tmpfiles\.d|sysusers\.d|sysctl\.d|modules-load\.d|binfmt\.d|python3|python3\.[0-9]+|perl5|perl|girepository-1\.0|gdk-pixbuf-2\.0|gstreamer-1\.0|gio|dri|vdpau|debug|pkgconfig|cmake|mozilla|xdg-desktop-portal|gnome-shell|kservices5|kservices6|plasma|qt5|qt6|vulkan|apparmor|apparmor\.d|initramfs-tools|kernel|firmware|modules|grub|ca-certificates|keyrings|bug|common-licenses)$'
+
+# ------------------------------------------------------------ state file --
+# One line per moved directory:  kind <TAB> pkg <TAB> user|- <TAB> original <TAB> external
+state_add() {
+    mkdir -p "$STATE_DIR"
+    state_del "$4"
+    # Never write an empty field: read(1) merges consecutive tabs.
+    printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "${3:--}" "$4" "$5" >> "$STATE"
+}
+state_del() {
+    [ -f "$STATE" ] || return 0
+    local tmp
+    tmp=$(mktemp)
+    awk -F'\t' -v o="$1" '$4 != o' "$STATE" > "$tmp"
+    cat "$tmp" > "$STATE"
+    rm -f "$tmp"
+}
+state_lines() { [ -f "$STATE" ] && cat "$STATE" || true; }
+
+# --------------------------------------------------------- external disk --
+ext_root() { echo "$EXT_MOUNT/kite"; }
+
+ext_configured() { [ -n "$EXT_UUID" ]; }
+
+# True when the configured disk is mounted and carries our marker.
+ext_ready() {
+    ext_configured || return 1
+    if [ -z "${KITE_TEST_NO_MOUNTCHECK:-}" ]; then
+        mountpoint -q "$EXT_MOUNT" || return 1
+    fi
+    [ -f "$(ext_root)/.kite-storage" ]
+}
+
+require_ext() {
+    ext_configured || die "no external disk set up yet — run: $PROG setup DEVICE"
+    if ! ext_ready; then
+        mount "$EXT_MOUNT" 2>/dev/null || true
+        ext_ready || die "the external disk is not connected (expected at $EXT_MOUNT)"
+    fi
+}
+
+free_mib() { df --output=avail -BM "$1" | tail -n1 | tr -dc '0-9'; }
+dir_mib() { du -sxm "$1" 2>/dev/null | awk '{print $1}'; }
+
+# ---------------------------------------------------- move / restore dirs --
+# Copy SRC to DST and make sure the copy is complete.
+copy_verified() {
+    local src=$1 dst=$2
+    mkdir -p "$(dirname "$dst")"
+    cp -a --reflink=auto "$src" "$dst"
+    if ! diff -rq --no-dereference "$src" "$dst" >/dev/null 2>&1; then
+        rm -rf "$dst"
+        die "copy of $src did not verify — nothing was changed"
+    fi
+}
+
+# Move directory ORIG to EXT and leave a symlink behind.
+relocate_dir() {
+    local orig=$1 ext=$2
+    [ -L "$orig" ] && { log "already on the external disk: $orig"; return 0; }
+    [ -d "$orig" ] || die "not a directory: $orig"
+    if [ -e "$ext" ]; then
+        local stale
+        stale="$ext.stale-$(date +%Y%m%d%H%M%S)"
+        warn "$ext already exists, keeping it as $stale"
+        mv "$ext" "$stale"
+    fi
+    local need have
+    need=$(dir_mib "$orig")
+    have=$(free_mib "$(dirname "$ext")" 2>/dev/null || free_mib "$EXT_MOUNT")
+    (( have > need + 64 )) || die "not enough space on the external disk for $orig (${need} MiB needed, ${have} MiB free)"
+
+    log "copying $orig (${need} MiB) to the external disk…"
+    copy_verified "$orig" "$ext"
+    mv "$orig" "$orig.kite-moving"
+    if ! ln -s "$ext" "$orig"; then
+        mv "$orig.kite-moving" "$orig"
+        die "could not create the link for $orig — rolled back"
+    fi
+    rm -rf "$orig.kite-moving"
+    log "moved: $orig -> $ext"
+}
+
+# Bring a relocated directory back to the internal disk.
+unrelocate_dir() {
+    local orig=$1 ext=$2
+    if [ ! -L "$orig" ]; then
+        log "already on the internal disk: $orig"
+        return 0
+    fi
+    [ -d "$ext" ] || die "the external copy $ext is missing (is the disk connected?)"
+    local need have
+    need=$(dir_mib "$ext")
+    have=$(free_mib "$(dirname "$orig")")
+    (( have > need + 256 )) || die "not enough internal space to bring back $orig (${need} MiB needed, ${have} MiB free)"
+    log "copying $orig (${need} MiB) back to the internal disk…"
+    rm -rf "$orig.kite-restoring"
+    copy_verified "$ext" "$orig.kite-restoring"
+    rm -f "$orig"
+    mv "$orig.kite-restoring" "$orig"
+    rm -rf "$ext"
+    log "restored: $orig"
+}
+
+ext_path_for_system() { echo "$(ext_root)/system$1"; }
+ext_path_for_user() { echo "$(ext_root)/home/$1/$2"; }
+
+# --------------------------------------------------------- package logic --
+pkg_installed() {
+    [ "$(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | cut -c1-2)" = ii ]
+}
+
+# Packages that own PATH (dpkg -S lists every package with files below it).
+owners_of() {
+    dpkg-query -S "$1" 2>/dev/null | awk -F': ' -v p="$1" '$2 == p { print $1 }' | tr ',' '\n' | tr -d ' ' | sed 's/:.*//' | sort -u
+}
+
+# Directories that are worth moving for the given packages: owned only by
+# those packages, not a shared system directory, and bigger than MIN_DIR_MIB.
+candidates_for() {
+    local pkgs=("$@") p path owners other found
+    local -A mine=()
+    for p in "${pkgs[@]}"; do mine[$p]=1; done
+    {
+        for p in "${pkgs[@]}"; do
+            dpkg-query -L "$p" 2>/dev/null || true
+        done
+    } | sort -u | while IFS= read -r path; do
+        [[ "$path" =~ ^/(opt|usr/lib|usr/lib/x86_64-linux-gnu|usr/libexec|usr/share)/[^/]+$ ]] || continue
+        [[ "$path" =~ $SHARED_DIRS_RE ]] && continue
+        [[ "$path" =~ $SHARED_NAMES_RE ]] && continue
+        [ -d "$path" ] && [ ! -L "$path" ] || continue
+        owners=$(owners_of "$path")
+        other=0
+        for o in $owners; do [ -n "${mine[$o]:-}" ] || other=1; done
+        [ "$other" = 0 ] || continue
+        found=$(dir_mib "$path")
+        (( found >= MIN_DIR_MIB )) || continue
+        printf '%s\t%s\n' "$path" "$found"
+    done
+}
+
+# Related packages to move along with PKG (e.g. gimp -> gimp-data).
+with_related() {
+    local p r
+    for p in "$@"; do
+        echo "$p"
+        for r in "$p-data" "$p-common"; do
+            pkg_installed "$r" && echo "$r"
+        done
+    done | sort -u
+}
+
+# ------------------------------------------------- launcher (.desktop) glue --
+# Wrap the package's launchers so a friendly message appears when the
+# external disk is unplugged instead of the app silently failing.
+write_desktop_overrides() {
+    local pkg=$1 f base
+    mkdir -p "$DESKTOP_OVERRIDES"
+    while IFS= read -r f; do
+        [[ "$f" == /usr/share/applications/*.desktop ]] || continue
+        [ -f "$f" ] || continue
+        base=$(basename "$f")
+        {
+            echo "# Generated by kite-storage for $pkg (app stored on the external disk)."
+            sed -E 's#^(Exec=)(.*)$#\1/usr/bin/kite-ext-run \2#; s#^(TryExec=).*$#\1/usr/bin/kite-ext-run#' "$f"
+        } > "$DESKTOP_OVERRIDES/$base"
+    done < <(dpkg-query -L "$pkg" 2>/dev/null || true)
+    command -v update-desktop-database >/dev/null && update-desktop-database -q "$DESKTOP_OVERRIDES" 2>/dev/null || true
+}
+
+remove_desktop_overrides() {
+    local pkg=$1 f
+    for f in "$DESKTOP_OVERRIDES"/*.desktop; do
+        grep -q "^# Generated by kite-storage for $pkg " "$f" && rm -f "$f"
+    done
+    return 0
+}
+
+# ------------------------------------------------------------ data dirs --
+user_home() { getent passwd "$1" | cut -d: -f6; }
+
+# Per-user directories (relative to $HOME) that hold an app's settings/data.
+data_dirs_for() {
+    local pkg=$1 home=$2 DATA="" d
+    if [ -r "$APPS_DB/$pkg.conf" ]; then
+        # shellcheck disable=SC1090
+        . "$APPS_DB/$pkg.conf"
+        for d in $DATA; do echo "$d"; done
+        return 0
+    fi
+    for d in ".config/$pkg" ".local/share/$pkg" ".cache/$pkg" ".$pkg" ".var/app/$pkg"; do
+        [ -d "$home/$d" ] && [ ! -L "$home/$d" ] && echo "$d"
+    done
+    return 0
+}
+
+move_data() {
+    local pkg=$1 user=$2 home rel orig ext n=0
+    home=$(user_home "$user")
+    [ -n "$home" ] && [ -d "$home" ] || die "unknown user: $user"
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        orig="$home/$rel"
+        ext=$(ext_path_for_user "$user" "$rel")
+        if [ ! -e "$orig" ]; then
+            # App not started yet: create the folder so it lands on the disk.
+            install -d -o "$user" -g "$(id -gn "$user")" -m 700 "$orig"
+        fi
+        mk_user_parents "$user" "$(dirname "$ext")"
+        relocate_dir "$orig" "$ext"
+        state_add data "$pkg" "$user" "$orig" "$ext"
+        n=$((n + 1))
+    done < <(data_dirs_for "$pkg" "$home")
+    (( n > 0 )) || log "no settings/data folders found for $pkg yet — open the app once, then try again"
+}
+
+restore_data() {
+    local pkg=$1 user=$2 kind p u orig ext
+    while IFS=$'\t' read -r kind p u orig ext; do
+        [ -n "${orig:-}" ] || continue
+        [ "$kind" = data ] && [ "$p" = "$pkg" ] && [ "$u" = "$user" ] || continue
+        unrelocate_dir "$orig" "$ext"
+        state_del "$orig"
+    done <<< "$(state_lines)"
+}
+
+# Create the parent folders of a user's external path owned by that user.
+mk_user_parents() {
+    local user=$1 dir=$2 base
+    base="$(ext_root)/home/$user"
+    install -d -o "$user" -g "$(id -gn "$user")" -m 700 "$base"
+    local rel=${dir#"$base"} cur=$base part
+    IFS=/ read -ra parts <<< "${rel#/}"
+    for part in "${parts[@]}"; do
+        [ -n "$part" ] || continue
+        cur="$cur/$part"
+        [ -d "$cur" ] || install -d -o "$user" -g "$(id -gn "$user")" -m 700 "$cur"
+    done
+}
+
+# ------------------------------------------------------------- commands --
+cmd_status() {
+    echo "External disk:"
+    if ! ext_configured; then
+        echo "  not set up (run: sudo $PROG setup /dev/sdXN)"
+    else
+        echo "  UUID $EXT_UUID  mount $EXT_MOUNT  ($(ext_ready && echo connected || echo NOT connected))"
+        ext_ready && df -h --output=size,used,avail "$EXT_MOUNT" | sed 's/^/  /'
+    fi
+    echo "Internal disk:"
+    df -h --output=size,used,avail / | sed 's/^/  /'
+    echo "On the external disk:"
+    local kind pkg user orig ext any=0 state
+    while IFS=$'\t' read -r kind pkg user orig ext; do
+        [ -n "${orig:-}" ] || continue
+        any=1
+        if [ -L "$orig" ] && [ -d "$ext" ]; then state=ok; elif [ -L "$orig" ]; then state="disk missing"; else state=BROKEN; fi
+        printf '  %-5s %-28s %-10s %s  [%s]\n' "$kind" "$pkg" "${user:--}" "$orig" "$state"
+    done < <(state_lines)
+    [ "$any" = 1 ] || echo "  nothing yet"
+}
+
+cmd_setup() {
+    need_root
+    local dev="" format=0 label=KITE-EXT
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --format) format=1 ;;
+            --label) shift; label=${1:?} ;;
+            /dev/*) dev=$1 ;;
+            *) die "unknown option: $1" ;;
+        esac
+        shift
+    done
+    [ -b "$dev" ] || die "give the external partition, e.g. /dev/sda1 (see: lsblk -f)"
+    local rootdev
+    rootdev=$(findmnt -n -o SOURCE / | sed 's/\[.*//')
+    if [ "$(lsblk -no PKNAME "$dev" 2>/dev/null)" = "$(lsblk -no PKNAME "$rootdev" 2>/dev/null)" ]; then
+        die "$dev is on the internal disk — choose the external USB/SD disk"
+    fi
+    local fstype
+    fstype=$(blkid -s TYPE -o value "$dev" 2>/dev/null || true)
+    if [ "$format" = 1 ]; then
+        log "formatting $dev as ext4 (label $label) — all data on it is erased"
+        umount "$dev" 2>/dev/null || true
+        mkfs.ext4 -F -q -L "$label" "$dev"
+        fstype=ext4
+    fi
+    case "$fstype" in
+        ext4|ext3|btrfs|xfs|f2fs) ;;
+        "") die "$dev has no file system — use --format to create one" ;;
+        *) die "$dev uses $fstype, which cannot hold Linux apps (no permissions/symlinks). Use --format to make it ext4 (erases it)" ;;
+    esac
+    local uuid
+    uuid=$(blkid -s UUID -o value "$dev")
+    [ -n "$uuid" ] || die "could not read the UUID of $dev"
+
+    # Unmount any desktop auto-mount, then mount at our fixed place.
+    while read -r m; do umount "$m" || true; done < <(findmnt -n -o TARGET -S "UUID=$uuid" || true)
+    mkdir -p "$EXT_MOUNT"
+    local tmp
+    tmp=$(mktemp)
+    awk -v m="$EXT_MOUNT" '$2 != m' /etc/fstab > "$tmp"
+    printf 'UUID=%s %s %s defaults,noatime,nofail,x-systemd.device-timeout=5s 0 2\n' "$uuid" "$EXT_MOUNT" "$fstype" >> "$tmp"
+    cat "$tmp" > /etc/fstab
+    rm -f "$tmp"
+    systemctl daemon-reload 2>/dev/null || true
+    mount "$EXT_MOUNT"
+
+    # Mount it automatically whenever it is plugged in later.
+    local unit
+    unit=$(systemd-escape -p --suffix=mount "$EXT_MOUNT")
+    printf 'ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="%s", ENV{SYSTEMD_WANTS}+="%s"\n' "$uuid" "$unit" > "$UDEV_RULE"
+    udevadm control --reload 2>/dev/null || true
+
+    mkdir -p "$(ext_root)/system" "$(ext_root)/home" "$(ext_root)/apt-archives/partial"
+    chmod 755 "$(ext_root)" "$(ext_root)/system" "$(ext_root)/home"
+    printf 'machine=%s\ncreated=%s\n' "$(cat /etc/machine-id 2>/dev/null)" "$(date -Is)" > "$(ext_root)/.kite-storage"
+
+    mkdir -p "$(dirname "$CONF")"
+    cat > "$CONF" <<EOF
+# Written by kite-storage setup
+EXT_UUID=$uuid
+EXT_MOUNT=$EXT_MOUNT
+EXT_FSTYPE=$fstype
+EOF
+    EXT_UUID=$uuid
+    log "external disk ready at $EXT_MOUNT ($(df -h --output=avail "$EXT_MOUNT" | tail -n1 | tr -d ' ') free)"
+}
+
+move_app_dirs() {
+    local main=$1; shift
+    local path size ext n=0
+    while IFS=$'\t' read -r path size; do
+        ext=$(ext_path_for_system "$path")
+        relocate_dir "$path" "$ext"
+        state_add app "$main" "" "$path" "$ext"
+        n=$((n + 1))
+    done < <(candidates_for "$@")
+    if (( n == 0 )); then
+        log "$main has no large private folders to move (it is small or shares its files)"
+        return 0
+    fi
+    write_desktop_overrides "$main"
+}
+
+cmd_move_app() {
+    need_root
+    require_ext
+    local pkg
+    for pkg in "$@"; do
+        pkg_installed "$pkg" || die "$pkg is not installed"
+        mapfile -t related < <(with_related "$pkg")
+        move_app_dirs "$pkg" "${related[@]}"
+    done
+}
+
+cmd_restore_app() {
+    need_root
+    local pkg kind p u orig ext
+    for pkg in "$@"; do
+        while IFS=$'\t' read -r kind p u orig ext; do
+            [ -n "${orig:-}" ] || continue
+            [ "$kind" = app ] && [ "$p" = "$pkg" ] || continue
+            unrelocate_dir "$orig" "$ext"
+            state_del "$orig"
+        done <<< "$(state_lines)"
+        remove_desktop_overrides "$pkg"
+    done
+}
+
+parse_user() {
+    # Default to the person who invoked sudo/pkexec.
+    local u=${SUDO_USER:-}
+    if [ -z "$u" ] && [ -n "${PKEXEC_UID:-}" ]; then u=$(id -nu "$PKEXEC_UID"); fi
+    echo "$u"
+}
+
+cmd_install() {
+    need_root
+    local app_ext=0 data_ext=0 user pkgs=()
+    user=$(parse_user)
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --app-ext) app_ext=1 ;;
+            --data-ext) data_ext=1 ;;
+            --user) shift; user=${1:?} ;;
+            -*) die "unknown option: $1" ;;
+            *) pkgs+=("$1") ;;
+        esac
+        shift
+    done
+    (( ${#pkgs[@]} > 0 )) || die "which package(s)?"
+    if (( app_ext || data_ext )); then require_ext; fi
+    if (( data_ext )) && [ -z "$user" ]; then die "--data-ext needs --user USER"; fi
+
+    local aptopts=()
+    if ext_ready; then
+        # Download the .deb files to the external disk to save internal space.
+        mkdir -p "$(ext_root)/apt-archives/partial"
+        aptopts+=(-o "Dir::Cache::archives=$(ext_root)/apt-archives/")
+    fi
+
+    # Check there is room on the internal disk for the unpacked app.
+    local need free
+    need=$(LC_ALL=C apt-get "${aptopts[@]}" --assume-no install "${pkgs[@]}" 2>/dev/null |
+           sed -n 's/^After this operation, \([0-9.,]*\) \([kMG]\)B of additional disk space will be used.*/\1 \2/p' |
+           awk '{ gsub(",", "", $1); m = ($2 == "k") ? $1/1024 : ($2 == "G") ? $1*1024 : $1; printf "%d\n", m + 1 }')
+    free=$(free_mib /)
+    if [ -n "$need" ] && (( need + 300 > free )); then
+        die "not enough internal space: ${need} MiB needed (+300 MiB working space), ${free} MiB free. Free some space or move another app to the external disk first."
+    fi
+
+    local before after new
+    before=$(dpkg-query -W -f='${Package}\n' | sort)
+    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" -y install "${pkgs[@]}"
+    after=$(dpkg-query -W -f='${Package}\n' | sort)
+    new=$(comm -13 <(echo "$before") <(echo "$after") | tr '\n' ' ')
+    if ext_ready; then apt-get "${aptopts[@]}" clean || true; fi
+
+    local p
+    if (( app_ext )); then
+        for p in "${pkgs[@]}"; do
+            # shellcheck disable=SC2086
+            move_app_dirs "$p" "$p" $new
+        done
+    fi
+    if (( data_ext )); then
+        for p in "${pkgs[@]}"; do move_data "$p" "$user"; done
+    fi
+    log "done."
+}
+
+cmd_move_data() {
+    need_root
+    require_ext
+    local pkg="" user
+    user=$(parse_user)
+    while [ $# -gt 0 ]; do
+        case "$1" in --user) shift; user=${1:?} ;; *) pkg=$1 ;; esac
+        shift
+    done
+    [ -n "$pkg" ] && [ -n "$user" ] || die "usage: $PROG move-data PKG --user USER"
+    move_data "$pkg" "$user"
+}
+
+cmd_restore_data() {
+    need_root
+    local pkg="" user
+    user=$(parse_user)
+    while [ $# -gt 0 ]; do
+        case "$1" in --user) shift; user=${1:?} ;; *) pkg=$1 ;; esac
+        shift
+    done
+    [ -n "$pkg" ] && [ -n "$user" ] || die "usage: $PROG restore-data PKG --user USER"
+    restore_data "$pkg" "$user"
+}
+
+# Any folder, e.g. ~/Videos or ~/Downloads.
+cmd_move_dir() {
+    need_root
+    require_ext
+    local dir="" user
+    user=$(parse_user)
+    while [ $# -gt 0 ]; do
+        case "$1" in --user) shift; user=${1:?} ;; *) dir=$1 ;; esac
+        shift
+    done
+    [ -n "$dir" ] || die "which folder?"
+    dir=$(realpath -s "$dir")
+    [ -d "$dir" ] && [ ! -L "$dir" ] || die "$dir is not a folder (or is already moved)"
+    [[ "$dir" =~ $SHARED_DIRS_RE ]] && die "$dir is a system folder and cannot be moved"
+    local home ext
+    home=$(user_home "${user:-root}")
+    if [ -n "$user" ] && [[ "$dir" == "$home"/* ]]; then
+        local rel=${dir#"$home"/}
+        ext=$(ext_path_for_user "$user" "$rel")
+        mk_user_parents "$user" "$(dirname "$ext")"
+        relocate_dir "$dir" "$ext"
+        state_add data folder "$user" "$dir" "$ext"
+    else
+        [ "$dir" != "$home" ] || die "refusing to move a whole home folder"
+        ext=$(ext_path_for_system "$dir")
+        relocate_dir "$dir" "$ext"
+        state_add data folder "" "$dir" "$ext"
+    fi
+}
+
+cmd_restore_dir() {
+    need_root
+    local dir kind p u orig ext
+    dir=$(realpath -s "${1:?which folder?}")
+    while IFS=$'\t' read -r kind p u orig ext; do
+        [ -n "${orig:-}" ] && [ "$orig" = "$dir" ] || continue
+        unrelocate_dir "$orig" "$ext"
+        state_del "$orig"
+        return 0
+    done <<< "$(state_lines)"
+    die "$dir is not on the external disk"
+}
+
+cmd_candidates() {
+    local pkg path size
+    for pkg in "$@"; do
+        echo "$pkg:"
+        mapfile -t related < <(with_related "$pkg")
+        while IFS=$'\t' read -r path size; do
+            printf '  %6s MiB  %s\n' "$size" "$path"
+        done < <(candidates_for "${related[@]}")
+    done
+}
+
+# Check every moved folder; with --repair fix what can be fixed.
+cmd_verify() {
+    local repair=0 kind pkg user orig ext rc=0
+    while [ $# -gt 0 ]; do
+        case "$1" in --repair) repair=1 ;; --quiet) QUIET=1 ;; esac
+        shift
+    done
+    local -A seen=()
+    while IFS=$'\t' read -r kind pkg user orig ext; do
+        [ -n "${orig:-}" ] || continue
+        if [ "$kind" = app ] && ! pkg_installed "$pkg"; then
+            log "$pkg was removed; cleaning up $orig"
+            if (( repair )); then
+                [ -L "$orig" ] && rm -f "$orig"
+                ext_ready && rm -rf "$ext"
+                state_del "$orig"
+                remove_desktop_overrides "$pkg"
+            fi
+            continue
+        fi
+        if [ -L "$orig" ]; then
+            if [ "$kind" = app ] && [ -z "${seen[$pkg]:-}" ] && (( repair )) && [ "$(id -u)" -eq 0 ]; then
+                write_desktop_overrides "$pkg"   # keep launchers in sync after upgrades
+                seen[$pkg]=1
+            fi
+            continue
+        fi
+        if [ -d "$orig" ]; then
+            warn "$orig is a real folder again (was on the external disk)"
+            rc=1
+            if (( repair )) && ext_ready; then
+                rm -rf "$ext"
+                relocate_dir "$orig" "$ext"
+            fi
+        elif [ ! -e "$orig" ]; then
+            warn "$orig is missing"
+            rc=1
+        fi
+    done <<< "$(state_lines)"
+    return $rc
+}
+
+# APT hook (DPkg::Pre-Install-Pkgs, protocol version 2). Refuse to upgrade or
+# remove an app whose files are on an external disk that is not connected:
+# dpkg would otherwise fail half-way through.
+cmd_apt_pre_install() {
+    local line managed blocked=""
+    managed=$(state_lines | awk -F'\t' '$1 == "app" { print $2 }' | sort -u)
+    [ -n "$managed" ] || { cat >/dev/null; return 0; }
+    ext_ready && { cat >/dev/null; return 0; }
+    # Skip the header (version line + configuration dump up to a blank line).
+    while IFS= read -r line; do [ -z "$line" ] && break; done
+    while read -r pkg _ _ _ action; do
+        case "$action" in
+            *.deb|"**REMOVE**")
+                if grep -qxF "$pkg" <<< "$managed"; then blocked="$blocked $pkg"; fi ;;
+        esac
+    done
+    if [ -n "$blocked" ]; then
+        printf '\nkite-storage: these apps live on your external disk, which is not connected:\n  %s\n' "$blocked" >&2
+        printf 'Connect the disk and try again (nothing has been changed).\n\n' >&2
+        return 1
+    fi
+}
+
+cmd_update() {
+    need_root
+    local aptopts=()
+    if ext_ready; then
+        mkdir -p "$(ext_root)/apt-archives/partial"
+        aptopts+=(-o "Dir::Cache::archives=$(ext_root)/apt-archives/")
+    fi
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" -y full-upgrade
+    DEBIAN_FRONTEND=noninteractive apt-get -y autoremove --purge
+    apt-get "${aptopts[@]}" clean
+    log "system is up to date."
+}
+
+main() {
+    local cmd=${1:-status}
+    [ $# -gt 0 ] && shift
+    case "$cmd" in
+        status) cmd_status ;;
+        setup) cmd_setup "$@" ;;
+        install) cmd_install "$@" ;;
+        move-app) cmd_move_app "$@" ;;
+        restore-app) cmd_restore_app "$@" ;;
+        move-data) cmd_move_data "$@" ;;
+        restore-data) cmd_restore_data "$@" ;;
+        move-dir) cmd_move_dir "$@" ;;
+        restore-dir) cmd_restore_dir "$@" ;;
+        candidates) cmd_candidates "$@" ;;
+        verify) cmd_verify "$@" ;;
+        update) cmd_update ;;
+        apt-pre-install) cmd_apt_pre_install ;;
+        -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+        *) die "unknown command: $cmd (see: $PROG --help)" ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

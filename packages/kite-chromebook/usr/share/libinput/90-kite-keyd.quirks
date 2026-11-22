@@ -1,0 +1,6 @@
+# keyd re-creates the internal keyboard as a virtual device. Tell libinput it
+# is the internal keyboard so "disable touchpad while typing" keeps working.
+[keyd virtual keyboard]
+MatchName=keyd virtual keyboard
+AttrKeyboardIntegration=internal
+ModelTabletModeNoSuspend=1

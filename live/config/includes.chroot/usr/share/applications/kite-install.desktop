@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Install KiteOS
+Comment=Install KiteOS on this computer's internal disk
+Exec=kite-install
+Icon=kiteos
+Categories=System;
+Terminal=false

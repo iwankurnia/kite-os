@@ -1,0 +1,19 @@
+[x.dm.slick-greeter]
+background='/usr/share/backgrounds/kite/kite-login.png'
+background-color='#111a2e'
+draw-user-backgrounds=false
+draw-grid=false
+show-hostname=false
+show-a11y=false
+show-keyboard=false
+show-clock=true
+show-power=true
+show-quit=true
+logo='/usr/share/kite/greeter-logo.png'
+theme-name='Materia-dark'
+icon-theme-name='Papirus-Dark'
+font-name='Roboto 11'
+xft-antialias=true
+xft-hintstyle='hintslight'
+xft-rgba='rgb'
+clock-format='%H:%M'

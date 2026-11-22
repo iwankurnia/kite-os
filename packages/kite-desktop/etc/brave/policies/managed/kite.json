@@ -1,0 +1,8 @@
+{
+  "BackgroundModeEnabled": false,
+  "BraveRewardsDisabled": true,
+  "BraveWalletDisabled": true,
+  "BraveVPNDisabled": true,
+  "TorDisabled": true,
+  "HighEfficiencyModeEnabled": true
+}

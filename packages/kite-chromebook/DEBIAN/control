@@ -1,0 +1,14 @@
+Package: kite-chromebook
+Version: 1.0.0
+Section: admin
+Priority: optional
+Architecture: all
+Maintainer: KiteOS builder <root@localhost>
+Depends: python3, keyd, alsa-ucm-conf, alsa-utils, firmware-sof-signed, diffutils
+Description: KiteOS hardware support for Intel Chromebooks running MrChromebox UEFI
+ Tuned for the HP Chromebook 11 G8 EE (board VORTICON, Gemini Lake / octopus),
+ but detects the hardware at boot and does nothing on non-Chromebooks:
+  * ChromeOS-style keyboard via keyd (Search key opens the launcher,
+    Search+top row = F1-F10, Search+Backspace = Delete, Search+arrows = Home/End/PgUp/PgDn)
+  * Chromebook audio UCM profiles (alsa-ucm-conf-cros) and SOF driver selection
+  * WirePlumber and libinput tweaks
