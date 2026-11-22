@@ -32,7 +32,7 @@ Follow-up requests, all done:
 | | |
 |---|---|
 | Last commit | see `git log` |
-| Releases | [v1.0](https://github.com/iwankurnia/kite-os/releases/tag/v1.0): the cloud-built ISO, SHA-256 `54cbb597…72405`, fully VM-tested. [v1.1](https://github.com/iwankurnia/kite-os/releases/tag/v1.1) (Latest): first ISO built by GitHub Actions (`6b06667`), adds the Brave flags wrapper, SHA-256 `348415b6…01f72`; not booted yet, flashed to the owner's USB stick 2026-11-23 |
+| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device). Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
 | Base | Debian 13.8, kernel 6.12.117, XFCE 4.20, Calamares 3.3.14, Brave 1.100.58, ONLYOFFICE 10.0.0 |
 | Tests | `sudo tests/run-all.sh`: 38 scripts lint-clean, 35 system and 31 storage checks pass |
 | Verified in a VM | Everything in [TEST-REPORT.md](TEST-REPORT.md): boot, live desktop, every app, installer (3 full runs), installed-system boot and login, hibernate and resume, external-drive features, resource use |
@@ -43,9 +43,12 @@ Follow-up requests, all done:
 1. ~~Push to GitHub and release v1.0~~: done 2026-11-23.
 2. ~~Commit email~~: the owner kept the history as it is; new commits in this
    repository use the GitHub noreply address (repo-local `git config`).
-3. **First real-hardware run** on the Chromebook with the check-list in
-   [INSTALL.md](INSTALL.md#after-installing-check-list). Fix whatever it finds.
-   The likeliest areas: keyd map from `function_row_physmap`, audio UCM, VA-API.
+3. **Real-hardware run, in progress.** Live USB on the device works: desktop,
+   launcher, Brave, Wi-Fi, Bluetooth audio, animations, vivid colours, drive
+   icons. Still to check from [INSTALL.md](INSTALL.md#after-installing-check-list):
+   install to the eMMC, hibernate and resume, lid, keyboard top row, speakers
+   and headphone jack, brightness keys. After installing, `kite-update` keeps
+   it current.
 4. **Brave hardware video decoding:** on by default from kite-desktop 1.1.0
    (after the v1.0 ISO): a KiteOS wrapper takes the place of
    `/usr/bin/brave-browser-stable` (dpkg diversion) and adds the flags in
