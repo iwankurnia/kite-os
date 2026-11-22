@@ -1,8 +1,8 @@
 [Icon Theme]
 Name=KiteOS
-Comment=KiteOS status icons (Wi-Fi, volume, battery, power), everything else from Papirus
+Comment=KiteOS status icons (Wi-Fi, volume, battery, power) and drive icons, everything else from Papirus
 Inherits=Papirus,Adwaita,hicolor
-Directories=scalable/status
+Directories=scalable/status,scalable/devices
 
 [scalable/status]
 Size=24
@@ -10,3 +10,13 @@ MinSize=8
 MaxSize=512
 Type=Scalable
 Context=Status
+
+# Drives: Papirus's dark 16 px drive icon under every name udisks/gvfs give the
+# Chromebook's eMMC, SD and USB drives. Without these, Thunar's sidebar showed
+# a pale or invisible icon (GTK fell through to other themes' large icons).
+[scalable/devices]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Devices

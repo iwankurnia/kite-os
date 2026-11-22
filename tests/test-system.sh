@@ -168,6 +168,13 @@ check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1.236
 check "leaves external screens alone" bash -c "! grep -q HDMI '$T/vivid/calls'"
 check "new level saved" grep -qx 'SATURATION=1.3' "$T/vivid/kite/vivid.conf"
 
+echo "== KiteOS drive icons"
+D=$REPO/packages/kite-desktop/usr/share/icons/KiteOS/scalable/devices
+for n in drive-harddisk-solidstate-sdio drive-removable-media-flash-mmc media-removable drive-harddisk-system drive; do
+    check "$n (and -symbolic) -> Papirus 16 px drive" bash -c "[ \"\$(readlink '$D/$n.svg')\" = /usr/share/icons/Papirus/16x16/devices/drive-harddisk.svg ] && [ \"\$(readlink '$D/$n-symbolic.svg')\" = /usr/share/icons/Papirus/16x16/devices/drive-harddisk.svg ]"
+done
+check "devices folder declared in index.theme" grep -q '^Directories=.*scalable/devices' "$REPO/packages/kite-desktop/usr/share/icons/KiteOS/index.theme"
+
 echo
 echo "system tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
