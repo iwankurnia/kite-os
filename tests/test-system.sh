@@ -127,6 +127,41 @@ check "own arguments come last" test "$(tail -n1 <<< "$out")" = --incognito
 out=$(brave KITE_BRAVE_FLAGS=/nonexistent XDG_CONFIG_HOME=/nonexistent sh "$W" x)
 check "no flag files: arguments only" test "$out" = x
 
+echo "== kite-vivid (screen saturation)"
+V=$REPO/packages/kite-desktop/usr/bin/kite-vivid
+check "level 1.0 is the identity matrix" test "$(python3 "$V" --print-ctm 1.0)" = 0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1
+check "level 1.2 matrix (negative values carry the sign bit)" test "$(python3 "$V" --print-ctm 1.2)" = \
+    676371450,1,614352122,2147483648,62019328,2147483648,182622009,2147483648,244641337,1,62019328,2147483648,182622009,2147483648,614352122,2147483648,796974131,1
+check "greys stay grey (each row sums to 1)" python3 -c "
+s=1.3; W=(0.2126,0.7152,0.0722)
+assert all(abs(sum(s*(i==j)+(1-s)*W[j] for j in range(3))-1) < 1e-9 for i in range(3))"
+check "system default is 1.2" grep -qx 'SATURATION=1.2' "$REPO/packages/kite-desktop/etc/kite/display.conf"
+mkdir -p "$T/vivid"; PY=$(command -v python3)    # PATH below hides xrandr, so call python by path
+env XDG_CONFIG_HOME="$T/vivid" PATH=/nonexistent "$PY" "$V" off >/dev/null 2>&1 || true
+check "kite-vivid off saves 1.0 for the user" grep -qx 'SATURATION=1.0' "$T/vivid/kite/vivid.conf"
+check "login run without xrandr exits quietly" env XDG_CONFIG_HOME="$T/vivid" PATH=/nonexistent "$PY" "$V"
+check "rejects out-of-range levels" bash -c "! python3 '$V' 5 2>/dev/null"
+# A fake xrandr: built-in screen with CTM, plus an external screen to leave alone.
+mkdir -p "$T/vivid/bin"
+cat > "$T/vivid/bin/xrandr" <<EOF
+#!/bin/sh
+if [ "\$1" = --prop ]; then
+    printf 'Screen 0: minimum 320 x 200, current 1366 x 768\n'
+    printf 'eDP-1 connected primary 1366x768+0+0 (normal left inverted right) 256mm x 144mm\n'
+    printf '\tEDID: \n\t\t00ffffffffffff00\n\tCTM: 0 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 \n\t\t0 1 \n'
+    printf '   1366x768      60.00*+\n'
+    printf 'HDMI-1 connected 1920x1080+1366+0 (normal) 510mm x 290mm\n'
+    printf '\tCTM: 0 1 0 0 0 0 0 0 0 1 0 0 0 0 0 0 \n\t\t0 1 \n'
+else
+    echo "\$*" >> "$T/vivid/calls"
+fi
+EOF
+chmod 755 "$T/vivid/bin/xrandr"
+env XDG_CONFIG_HOME="$T/vivid" PATH="$T/vivid/bin:$PATH" python3 "$V" 1.3 >/dev/null
+check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1014557175,1,' "$T/vivid/calls"
+check "leaves external screens alone" bash -c "! grep -q HDMI '$T/vivid/calls'"
+check "new level saved" grep -qx 'SATURATION=1.3' "$T/vivid/kite/vivid.conf"
+
 echo
 echo "system tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

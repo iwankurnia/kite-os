@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KiteOS vivid colours
+Comment=Applies the screen colour saturation from /etc/kite/display.conf
+Exec=/usr/bin/kite-vivid
+NoDisplay=true
+OnlyShowIn=XFCE;
+X-XFCE-Autostart-Override=true
