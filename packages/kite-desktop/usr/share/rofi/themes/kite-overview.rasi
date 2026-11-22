@@ -7,6 +7,14 @@ configuration {
     kb-cancel:             "Escape,Super+w";
 }
 
+/* Centred over the screen, not the launcher's bottom-left card. */
+window {
+    location:              center;
+    anchor:                center;
+    x-offset:              0;
+    y-offset:              0;
+    width:                 80%;
+}
 entry { placeholder: "Search open windows"; }
 listview { columns: 3; lines: 2; }
 element-icon { size: 200px; }

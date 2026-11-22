@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- KiteOS shelf: launcher | centred pinned+running apps | tray, volume, battery, clock, power -->
+<!-- KiteOS shelf: launcher, pinned+running apps (left) | tray, volume, battery, clock, power -->
 <channel name="xfce4-panel" version="1.0">
   <property name="configver" type="int" value="2"/>
   <!-- Load plugins inside the panel instead of one helper process each
@@ -7,7 +7,7 @@
   <property name="force-all-internal" type="bool" value="true"/>
   <property name="panels" type="array">
     <value type="int" value="1"/>
-    <property name="dark-mode" type="bool" value="true"/>
+    <property name="dark-mode" type="bool" value="false"/>
     <property name="panel-1" type="empty">
       <property name="position" type="string" value="p=12;x=0;y=0"/>
       <property name="length" type="double" value="100"/>
@@ -18,10 +18,10 @@
       <property name="leave-opacity" type="uint" value="100"/>
       <property name="background-style" type="uint" value="1"/>
       <property name="background-rgba" type="array">
-        <value type="double" value="0.11"/>
-        <value type="double" value="0.13"/>
-        <value type="double" value="0.17"/>
-        <value type="double" value="0.86"/>
+        <value type="double" value="0.97"/>
+        <value type="double" value="0.97"/>
+        <value type="double" value="0.98"/>
+        <value type="double" value="0.92"/>
       </property>
       <property name="plugin-ids" type="array">
         <value type="int" value="1"/>
@@ -45,7 +45,7 @@
       <property name="disable-tooltips" type="bool" value="false"/>
     </property>
     <property name="plugin-2" type="string" value="separator">
-      <property name="expand" type="bool" value="true"/>
+      <property name="expand" type="bool" value="false"/>
       <property name="style" type="uint" value="0"/>
     </property>
     <property name="plugin-3" type="string" value="docklike"/>

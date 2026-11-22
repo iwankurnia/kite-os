@@ -1,15 +1,15 @@
-/* KiteOS shelf: a uniform, ChromeOS-like status area.
+/* KiteOS shelf (light): a uniform, ChromeOS-like status area.
  * The ids are the panel plugins from the KiteOS layout (tray, volume,
  * battery, power button); app icons on the shelf keep their colours. */
 #launcher-1, #systray-5, #pulseaudio-6, #power-manager-plugin-7, #launcher-9 {
     -gtk-icon-style: symbolic;
-    color: #e8eaed;
+    color: #202124;
 }
 #launcher-1 *, #systray-5 *, #pulseaudio-6 *, #power-manager-plugin-7 *, #launcher-9 * {
-    color: #e8eaed;
+    color: #202124;
 }
 #clock-8, #clock-8 *, #clock-8 label {
-    color: #e8eaed;
+    color: #202124;
     font-family: "Roboto";
     font-weight: 500;
 }
@@ -18,10 +18,10 @@
     padding: 2px 6px;
 }
 #XfcePanelWindow button:hover {
-    background-color: rgba(255, 255, 255, 0.10);
+    background-color: rgba(32, 33, 36, 0.08);
 }
 
-/* Muted volume: keep it readable on the dark shelf (it is drawn dimmed). */
+/* Muted volume: keep it readable on the shelf (it is drawn dimmed). */
 #pulseaudio-6 image {
     opacity: 1;
     -gtk-icon-effect: none;

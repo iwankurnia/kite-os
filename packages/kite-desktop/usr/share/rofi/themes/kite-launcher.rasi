@@ -19,11 +19,12 @@ configuration {
 
 * {
     font:                  "Roboto 11";
-    bg:                    rgba(32, 36, 46, 0.97);
-    fg:                    #e8eaed;
-    dim:                   #9aa0a6;
-    accent:                #8ab4f8;
-    tile:                  rgba(255, 255, 255, 0.08);
+    /* Light theme (ChromeOS/Google light palette). */
+    bg:                    rgba(248, 249, 250, 0.97);
+    fg:                    #202124;
+    dim:                   #5f6368;
+    accent:                #1a73e8;
+    tile:                  rgba(32, 33, 36, 0.07);
     background-color:      transparent;
     text-color:            @fg;
 }
@@ -37,6 +38,8 @@ window {
     width:                 560px;
     transparency:          "real";    /* rounded corners */
     background-color:      @bg;
+    border:                1px;
+    border-color:          rgba(32, 33, 36, 0.12);
     border-radius:         16px;
     padding:               20px;
 }
@@ -47,7 +50,7 @@ mainbox {
 }
 
 inputbar {
-    background-color:      rgba(255, 255, 255, 0.92);
+    background-color:      #e8eaed;
     border-radius:         24px;
     padding:               12px 22px;
     margin:                0;
