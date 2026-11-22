@@ -29,28 +29,24 @@ configuration {
     text-color:            @fg;
 }
 
-/* The window is a faint shadow frame (rofi draws no real shadows) and the
-   menu card is mainbox inside it: 560 px wide, 12 px from the screen's left
-   edge and 12 px above the 44 px shelf, with the shadow 4 px round the
-   sides and top and 7 px below. */
+/* The menu card: 560 px wide, 12 px from the screen's left edge and 12 px
+   above the 44 px shelf. Its shadow and slide-up animation come from picom
+   (/etc/kite/picom.conf, which rounds the shadow to the same 16 px). */
 window {
     location:              south west;
     anchor:                south west;
-    x-offset:              8px;
-    y-offset:              -49px;
-    width:                 568px;
-    transparency:          "real";    /* rounded corners and the shadow */
-    background-color:      rgba(32, 33, 36, 0.08);
-    border-radius:         20px;
-    padding:               3px 4px 7px 4px;
-}
-
-mainbox {
+    x-offset:              12px;
+    y-offset:              -56px;
+    width:                 560px;
+    transparency:          "real";    /* rounded corners */
     background-color:      @bg;
     border:                1px;
     border-color:          rgba(32, 33, 36, 0.16);
     border-radius:         16px;
     padding:               20px;
+}
+
+mainbox {
     spacing:               20px;
     children:              [ inputbar, listview ];
 }

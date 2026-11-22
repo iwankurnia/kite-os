@@ -175,6 +175,25 @@ for n in drive-harddisk-solidstate-sdio drive-removable-media-flash-mmc media-re
 done
 check "devices folder declared in index.theme" grep -q '^Directories=.*scalable/devices' "$REPO/packages/kite-desktop/usr/share/icons/KiteOS/index.theme"
 
+echo "== compositor (picom with xfwm4 fallback)"
+SC=$REPO/packages/kite-desktop/usr/lib/kite/desktop/start-compositor
+C=$T/comp; mkdir -p "$C/bin" "$C/cfg/kite"
+printf '#!/bin/sh\necho "xfwm $6" >> "%s/log"\n' "$C" > "$C/bin/xfconf-query"
+printf '#!/bin/sh\necho "picom $*" >> "%s/log"\nexit ${FAKE_PICOM_EXIT:-0}\n' "$C" > "$C/bin/picom"
+chmod 755 "$C/bin/xfconf-query" "$C/bin/picom"
+run_sc() { rm -f "$C/log"; env PATH="$C/bin:/usr/bin:/bin" XDG_CONFIG_HOME="$C/cfg" KITE_DISPLAY_CONF=/nonexistent "$@" sh "$SC" || true; }
+run_sc FAKE_PICOM_EXIT=1
+check "picom replaces xfwm4 compositing, then hands it back when picom exits" \
+    test "$(tr '\n' '|' < "$C/log")" = "xfwm false|picom --config /etc/kite/picom.conf|xfwm true|"
+echo ANIMATIONS=0 > "$C/cfg/kite/display.conf"; run_sc
+check "ANIMATIONS=0: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+rm "$C/cfg/kite/display.conf" "$C/bin/picom"; run_sc
+check "picom missing: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+check "picom shadow is rounded like the launcher card (16 px)" bash -c \
+    "grep -A1 \"class_g = 'Rofi'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'corner-radius = 16' &&
+     grep -q 'border-radius: *16px' '$REPO/packages/kite-desktop/usr/share/rofi/themes/kite-launcher.rasi'"
+check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
+
 echo
 echo "system tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

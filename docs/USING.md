@@ -83,4 +83,6 @@ Apps & Storage → **Update apps and system**, or `sudo kite-storage update`
 - `/etc/kite/zswap.conf`: compressed swap cache (zstd, up to 25% of RAM).
 - `/etc/kite/display.conf`: "vivid" colours on the built-in screen (1.2× saturation, done by the
   graphics hardware). Change it for yourself with `kite-vivid 1.3`, `kite-vivid off` or `kite-vivid status`.
+  `ANIMATIONS=0` there (or in `~/.config/kite/display.conf`) turns off window and launcher
+  animations: XFCE's simpler compositor is used instead of picom (`/etc/kite/picom.conf`).
 - `/usr/lib/systemd/system/earlyoom.service.d/kite.conf`: out-of-memory guard.

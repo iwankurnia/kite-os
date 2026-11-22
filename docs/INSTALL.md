@@ -28,6 +28,7 @@
 | Audio | Speakers and headphone jack (`pavucontrol` to pick outputs) |
 | Video decode | Brave: `brave://gpu` → "Video Decode: Hardware accelerated"; play a video, then `brave://media-internals` → `kVideoDecoderName` is `VaapiVideoDecoder`. Compare CPU in `top` with the line in `/etc/kite/brave-flags.conf` commented out |
 | Memory | `free -h`, `cat /sys/module/zswap/parameters/enabled` → `Y` |
+| Animations | Open the launcher: it slides up; open and close a window: it grows in and shrinks away; `pgrep -a picom` shows picom running (if not, XFCE's compositor took over: check `~/.xsession-errors`) |
 | Vivid colours | `kite-vivid status` → "supported on eDP-1"; `kite-vivid off` / `kite-vivid on` shows the difference; still vivid after sleep and after hibernate |
 
 If something fails, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

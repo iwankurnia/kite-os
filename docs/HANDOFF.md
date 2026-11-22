@@ -144,6 +144,7 @@ cores). On the device, use `sudo kite-resource-report`.
 | suspend-then-hibernate enabled **only after** resume is configured | A half-configured system must never make the lid do nothing |
 | `kite-storage`: move whole package-private dirs and symlink them | dpkg follows directory symlinks on upgrade. APT `Pre-Install-Pkgs` hook refuses to touch apps whose disk is unplugged |
 | Orchis theme (Materia isn't in Debian 13), KiteOS status icon theme inheriting Papirus | Material/ChromeOS look with uniform tray |
+| picom instead of xfwm4's compositor, through `start-compositor` | Animations and rounded shadows (owner asked); xfwm4's compositor comes back on if picom fails or `ANIMATIONS=0`. Not yet measured on the device |
 | Brave policy: Rewards/Wallet/VPN/Tor/P3A off | Lighter; owner can change `/etc/brave/policies/managed/kite.json` |
 
 ## Releasing
