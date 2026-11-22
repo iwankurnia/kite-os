@@ -1,5 +1,5 @@
 # Sourced by /etc/X11/Xsession. Start the KiteOS compositor (picom) before
-# XFCE draws the shelf, so the shelf can fly in. Runs in the background and
+# XFCE draws the shelf, so the shelf can fade in. Runs in the background and
 # never blocks login; /etc/xdg/autostart/kite-compositor.desktop is the
 # fallback when the session doesn't go through Xsession.
 if [ -x /usr/lib/kite/desktop/start-compositor ]; then

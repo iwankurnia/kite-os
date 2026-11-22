@@ -191,9 +191,9 @@ printf '#!/bin/sh\nexit 0\n' > "$C/bin/pgrep"; chmod 755 "$C/bin/pgrep"; rm "$C/
 check "second start while picom runs: touches nothing" test ! -e "$C/log"
 rm "$C/bin/pgrep" "$C/bin/picom"; run_sc
 check "picom missing: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
-check "shelf and launcher fly from the bottom" bash -c "grep -q 'preset = \"fly-in\";  direction = \"down\"' '$REPO/packages/kite-desktop/etc/kite/picom.conf' && grep -q 'start = \"window-height + 56\"' '$REPO/packages/kite-desktop/etc/kite/picom.conf'"
+check "shelf and launcher fade (no zoom) with a shadow" bash -c "c='$REPO/packages/kite-desktop/etc/kite/picom.conf'; [ \$(grep -A3 -E \"class_g = 'Rofi'|window_type = 'dock'\" \"\$c\" | grep -c 'shadow = true') = 2 ] && [ \$(grep -c 'preset = \"appear\";    duration = 0.[0-9]*; scale = 1.0' \"\$c\") -ge 2 ]"
 check "picom shadow is rounded like the launcher card (16 px)" bash -c \
-    "grep -A1 \"class_g = 'Rofi'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'corner-radius = 16' &&
+    "grep -A2 \"class_g = 'Rofi'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'corner-radius = 16' &&
      grep -q 'border-radius: *16px' '$REPO/packages/kite-desktop/usr/share/rofi/themes/kite-launcher.rasi'"
 check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
 
