@@ -82,6 +82,11 @@ about **950 MiB with Brave and 5 tabs**, and about **1.4 GB with Brave and
 ONLYOFFICE** both open. Installed size is **3.75 GB** plus a 5 GB hibernation
 swap file, leaving **21 GB free** on the 32 GB eMMC.
 
+## Continuing development
+
+See [docs/HANDOFF.md](docs/HANDOFF.md) for the full project state, decisions,
+gotchas and to-do list. `CLAUDE.md` gives Claude Code the same pointers.
+
 ## Credits
 
 - [MrChromebox](https://mrchromebox.tech) UEFI firmware.
