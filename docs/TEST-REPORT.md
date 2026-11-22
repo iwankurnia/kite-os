@@ -22,10 +22,12 @@ ISO: `kiteos-20261122-amd64.iso` (1.3 GB), Debian 13.8 "trixie", Linux
 | Live session logs in by itself, ChromeOS-style shelf | ✅ |
 | Launcher (circle button or Search key): full-screen grid with live search | ✅ |
 | Window overview (top-row overview key / Super+W) | ✅ |
-| Tray: Wi-Fi, volume, battery, clock and power, uniform white icons | ✅ (after fixing a double Wi-Fi icon, see below) |
+| Tray: KiteOS's own network, volume, battery, clock and power icons, all 24 px and white | ✅ live and installed (after fixing a double Wi-Fi icon, see below) |
 | Power dialog: Log Out, Restart, Shut Down, Suspend, **Hibernate** | ✅ |
 | Installed system: hidden GRUB → splash → login screen (Slick Greeter, KiteOS background) → desktop | ✅ |
 | Lock screen after sleep or hibernate | ✅ |
+| Installer slideshow ("Welcome to KiteOS") during installation | ✅ |
+| Installed system: installer, live-session packages and their Qt modules removed; no failed services; all KiteOS services running | ✅ |
 
 ### Apps (each opened from the shelf or launcher)
 
