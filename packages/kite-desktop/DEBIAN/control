@@ -1,5 +1,5 @@
 Package: kite-desktop
-Version: 1.1.0
+Version: 1.1.1
 Section: x11
 Priority: optional
 Architecture: all
@@ -11,6 +11,6 @@ Depends: xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, 
 Recommends: fonts-roboto | fonts-dejavu-core, xfce4-taskmanager, brave-browser, onlyoffice-desktopeditors
 Description: KiteOS ChromeOS-style desktop
  XFCE configured as a light ChromeOS-like desktop: bottom shelf with a
- full-screen app launcher (tap the Search key), centred pinned apps, status
+ bottom-left app launcher menu (tap the Search key), centred pinned apps, status
  area and clock; Orchis theme with Papirus icons; LightDM slick-greeter login
  screen and KiteOS artwork.
