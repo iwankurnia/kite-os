@@ -129,9 +129,15 @@ check "no flag files: arguments only" test "$out" = x
 
 echo "== kite-vivid (screen saturation)"
 V=$REPO/packages/kite-desktop/usr/bin/kite-vivid
-check "level 1.0 is the identity matrix" test "$(python3 "$V" --print-ctm 1.0)" = 0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1
-check "level 1.2 matrix (negative values carry the sign bit)" test "$(python3 "$V" --print-ctm 1.2)" = \
-    676371450,1,614352122,2147483648,62019328,2147483648,182622009,2147483648,244641337,1,62019328,2147483648,182622009,2147483648,614352122,2147483648,796974131,1
+# xrandr (Debian 13) takes CTM as 9 decimal matrix values and encodes them itself;
+# pre-encoded S31.32 integers were read as huge coefficients (white screen, v1.2).
+check "level 1.0 is the identity matrix" test "$(python3 "$V" --print-ctm 1.0)" = \
+    1.000000,0.000000,0.000000,0.000000,1.000000,0.000000,0.000000,0.000000,1.000000
+check "level 1.2 matrix" test "$(python3 "$V" --print-ctm 1.2)" = \
+    1.157480,-0.143040,-0.014440,-0.042520,1.056960,-0.014440,-0.042520,-0.143040,1.185560
+check "CTM is 9 values, none above 2 (never pre-encoded integers)" python3 -c "
+v=[float(x) for x in '$(python3 "$V" --print-ctm 2.0)'.split(',')]
+assert len(v) == 9 and all(abs(x) <= 2 for x in v)"
 check "greys stay grey (each row sums to 1)" python3 -c "
 s=1.3; W=(0.2126,0.7152,0.0722)
 assert all(abs(sum(s*(i==j)+(1-s)*W[j] for j in range(3))-1) < 1e-9 for i in range(3))"
@@ -158,7 +164,7 @@ fi
 EOF
 chmod 755 "$T/vivid/bin/xrandr"
 env XDG_CONFIG_HOME="$T/vivid" PATH="$T/vivid/bin:$PATH" python3 "$V" 1.3 >/dev/null
-check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1014557175,1,' "$T/vivid/calls"
+check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1.236220,-0.214560,' "$T/vivid/calls"
 check "leaves external screens alone" bash -c "! grep -q HDMI '$T/vivid/calls'"
 check "new level saved" grep -qx 'SATURATION=1.3' "$T/vivid/kite/vivid.conf"
 

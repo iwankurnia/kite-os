@@ -120,6 +120,11 @@ cores). On the device, use `sudo kite-resource-report`.
   just runs `brave "$@"`); `~/.config/brave-flags.conf` is an Arch packaging
   convention. Hence the diversion and wrapper in kite-desktop. Chromium keeps
   only the last `--enable-features`, so the wrapper merges them.
+- **`xrandr --set CTM` takes nine decimal matrix values** (`1,0,0,0,1,0,0,0,1`) on
+  Debian 13: xrandr's `ctm_from_string` encodes them to S31.32 itself. The
+  18 pre-encoded integers older guides show are read as coefficients in the
+  hundreds of millions and turn the screen white (shipped by mistake in v1.2,
+  fixed in kite-desktop 1.1.2). The 11 G8 EE does apply CTM in hardware.
 - **Brave rotated its apt signing key.** The new release key
   `DBF1A116C220B8C7164F98230686B78420038257` was verified against
   brave.com/signing-keys.

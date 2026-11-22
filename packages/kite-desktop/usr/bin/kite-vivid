@@ -29,15 +29,11 @@ def user_conf():
 
 
 def ctm(level):
-    """The 3x3 saturation matrix as xrandr's CTM value: 9 S31.32
-    sign-magnitude numbers, each sent as a (low 32 bits, high 32 bits) pair."""
-    out = []
-    for i in range(3):
-        for j in range(3):
-            c = level * (i == j) + (1 - level) * LUMA[j]
-            v = round(abs(c) * 2**32) | ((c < 0) << 63)
-            out += [v & 0xFFFFFFFF, v >> 32]
-    return ",".join(map(str, out))
+    """The 3x3 saturation matrix as xrandr's CTM value: nine decimal numbers,
+    row by row. xrandr (1.5.1+, Debian 13) encodes them to the kernel's S31.32
+    format itself; giving it pre-encoded integers turns the screen white."""
+    return ",".join("%.6f" % (level * (i == j) + (1 - level) * LUMA[j])
+                    for i in range(3) for j in range(3))
 
 
 def read_level(path):
