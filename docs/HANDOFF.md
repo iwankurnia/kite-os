@@ -155,18 +155,28 @@ gh release create v1.2 --title "KiteOS 1.2" --notes-file notes.md   # creates th
 Without a release, a pushed tag gets one with generated notes. Manual runs
 (`gh workflow run build-iso.yml`) only leave the ISO as a 90-day artifact.
 
-## Push from the owner's laptop (what was agreed)
+## Continuing on another machine
 
-The owner received `kite-os.bundle` (this repository with full history):
+Everything needed is in this repository and on GitHub; nothing lives only on
+one laptop.
 
 ```bash
-gh auth login && gh auth setup-git
-git clone kite-os.bundle kite-os && cd kite-os
-git remote set-url origin https://github.com/iwankurnia/kite-os.git
-git push -u origin main
-gh release create v1.0 ~/Downloads/kiteos-20261122-amd64.iso ~/Downloads/kiteos-20261122-amd64.iso.sha256 \
-   --title "KiteOS 1.0" --notes-file docs/TEST-REPORT.md
+gh auth login                      # GitHub.com, SSH or HTTPS, browser login
+gh repo clone iwankurnia/kite-os && cd kite-os
+git config user.name "Iwan Kurnia"
+git config user.email "6760806+iwankurnia@users.noreply.github.com"   # repo only, keeps the work address off new commits
+claude                             # reads CLAUDE.md, which points here
 ```
 
-Then continue locally by running `claude` inside the `kite-os` folder. Claude
-Code reads `CLAUDE.md`, which points here.
+Where things stand (2026-11-23): v1.1 is Latest and flashed to the owner's
+Kingston USB stick (read-back verified), not booted yet. Next is the
+real-hardware run (to-do 3) and the Brave video check on the device (to-do 4).
+
+- Builds: no local build needed. Push a tag or use
+  `gh workflow run build-iso.yml` (see "Releasing"); `gh run download <run-id> -n kiteos-iso`
+  fetches a manual run's ISO.
+- Flashing: on macOS, `diskutil list external` then `sudo dd if=<iso> of=/dev/rdiskN bs=4m`;
+  on Windows use Rufus in DD mode (or balenaEtcher). Check that the disk is the
+  USB stick first; it is erased.
+- Local test runs need Linux as root (`sudo tests/run-all.sh`); on macOS or
+  Windows, rely on the workflow's test job.
