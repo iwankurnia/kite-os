@@ -13,6 +13,12 @@ done
 
 xfwm() { xfconf-query -c xfwm4 -p /general/use_compositing -s "$1" 2>/dev/null; }
 
+# Started from Xsession.d and again from XDG autostart (fallback for other
+# display managers): the second one must not touch anything.
+if pgrep -u "$(id -u)" -x picom >/dev/null 2>&1; then
+    exit 0
+fi
+
 if [ "$animations" != 1 ] || ! command -v picom >/dev/null 2>&1; then
     xfwm true
     exit 0

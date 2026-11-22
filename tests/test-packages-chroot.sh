@@ -75,6 +75,7 @@ check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$
 check "new users get the shelf layout" test -f "$CH/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
 check "launcher theme installed" test -f "$CH/usr/share/rofi/themes/kite-launcher.rasi"
 check "Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/45kite-user-init
+check "compositor Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/46kite-compositor
 check "picom installed for animations" test -x "$CH/usr/bin/picom"
 check "KiteOS drive icons resolve to Papirus" test -s "$CH/usr/share/icons/KiteOS/scalable/devices/drive-harddisk-solidstate-sdio.svg"
 # A stand-in Brave package installed after kite-desktop. (The ISO build

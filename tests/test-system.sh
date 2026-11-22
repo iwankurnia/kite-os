@@ -187,8 +187,11 @@ check "picom replaces xfwm4 compositing, then hands it back when picom exits" \
     test "$(tr '\n' '|' < "$C/log")" = "xfwm false|picom --config /etc/kite/picom.conf|xfwm true|"
 echo ANIMATIONS=0 > "$C/cfg/kite/display.conf"; run_sc
 check "ANIMATIONS=0: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
-rm "$C/cfg/kite/display.conf" "$C/bin/picom"; run_sc
+printf '#!/bin/sh\nexit 0\n' > "$C/bin/pgrep"; chmod 755 "$C/bin/pgrep"; rm "$C/cfg/kite/display.conf"; run_sc
+check "second start while picom runs: touches nothing" test ! -e "$C/log"
+rm "$C/bin/pgrep" "$C/bin/picom"; run_sc
 check "picom missing: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+check "shelf and launcher fly from the bottom" bash -c "grep -q 'preset = \"fly-in\";  direction = \"down\"' '$REPO/packages/kite-desktop/etc/kite/picom.conf' && grep -q 'start = \"window-height + 56\"' '$REPO/packages/kite-desktop/etc/kite/picom.conf'"
 check "picom shadow is rounded like the launcher card (16 px)" bash -c \
     "grep -A1 \"class_g = 'Rofi'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'corner-radius = 16' &&
      grep -q 'border-radius: *16px' '$REPO/packages/kite-desktop/usr/share/rofi/themes/kite-launcher.rasi'"
