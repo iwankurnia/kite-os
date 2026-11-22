@@ -95,11 +95,14 @@ printf 'VERSION 2\n\notherpkg - < 2.0 /x/otherpkg_2.0_all.deb\n' | "$KS" apt-pre
 mv "$T/ext/kite/.kite-storage.off" "$T/ext/kite/.kite-storage"
 
 echo "== launcher overrides"
-pkg=$(dpkg-query -S /usr/share/applications/*.desktop 2>/dev/null | head -n1 | cut -d: -f1)
+# awk reads everything (head would SIGPIPE dpkg-query under pipefail), and
+# dpkg-query exits 1 when any launcher has no owner, as on CI runners.
+pkg=$(dpkg-query -S /usr/share/applications/*.desktop 2>/dev/null |
+      awk -F': ' 'NR == 1 { sub(/[,:].*/, "", $1); print $1 }' || true)
 if [ -n "$pkg" ]; then
     # shellcheck source=/dev/null
     ( . "$KS"; write_desktop_overrides "$pkg" )
-    f=$(ls "$KITE_DESKTOP_OVERRIDES"/*.desktop 2>/dev/null | head -n1)
+    f=$(ls "$KITE_DESKTOP_OVERRIDES"/*.desktop 2>/dev/null | head -n1 || true)
     check "override written for $pkg" test -n "$f"
     check "Exec wrapped with kite-ext-run" grep -q '^Exec=/usr/bin/kite-ext-run ' "$f"
     ( . "$KS"; remove_desktop_overrides "$pkg" )
