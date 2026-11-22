@@ -133,10 +133,11 @@ the figures. Treat it as a guide, not a measurement.
 | 720p VP9 video (software decode) | 34 % (Brave 22.5 + display 11.5) | ~70 %, so 720p plays; 1080p will struggle |
 | ONLYOFFICE editing + Brave in background | 15 % | ~30 % |
 
-For video, the N4020's GPU can decode VP9 and H.264 in hardware
-(`intel-media-va-driver` is installed). In Brave, open
-`brave://flags/#enable-accelerated-video-decode` and check `brave://gpu`;
-this cuts video CPU use sharply.
+These video figures are software decode. The N4020's GPU decodes VP9 and
+H.264 in hardware (`intel-media-va-driver` is installed), and from
+kite-desktop 1.1.0 Brave starts with `--enable-features=AcceleratedVideoDecodeLinuxGL`
+(`/etc/kite/brave-flags.conf`), which should cut video CPU use sharply. Not
+measured yet: QEMU has no VA-API device.
 
 Measure on the real device with:
 ```bash

@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+# Give Brave its own launcher back (see preinst).
+case "$1" in
+    remove|abort-install|disappear) undivert=1 ;;
+    # Back to a version without the wrapper: it must not lose the launcher.
+    abort-upgrade) dpkg --compare-versions "$2" lt 1.1.0 && undivert=1 ;;
+esac
+if [ -n "${undivert:-}" ]; then
+    dpkg-divert --package kite-desktop --remove --rename \
+        --divert /usr/bin/brave-browser-stable.distrib /usr/bin/brave-browser-stable >/dev/null
+fi
+exit 0

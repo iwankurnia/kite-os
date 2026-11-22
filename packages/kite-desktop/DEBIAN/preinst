@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+# Brave's launcher reads no flags file, so ours takes its place and calls
+# Brave's (renamed to .distrib) with the flags from /etc/kite/brave-flags.conf.
+case "$1" in
+    install|upgrade)
+        dpkg-divert --package kite-desktop --add --rename \
+            --divert /usr/bin/brave-browser-stable.distrib /usr/bin/brave-browser-stable >/dev/null
+        ;;
+esac
+exit 0

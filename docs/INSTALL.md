@@ -26,7 +26,7 @@
 | Lid | Close the lid → sleeps; after 60 min it hibernates by itself |
 | Keyboard | Tap Search → launcher; top-row volume/brightness; Search+Backspace = Delete |
 | Audio | Speakers and headphone jack (`pavucontrol` to pick outputs) |
-| Video decode | Brave: open `brave://gpu`; "Video Decode" should say hardware accelerated |
+| Video decode | Brave: `brave://gpu` → "Video Decode: Hardware accelerated"; play a video, then `brave://media-internals` → `kVideoDecoderName` is `VaapiVideoDecoder`. Compare CPU in `top` with the line in `/etc/kite/brave-flags.conf` commented out |
 | Memory | `free -h`, `cat /sys/module/zswap/parameters/enabled` → `Y` |
 
 If something fails, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

@@ -107,6 +107,26 @@ else
     echo "  skip (xfce4-settings not installed here)"
 fi
 
+echo "== Brave flags wrapper"
+W=$REPO/packages/kite-desktop/usr/bin/brave-browser-stable
+mkdir -p "$T/brave/cfg"
+printf '#!/bin/sh\nfor a in "$@"; do echo "$a"; done\n' > "$T/brave/launcher"; chmod 755 "$T/brave/launcher"
+brave() { env KITE_BRAVE_LAUNCHER="$T/brave/launcher" XDG_CONFIG_HOME="$T/brave/cfg" "$@"; }
+out=$(brave KITE_BRAVE_FLAGS="$REPO/packages/kite-desktop/etc/kite/brave-flags.conf" sh "$W" 'https://example.org/?a=1&b=*')
+check "KiteOS default enables hardware video decoding" grep -qx -- '--enable-features=AcceleratedVideoDecodeLinuxGL' <<< "$out"
+check "commented-out flags are ignored" test -z "$(grep ZeroCopy <<< "$out")"
+check "arguments passed on unchanged (no glob expansion)" test "$(tail -n1 <<< "$out")" = 'https://example.org/?a=1&b=*'
+printf -- '--enable-features=A,B  # system\n--ozone-platform=x11\n' > "$T/brave/system.conf"
+printf -- '# mine\n--enable-features=C --disable-features=D\n\n--disable-features=E\n' > "$T/brave/cfg/brave-flags.conf"
+out=$(brave KITE_BRAVE_FLAGS="$T/brave/system.conf" sh "$W" --incognito)
+check "feature lists merged into one switch" test "$(grep -c -- '^--enable-features=' <<< "$out")" = 1
+check "system then user features kept" grep -qx -- '--enable-features=A,B,C' <<< "$out"
+check "disable-features merged too" grep -qx -- '--disable-features=D,E' <<< "$out"
+check "other flags kept" grep -qx -- '--ozone-platform=x11' <<< "$out"
+check "own arguments come last" test "$(tail -n1 <<< "$out")" = --incognito
+out=$(brave KITE_BRAVE_FLAGS=/nonexistent XDG_CONFIG_HOME=/nonexistent sh "$W" x)
+check "no flag files: arguments only" test "$out" = x
+
 echo
 echo "system tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

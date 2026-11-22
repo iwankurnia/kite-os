@@ -78,5 +78,7 @@ Apps & Storage → **Update apps and system**, or `sudo kite-storage update`
 
 - `/etc/apt/apt.conf.d/60kite-no-recommends`: Recommends are not installed.
 - `/etc/brave/policies/managed/kite.json`: Brave Rewards, Wallet, VPN and Tor are off.
+- `/etc/kite/brave-flags.conf`: Brave's command-line flags (hardware video decoding is on).
+  Put your own in `~/.config/brave-flags.conf`; `--enable-features` lists from both files are merged.
 - `/etc/kite/zswap.conf`: compressed swap cache (zstd, up to 25% of RAM).
 - `/usr/lib/systemd/system/earlyoom.service.d/kite.conf`: out-of-memory guard.

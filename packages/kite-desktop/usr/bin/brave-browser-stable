@@ -1,0 +1,41 @@
+#!/bin/sh
+# KiteOS wrapper around Brave's launcher. Brave's own launcher reads no flags
+# file, so kite-desktop diverts /usr/bin/brave-browser-stable to
+# brave-browser-stable.distrib and installs this script in its place.
+#
+# Flags come from /etc/kite/brave-flags.conf (KiteOS defaults) and then
+# ~/.config/brave-flags.conf (yours): one or more flags per line, # comments.
+# Chromium keeps only the last --enable-features / --disable-features switch,
+# so their values are merged into one of each.
+set -f    # flags are split into words below; never expand * or ?
+
+launcher=${KITE_BRAVE_LAUNCHER:-/usr/bin/brave-browser-stable.distrib}
+[ -x "$launcher" ] || launcher=/opt/brave.com/brave/brave-browser
+
+files=
+for f in "${KITE_BRAVE_FLAGS:-/etc/kite/brave-flags.conf}" \
+         "${XDG_CONFIG_HOME:-$HOME/.config}/brave-flags.conf"; do
+    [ -r "$f" ] && files="$files $f"
+done
+
+flags=
+if [ -n "$files" ]; then
+    # shellcheck disable=SC2086  # $files holds paths without spaces
+    flags=$(awk '
+        { sub(/#.*/, "") }
+        {
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /^--enable-features=/)       en  = en  (en  ? "," : "") substr($i, 19)
+                else if ($i ~ /^--disable-features=/) dis = dis (dis ? "," : "") substr($i, 20)
+                else out = out " " $i
+            }
+        }
+        END {
+            if (en)  out = out " --enable-features=" en
+            if (dis) out = out " --disable-features=" dis
+            print out
+        }' $files)
+fi
+
+# shellcheck disable=SC2086  # one flag per word, by design
+exec "$launcher" $flags "$@"

@@ -75,6 +75,17 @@ check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$
 check "new users get the shelf layout" test -f "$CH/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
 check "launcher theme installed" test -f "$CH/usr/share/rofi/themes/kite-launcher.rasi"
 check "Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/45kite-user-init
+# A stand-in Brave package installed after kite-desktop, like on the ISO.
+d=$W/stub-brave; mkdir -p "$d/DEBIAN" "$d/opt/brave.com/brave" "$d/usr/bin"
+printf 'Package: brave-browser\nVersion: 0.0-stub\nArchitecture: all\nMaintainer: test <t@localhost>\nDescription: test stand-in\n' > "$d/DEBIAN/control"
+printf '#!/bin/sh\necho "$@" > /tmp/brave-args\n' > "$d/opt/brave.com/brave/brave-browser"; chmod 755 "$d/opt/brave.com/brave/brave-browser"
+ln -s /opt/brave.com/brave/brave-browser "$d/usr/bin/brave-browser-stable"
+dpkg-deb --root-owner-group --build "$d" "$CH/tmp/stub-brave.deb" >/dev/null
+check "Brave installs alongside the launcher diversion" in_ch dpkg -i /tmp/stub-brave.deb
+check "Brave's launcher diverted to .distrib" test "$(readlink "$CH/usr/bin/brave-browser-stable.distrib")" = /opt/brave.com/brave/brave-browser
+check "KiteOS wrapper in its place" bash -c "head -n1 '$CH/usr/bin/brave-browser-stable' | grep -qx '#!/bin/sh'"
+in_ch env HOME=/root /usr/bin/brave-browser-stable https://example.org >/dev/null 2>&1 || true
+check "wrapper starts Brave with the KiteOS flags" grep -qx -- '--enable-features=AcceleratedVideoDecodeLinuxGL https://example.org' "$CH/tmp/brave-args"
 
 echo "== kite-storage"
 check "kite-storage runs" in_ch kite-storage status
@@ -94,6 +105,11 @@ if in_ch apt-get install -y -q --reinstall alsa-ucm-conf > "$W/trigger.log" 2>&1
     check "UCM trigger fires on alsa-ucm-conf upgrade" grep -q 'kite-chromebook' "$W/trigger.log"
 fi
 check "purge works" in_ch apt-get purge -y -q kite-chromebook
+
+echo "== kite-desktop removal"
+in_ch apt-get purge -y -q kite-desktop >/dev/null 2>&1 && ok "kite-desktop purged" || bad "kite-desktop purge failed"
+check "Brave gets its own launcher back" test "$(readlink "$CH/usr/bin/brave-browser-stable")" = /opt/brave.com/brave/brave-browser
+check "no diversion left behind" bash -c "[ -z \"\$(chroot '$CH' dpkg-divert --listpackage /usr/bin/brave-browser-stable)\" ]"
 
 echo
 echo "package tests ($SUITE): $pass passed, $fail failed"

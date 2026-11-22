@@ -48,9 +48,15 @@ Follow-up requests, all done:
 3. **First real-hardware run** on the Chromebook with the check-list in
    [INSTALL.md](INSTALL.md#after-installing-check-list). Fix whatever it finds.
    The likeliest areas: keyd map from `function_row_physmap`, audio UCM, VA-API.
-4. **Brave hardware video decoding:** not enabled by default. It needs a Brave
-   flag (`brave://flags/#enable-accelerated-video-decode`, or command-line
-   flags via a launcher override). Measure the CPU difference on the device.
+4. **Brave hardware video decoding:** on by default from kite-desktop 1.1.0
+   (after the v1.0 ISO): a KiteOS wrapper takes the place of
+   `/usr/bin/brave-browser-stable` (dpkg diversion) and adds the flags in
+   `/etc/kite/brave-flags.conf` (`--enable-features=AcceleratedVideoDecodeLinuxGL`).
+   Still to do on the device: confirm `VaapiVideoDecoder` in
+   `brave://media-internals`, measure CPU with and without, and try the
+   commented-out `AcceleratedVideoDecodeLinuxZeroCopyGL`. YouTube may pick AV1,
+   which the N4020 cannot decode in hardware: check the codec in "Stats for
+   nerds" (`av01` = software decode) and, if so, look at blocking AV1.
 5. **GitHub Actions workflow** (`.github/workflows/build-iso.yml`) has never
    run. Check it the first time.
 6. Optional ideas, not started:
@@ -112,6 +118,10 @@ cores). On the device, use `sudo kite-resource-report`.
   `artwork/status-icons.py` draws filled shapes, not strokes. The systray
   requests `<name>-symbolic` at a forced size. Panel and systray icon size are
   both fixed at 24.
+- **Brave's launcher reads no flags file** (`/opt/brave.com/brave/brave-browser`
+  just runs `brave "$@"`); `~/.config/brave-flags.conf` is an Arch packaging
+  convention. Hence the diversion and wrapper in kite-desktop. Chromium keeps
+  only the last `--enable-features`, so the wrapper merges them.
 - **Brave rotated its apt signing key.** The new release key
   `DBF1A116C220B8C7164F98230686B78420038257` was verified against
   brave.com/signing-keys.
