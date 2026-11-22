@@ -1,6 +1,6 @@
 # 3. Installing
 
-## Option A: live USB (recommended)
+## From the live USB
 
 1. Write the ISO to a USB stick (8 GB or more). This **erases the stick**:
    ```bash
@@ -8,26 +8,14 @@
    ```
    (Or use balenaEtcher / GNOME Disks.) Replace `/dev/sdX` with the stick, not your disk!
 2. Plug it into the Chromebook, power on, press **Esc**, choose the USB drive.
-3. The live desktop starts (user `kite`, password `live`). Check that Wi-Fi,
+3. The live desktop starts by itself (no password needed; if the screen
+   ever asks, the live password is `live`). Check that Wi-Fi,
    sound, the touchpad and the keyboard work.
 4. Click **Install KiteOS** (first icon on the shelf):
    - **Partitions:** "Erase disk" (ext4 only, which hibernation relies on). No swap
      partition is needed: the installer creates a swap file of RAM + 1 GB.
    - Encryption is offered but **not tested** with hibernation on this device.
 5. Reboot when asked and remove the USB stick.
-
-## Option B: on top of a minimal Debian 13 <a id="option-b"></a>
-
-1. Install Debian 13 from the official *netinst* image. Choose **ext4**, **no
-   swap partition**, and from the software list tick **only** "standard system
-   utilities" (no desktop).
-2. Log in, install git, get this repository, and run:
-   ```bash
-   sudo apt install git
-   git clone <this repository> kiteos && cd kiteos
-   sudo scripts/install-on-debian.sh
-   sudo reboot
-   ```
 
 ## After installing: check-list
 

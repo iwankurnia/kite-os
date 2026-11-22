@@ -2,8 +2,20 @@
 # Runs inside the newly installed system (from Calamares) to remove the
 # live-session leftovers.
 set -e
-rm -f /usr/share/applications/kite-install.desktop /usr/bin/kite-install
+rm -f /usr/share/applications/kite-install.desktop /usr/bin/kite-install /etc/xdg/autostart/kite-live-nolock.desktop
 sed -i 's/^pinned=kite-install;/pinned=/' /etc/xdg/xfce4/panel/docklike.rc
 rm -f /etc/fstab.orig.calamares
 systemctl set-default graphical.target >/dev/null 2>&1 || true
 systemctl enable kite-zswap.service kite-chromebook-setup.service keyd.service earlyoom.service fstrim.timer >/dev/null 2>&1 || true
+# Belt and braces: make sure GRUB is also at the removable-media fallback
+# path (EFI/BOOT/BOOTX64.EFI), which every UEFI firmware (including
+# MrChromebox's) boots when its own boot entries are lost or reset.
+if [ -d /boot/efi/EFI ]; then
+    for src in /boot/efi/EFI/KiteOS/grubx64.efi /boot/efi/EFI/debian/grubx64.efi; do
+        if [ -f "$src" ]; then
+            mkdir -p /boot/efi/EFI/BOOT
+            cp -f "$src" /boot/efi/EFI/BOOT/BOOTX64.EFI
+            break
+        fi
+    done
+fi

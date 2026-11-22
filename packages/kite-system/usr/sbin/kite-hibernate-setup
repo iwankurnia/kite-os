@@ -110,7 +110,7 @@ file_is_swap() {
 }
 
 swap_active() {
-    awk 'NR > 1 { print $1 }' /proc/swaps 2>/dev/null | grep -qxF "$1"
+    awk -v f="$1" 'NR > 1 && $1 == f { found = 1 } END { exit !found }' /proc/swaps 2>/dev/null
 }
 
 # Physical offset (in PAGE_SIZE units) of the first extent of a swap file.

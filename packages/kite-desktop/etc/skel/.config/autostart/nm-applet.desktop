@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NetworkManager Applet
+Icon=nm-device-wireless
+# KiteOS: --indicator uses the modern tray protocol, so the Wi-Fi icon is
+# drawn like the other status icons (same size, white, symbolic).
+Exec=/usr/lib/kite/desktop/after-tray nm-applet --indicator
+NotShowIn=KDE;GNOME;
+X-GNOME-UsesNotifications=true

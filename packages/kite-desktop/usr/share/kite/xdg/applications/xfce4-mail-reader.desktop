@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=xfce4-mail-reader
+NoDisplay=true
+# Hidden from the KiteOS launcher (duplicate or not useful on its own).

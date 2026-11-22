@@ -6,7 +6,7 @@
 #   tests/preview-ui.sh [output-dir]
 #
 # Needs: xvfb, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, rofi,
-#        materia-gtk-theme, papirus-icon-theme, imagemagick, dbus-x11, x11-xserver-utils
+#        orchis-gtk-theme, papirus-icon-theme, imagemagick, dbus-x11, x11-xserver-utils
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)

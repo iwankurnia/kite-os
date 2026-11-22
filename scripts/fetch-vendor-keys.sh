@@ -13,8 +13,10 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 # name | key URL | expected long key ID (last 16 hex digits of the fingerprint) | APT line
+# Brave: DBF1A116C220B8C7164F98230686B78420038257 (brave.com/signing-keys, release channel)
+# ONLYOFFICE: E09CA29F6E178040EF22B4098320CA65CB2DE8E5 ("Ascensio System Limited")
 VENDORS=(
-"brave|https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg|0BB75829C2D4E821|deb [arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main"
+"brave|https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg|0686B78420038257|deb [arch=amd64] https://brave-browser-apt-release.s3.brave.com/ stable main"
 "onlyoffice|https://download.onlyoffice.com/GPG-KEY-ONLYOFFICE|8320CA65CB2DE8E5|deb https://download.onlyoffice.com/repo/debian squeeze main"
 )
 
@@ -37,7 +39,14 @@ for v in "${VENDORS[@]}"; do
     fi
     gpg --export > "$A/$name.key.chroot"
     cp "$A/$name.key.chroot" "$A/$name.key.binary"
-    echo "$line" > "$A/$name.list.chroot"
+    # The installed system always uses the vendor URL; the build may use a
+    # local mirror (KITE_BRAVE_MIRROR / KITE_ONLYOFFICE_MIRROR).
     echo "$line" > "$A/$name.list.binary"
+    mirror_var="KITE_$(echo "$name" | tr '[:lower:]' '[:upper:]')_MIRROR"
+    if [ -n "${!mirror_var:-}" ]; then
+        sed -E "s#https://[^ ]+#${!mirror_var}#" <<< "$line" > "$A/$name.list.chroot"
+    else
+        echo "$line" > "$A/$name.list.chroot"
+    fi
 done
 echo "vendor repositories added to $A"

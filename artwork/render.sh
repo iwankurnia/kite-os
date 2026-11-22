@@ -16,4 +16,7 @@ cp launcher.svg $P/kite-desktop/usr/share/icons/hicolor/scalable/apps/kite-launc
 r -w 300 watermark.svg          -o $P/kite-system/usr/share/kite/plymouth/watermark.png
 r -w 128 logo.svg               -o ../live/config/includes.chroot/etc/calamares/branding/kite/kite-logo.png
 r -w 800 -h 450 wallpaper.svg   -o ../live/config/includes.chroot/etc/calamares/branding/kite/welcome.png
+r -w 800 -h 600 live-boot.svg -o ../live/config/bootloaders/grub-pc/splash.png
+rm -rf $P/kite-desktop/usr/share/icons/KiteOS/scalable/status
+python3 status-icons.py $P/kite-desktop/usr/share/icons/KiteOS/scalable/status
 echo "artwork rendered"

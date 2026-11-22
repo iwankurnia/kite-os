@@ -4,7 +4,9 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 echo "== shellcheck"
-mapfile -t files < <(grep -rlE '^#!/bin/(ba)?sh' build.sh scripts tests packages live --exclude-dir=alsa-ucm-conf-cros)
+# Only the project's own scripts (not live-build's working tree).
+mapfile -t files < <(git ls-files -co --exclude-standard | grep -v alsa-ucm-conf-cros |
+                     while read -r f; do [ -f "$f" ] && head -c 20 "$f" | grep -qE '^#!/bin/(ba)?sh' && echo "$f"; done)
 LC_ALL=C.UTF-8 shellcheck "${files[@]}"
 echo "  ok   ${#files[@]} shell scripts"
 echo "== XML / YAML / Python"

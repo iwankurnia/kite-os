@@ -88,6 +88,14 @@ require_ext() {
     fi
 }
 
+# Name of the disk (e.g. mmcblk0) that holds the running system.
+root_disk() {
+    local src
+    src=$(findmnt -n -o SOURCE / 2>/dev/null | sed 's/\[.*//')
+    [ -b "$src" ] || return 0
+    lsblk -no PKNAME "$src" 2>/dev/null | head -n1
+}
+
 free_mib() { df --output=avail -BM "$1" | tail -n1 | tr -dc '0-9'; }
 dir_mib() { du -sxm "$1" 2>/dev/null | awk '{print $1}'; }
 
@@ -238,9 +246,18 @@ data_dirs_for() {
         for d in $DATA; do echo "$d"; done
         return 0
     fi
-    for d in ".config/$pkg" ".local/share/$pkg" ".cache/$pkg" ".$pkg" ".var/app/$pkg"; do
-        [ -d "$home/$d" ] && [ ! -L "$home/$d" ] && echo "$d"
+    # Unknown app: folders named after the package (any letter case).
+    local base
+    for base in .config .local/share .cache; do
+        [ -d "$home/$base" ] || continue
+        find "$home/$base" -mindepth 1 -maxdepth 1 -type d -iname "$pkg" -printf "$base/%f\n"
     done
+    [ -d "$home/.$pkg" ] && [ ! -L "$home/.$pkg" ] && echo ".$pkg"
+    # Nothing yet (app never opened): most apps keep their settings in
+    # ~/.config/<name>, so prepare that one on the external disk.
+    if [ ! -e "$home/.config/$pkg" ] && [ -z "$(find "$home/.config" "$home/.local/share" -mindepth 1 -maxdepth 1 -iname "$pkg" 2>/dev/null | head -n1)" ] && [ ! -e "$home/.$pkg" ]; then
+        echo ".config/$pkg"
+    fi
     return 0
 }
 
@@ -323,9 +340,10 @@ cmd_setup() {
         shift
     done
     [ -b "$dev" ] || die "give the external partition, e.g. /dev/sda1 (see: lsblk -f)"
-    local rootdev
-    rootdev=$(findmnt -n -o SOURCE / | sed 's/\[.*//')
-    if [ "$(lsblk -no PKNAME "$dev" 2>/dev/null)" = "$(lsblk -no PKNAME "$rootdev" 2>/dev/null)" ]; then
+    local rootdisk devdisk
+    rootdisk=$(root_disk)
+    devdisk=$(lsblk -no PKNAME "$dev" 2>/dev/null | head -n1)
+    if [ -n "$rootdisk" ] && [ "${devdisk:-$(basename "$dev")}" = "$rootdisk" ]; then
         die "$dev is on the internal disk — choose the external USB/SD disk"
     fi
     local fstype
@@ -453,7 +471,8 @@ cmd_install() {
 
     # Check there is room on the internal disk for the unpacked app.
     local need free
-    need=$(LC_ALL=C apt-get "${aptopts[@]}" --assume-no install "${pkgs[@]}" 2>/dev/null |
+    # (--assume-no always exits 1 after printing the size: ignore that.)
+    need=$( { LC_ALL=C apt-get "${aptopts[@]}" --assume-no install "${pkgs[@]}" 2>/dev/null || true; } |
            sed -n 's/^After this operation, \([0-9.,]*\) \([kMG]\)B of additional disk space will be used.*/\1 \2/p' |
            awk '{ gsub(",", "", $1); m = ($2 == "k") ? $1/1024 : ($2 == "G") ? $1*1024 : $1; printf "%d\n", m + 1 }')
     free=$(free_mib /)
@@ -656,6 +675,7 @@ main() {
         verify) cmd_verify "$@" ;;
         update) cmd_update ;;
         apt-pre-install) cmd_apt_pre_install ;;
+        ping) need_root ;;   # used by the GUI to ask for the password up front
         -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
         *) die "unknown command: $cmd (see: $PROG --help)" ;;
     esac

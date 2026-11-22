@@ -9,7 +9,9 @@ ICON=system-software-install
 KS=/usr/sbin/kite-storage
 ME=$(id -un)
 
-y() { yad --title="$TITLE" --window-icon="$ICON" --center "$@"; }
+# --class/--name (standard GTK options) let the shelf group these windows
+# under the pinned "Apps & Storage" icon.
+y() { yad --class=kite-apps --name=kite-apps --title="$TITLE" --window-icon="$ICON" --center "$@"; }
 
 info()  { y --image=dialog-information --text="$1" --button=OK:0 --width=420 >/dev/null 2>&1; }
 error() { y --image=dialog-error --text="$1" --button=OK:0 --width=420 >/dev/null 2>&1; }
@@ -24,6 +26,12 @@ if [ "${1:-}" = --askpass ]; then askpass; exit $?; fi
 # Run kite-storage as root and show its output live. Returns its exit status.
 run_root() {
     local log rc
+    # Ask for the password first, before the progress window opens and takes
+    # the keyboard focus away from the password box (polkit remembers it for
+    # a few minutes, so the real command below does not ask again).
+    pkexec "$KS" ping >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" = 126 ]; then return 126; fi   # cancelled
     log=$(mktemp)
     (
         pkexec "$KS" "$@"
@@ -67,8 +75,12 @@ do_install() {
     term=$(y --entry --width=420 --text="Search for an app to install (e.g. gimp, vlc, inkscape):" \
            --button=Cancel:1 --button=Search:0) || return
     [ -n "$term" ] || return
-    list=$(apt-cache search -- "$term" 2>/dev/null | head -n 300 |
-           awk -F' - ' '{ print $1; sub(/^[^-]*- /, ""); print $0 }')
+    # "name - description" lines; exact and prefix matches first.
+    list=$(apt-cache search -- "$term" 2>/dev/null |
+           awk -v t="$term" '{ name = $1; d = $0; sub(/^[^ ]+ - /, "", d)
+                               r = (name == t) ? 0 : (index(name, t) == 1) ? 1 : 2
+                               printf "%d\t%s\t%s\n", r, name, d }' |
+           sort -t "$(printf '\t')" -k1,1n -k2,2 | head -n 300 | cut -f2- | tr '\t' '\n')
     [ -n "$list" ] || { info "Nothing found for “$term”."; return; }
     pkg=$(printf '%s\n' "$list" | y --list --width=760 --height=480 --text="Pick the app to install:" \
           --column=Package --column=Description --print-column=1 --separator= \
@@ -88,13 +100,23 @@ do_install() {
 }
 
 pick_installed_app() {
-    # Apps = installed packages that ship a launcher in /usr/share/applications.
-    local f pkg
-    for f in /usr/share/applications/*.desktop; do
-        grep -q '^NoDisplay=true' "$f" && continue
-        pkg=$(dpkg-query -S "$f" 2>/dev/null | head -n1 | cut -d: -f1)
-        [ -n "$pkg" ] && printf '%s\n%s\n' "$pkg" "$(sed -n 's/^Name=//p' "$f" | head -n1)"
-    done | paste - - | sort -u | tr '\t' '\n' |
+    # Apps = installed packages that ship a visible launcher. One dpkg query
+    # for all launchers (one per file is far too slow on a Celeron).
+    local launchers
+    # Visible launchers that are apps (not settings dialogs).
+    launchers=$(grep -L -e '^NoDisplay=true' -e '^Categories=.*Settings' /usr/share/applications/*.desktop)
+    # shellcheck disable=SC2086  # word-splitting the file list is intended
+    dpkg-query -S $launchers 2>/dev/null |
+        while IFS= read -r line; do
+            pkg=${line%%: *}; pkg=${pkg%%,*}; pkg=${pkg%%:*}
+            case "$pkg" in kite-*|calamares*|xfce4-*|xfconf|xfdesktop4|xfwm4|exo-utils|rofi|blueman|pavucontrol|nm-connection-editor|thunar-volman|vim*|yad) continue ;; esac
+            f=${line#*: }
+            # Prefer the launcher named after the package (thunar.desktop
+            # over thunar-bulk-rename.desktop).
+            rank=1; [ "$(basename "$f" .desktop)" = "$pkg" ] && rank=0
+            printf '%s\t%s\t%s\n' "$pkg" "$rank" "$(sed -n 's/^Name=//p' "$f" | head -n1)"
+        done | sort -t "$(printf '\t')" -k1,1 -k2,2n |
+        awk -F '\t' '!seen[$1]++ { print $1; print $3 }' |
         y --list --width=560 --height=460 --text="$1" --column=Package --column=App \
           --print-column=1 --separator= --button=Cancel:1 --button=Next:0
 }
@@ -134,15 +156,14 @@ do_move_dir() {
 }
 
 do_setup() {
-    local list dev fmt
-    list=$(lsblk -rpno NAME,SIZE,FSTYPE,LABEL,TRAN,HOTPLUG,TYPE |
-           awk '$7 == "part" || $7 == "disk" { print }' |
-           while read -r name size fstype label _ _ type; do
-               parent=$(lsblk -no PKNAME "$name" 2>/dev/null)
-               rm=$(cat "/sys/block/$(basename "${parent:-$name}")/removable" 2>/dev/null || echo 0)
-               t=$(lsblk -dno TRAN "/dev/${parent:-$(basename "$name")}" 2>/dev/null)
+    local list dev fmt rootsrc rootdisk
+    rootsrc=$(findmnt -n -o SOURCE / | sed 's/\[.*//')
+    rootdisk=$(lsblk -no PKNAME "$rootsrc" 2>/dev/null | head -n1)
+    # Every partition that is not on the internal (system) disk.
+    list=$(lsblk -rpno NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME |
+           while read -r name size fstype label type parent; do
                [ "$type" = part ] || continue
-               [ "$rm" = 1 ] || [ "$t" = usb ] || [[ "$name" == /dev/mmcblk[1-9]* ]] || continue
+               case "$(basename "$parent")" in "$rootdisk"|zram*|loop*|sr*) continue ;; esac
                printf '%s\n%s\n%s\n%s\n' "$name" "$size" "${fstype:-none}" "${label:--}"
            done)
     [ -n "$list" ] || { error "No external USB or SD-card partition found. Plug the disk in and try again."; return; }

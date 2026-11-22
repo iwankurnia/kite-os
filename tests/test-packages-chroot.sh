@@ -43,7 +43,7 @@ in_ch apt-get update -q >/dev/null
 
 echo "== stand-ins for packages $SUITE does not have"
 for p in keyd xfce4-docklike-plugin firmware-sof-signed; do
-    if ! in_ch apt-cache policy "$p" | grep -q '^  Candidate: [0-9a-z]'; then
+    if ! in_ch apt-cache policy "$p" | grep '^  Candidate: [0-9a-z]' >/dev/null; then
         d=$W/stub-$p; mkdir -p "$d/DEBIAN"
         printf 'Package: %s\nVersion: 0.0-stub\nArchitecture: all\nMaintainer: test <t@localhost>\nDescription: test stand-in\n' "$p" > "$d/DEBIAN/control"
         dpkg-deb --root-owner-group --build "$d" "$CH/tmp/debs/stub-$p.deb" >/dev/null

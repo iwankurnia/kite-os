@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Authentication agent
-Exec=/usr/lib/kite/storage/kite-polkit-agent
-NoDisplay=true
-OnlyShowIn=XFCE;
-X-XFCE-Autostart-Override=true

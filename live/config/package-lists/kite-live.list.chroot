@@ -4,3 +4,9 @@ live-config
 live-config-systemd
 calamares
 calamares-settings-debian
+user-setup
+squashfs-tools
+# Calamares slideshow needs the QtQuick QML module (a "Recommends", so not
+# pulled in automatically)
+qml6-module-qtquick
+qml6-module-qtquick-window

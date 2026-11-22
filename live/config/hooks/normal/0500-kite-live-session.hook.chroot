@@ -4,3 +4,14 @@
 set -e
 # Pin "Install KiteOS" first on the shelf of the live session.
 sed -i 's/^pinned=/pinned=kite-install;/' /etc/xdg/xfce4/panel/docklike.rc
+# Debian's own installer entry would duplicate "Install KiteOS".
+rm -f /usr/share/applications/calamares-install-debian.desktop
+# No automatic screen lock in the live session (nobody knows its password).
+cat > /etc/xdg/autostart/kite-live-nolock.desktop <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=KiteOS live session: no screen lock
+Exec=sh -c 'xfconf-query -c xfce4-screensaver -p /lock/enabled -n -t bool -s false; xfconf-query -c xfce4-screensaver -p /saver/enabled -n -t bool -s false'
+NoDisplay=true
+OnlyShowIn=XFCE;
+DESKTOP

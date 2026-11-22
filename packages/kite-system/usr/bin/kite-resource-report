@@ -1,0 +1,105 @@
+#!/bin/bash
+# kite-resource-report — how much RAM, CPU and storage is in use, per app.
+#
+#   sudo kite-resource-report [--seconds N]
+#
+# RAM is reported as PSS (each shared page divided between the processes that
+# share it), so the per-app numbers add up to the real total. CPU is measured
+# over N seconds (default 10). Run it as root to see every process.
+set -uo pipefail
+
+SECS=10
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --seconds) shift; SECS=${1:-10} ;;
+        -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    esac
+    shift
+done
+
+group_of() {
+    case "$1" in
+        brave*|chrome_crashpad*) echo "Brave" ;;
+        DesktopEditors|editors|editors_helper|x2t|onlyoffice*) echo "ONLYOFFICE" ;;
+        Xorg|Xwayland) echo "Display server (Xorg)" ;;
+        xfwm4|xfce4-*|xfdesktop|xfsettingsd|xfconfd|Thunar|thunar|panel-*|wrapper-2.0|rofi|light-locker) echo "Desktop (XFCE)" ;;
+        lightdm|slick-greeter|lightdm-*) echo "Login manager" ;;
+        pipewire*|wireplumber|pulseaudio) echo "Audio" ;;
+        NetworkManager|wpa_supplicant|nm-applet|ModemManager|bluetoothd|blueman*) echo "Network & Bluetooth" ;;
+        *) echo "System & other" ;;
+    esac
+}
+
+kb() { awk -v k="$1" '$1 == k":" { print $2 }' /proc/meminfo; }
+mib() { awk -v v="$1" 'BEGIN { printf "%.0f", v / 1024 }'; }
+
+echo "KiteOS resource report — $(date '+%Y-%m-%d %H:%M')  ($(uname -r))"
+echo "CPU: $(awk -F: '/model name/ { sub(/^ /, "", $2); print $2; exit }' /proc/cpuinfo), $(nproc) threads"
+echo
+
+# ---------------------------------------------------------------- memory --
+total=$(kb MemTotal); avail=$(kb MemAvailable); swt=$(kb SwapTotal); swf=$(kb SwapFree)
+used=$((total - avail))
+printf 'RAM      %5s MiB used of %s MiB (%s MiB available)\n' "$(mib $used)" "$(mib "$total")" "$(mib "$avail")"
+printf 'Swap     %5s MiB used of %s MiB\n' "$(mib $((swt - swf)))" "$(mib "$swt")"
+Z=/sys/kernel/debug/zswap
+if [ -r "$Z/stored_pages" ]; then
+    stored=$(( $(cat $Z/stored_pages) * 4 ))
+    pool=$(( $(cat $Z/pool_total_size) / 1024 ))
+    printf 'zswap    %5s MiB of swapped data kept compressed in %s MiB of RAM\n' "$(mib $stored)" "$(mib $pool)"
+fi
+echo
+
+declare -A pss=() cpu0=() names=()
+for d in /proc/[0-9]*; do
+    pid=${d#/proc/}
+    [ "$pid" = "$$" ] && continue   # don't count this report itself
+    comm=$(cat "$d/comm" 2>/dev/null) || continue
+    g=$(group_of "$comm")
+    p=$(awk '$1 == "Pss:" { print $2 }' "$d/smaps_rollup" 2>/dev/null)
+    [ -n "$p" ] && pss[$g]=$(( ${pss[$g]:-0} + p ))
+    read -r -a st < <(sed 's/.*) //' "$d/stat" 2>/dev/null) || continue
+    cpu0[$pid]=$(( st[11] + st[12] ))
+    names[$pid]=$g
+done
+echo "RAM by app (PSS):"
+for g in "${!pss[@]}"; do printf '%s\t%s\n' "${pss[$g]}" "$g"; done | sort -rn |
+    while IFS=$'\t' read -r v g; do printf '  %-26s %6s MiB\n' "$g" "$(mib "$v")"; done
+echo
+
+# ------------------------------------------------------------------- CPU --
+read -r _ a1 b1 c1 d1 e1 f1 g1 h1 _ < /proc/stat
+sleep "$SECS"
+read -r _ a2 b2 c2 d2 e2 f2 g2 h2 _ < /proc/stat
+busy=$(( (a2+b2+c2+f2+g2+h2) - (a1+b1+c1+f1+g1+h1) ))
+all=$(( busy + (d2+e2) - (d1+e1) ))
+hz=$(getconf CLK_TCK)
+declare -A gcpu=()
+for pid in "${!cpu0[@]}"; do
+    read -r -a st < <(sed 's/.*) //' "/proc/$pid/stat" 2>/dev/null) || continue
+    t=$(( st[11] + st[12] - cpu0[$pid] ))
+    (( t > 0 )) && gcpu[${names[$pid]}]=$(( ${gcpu[${names[$pid]}]:-0} + t ))
+done
+awk -v b="$busy" -v a="$all" -v s="$SECS" 'BEGIN { printf "CPU      %.1f%% busy on average over %ss (100%% = all cores)\n", (a ? 100*b/a : 0), s }'
+echo "CPU by app (% of one core):"
+for g in "${!gcpu[@]}"; do printf '%s\t%s\n' "${gcpu[$g]}" "$g"; done | sort -rn |
+    while IFS=$'\t' read -r t g; do
+        awk -v t="$t" -v hz="$hz" -v s="$SECS" -v g="$g" 'BEGIN { printf "  %-26s %6.1f%%\n", g, 100*t/hz/s }'
+    done
+echo
+
+# --------------------------------------------------------------- storage --
+echo "Storage:"
+df -h --output=size,used,avail,pcent / | awk 'NR == 2 { printf "  / (internal)  %s used of %s, %s free (%s)\n", $2, $1, $3, $4 }'
+[ -f /swapfile ] && printf '  %-14s %s (hibernation swap)\n' /swapfile "$(du -h --apparent-size /swapfile | cut -f1)"
+for p in /usr /opt /var /home; do
+    [ -e "$p" ] && printf '  %-14s %s\n' "$p" "$(du -shx "$p" 2>/dev/null | cut -f1)"
+done
+for pkg in brave-browser onlyoffice-desktopeditors; do
+    s=$(dpkg-query -W -f='${Installed-Size}' "$pkg" 2>/dev/null) &&
+        printf '  %-26s %s MiB installed\n' "$pkg" "$(mib "$s")"
+done
+if [ -r /etc/kite/storage.conf ] && command -v kite-storage >/dev/null; then
+    echo
+    kite-storage status 2>/dev/null | sed -n '/External disk:/,/Internal disk:/p' | sed '$d'
+fi

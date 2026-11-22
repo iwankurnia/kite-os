@@ -1,0 +1,9 @@
+#!/bin/sh
+# Friendlier names in the USB stick's boot menu.
+set -e
+for f in boot/grub/grub.cfg isolinux/live.cfg; do
+    [ -f "$f" ] || continue
+    sed -i -e 's/Live system (amd64 fail-safe mode)/Try KiteOS (safe graphics)/' \
+           -e 's/Live system (amd64)/Try or install KiteOS/' \
+           -e 's/Live system (autodetect)/Try or install KiteOS/' "$f"
+done

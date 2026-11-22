@@ -3,6 +3,6 @@ Type=Application
 Name=Launcher
 Comment=Search and open apps (or tap the Search key)
 Exec=kite-launcher
-Icon=kite-launcher
+Icon=kite-launcher-symbolic
 Terminal=false
 StartupNotify=false

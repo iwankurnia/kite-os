@@ -4,5 +4,7 @@
   "BraveWalletDisabled": true,
   "BraveVPNDisabled": true,
   "TorDisabled": true,
+  "BraveP3AEnabled": false,
+  "BraveStatsPingEnabled": false,
   "HighEfficiencyModeEnabled": true
 }

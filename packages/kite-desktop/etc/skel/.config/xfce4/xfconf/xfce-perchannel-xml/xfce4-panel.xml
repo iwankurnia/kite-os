@@ -2,6 +2,9 @@
 <!-- KiteOS shelf: launcher | centred pinned+running apps | tray, volume, battery, clock, power -->
 <channel name="xfce4-panel" version="1.0">
   <property name="configver" type="int" value="2"/>
+  <!-- Load plugins inside the panel instead of one helper process each
+       (saves ~100 MB of RAM; official xfce4-panel option). -->
+  <property name="force-all-internal" type="bool" value="true"/>
   <property name="panels" type="array">
     <value type="int" value="1"/>
     <property name="dark-mode" type="bool" value="true"/>
@@ -10,7 +13,7 @@
       <property name="length" type="double" value="100"/>
       <property name="position-locked" type="bool" value="true"/>
       <property name="size" type="uint" value="44"/>
-      <property name="icon-size" type="uint" value="0"/>
+      <property name="icon-size" type="uint" value="24"/>
       <property name="enter-opacity" type="uint" value="100"/>
       <property name="leave-opacity" type="uint" value="100"/>
       <property name="background-style" type="uint" value="1"/>
@@ -53,7 +56,7 @@
     <property name="plugin-5" type="string" value="systray">
       <property name="square-icons" type="bool" value="true"/>
       <property name="symbolic-icons" type="bool" value="true"/>
-      <property name="icon-size" type="int" value="18"/>
+      <property name="icon-size" type="int" value="24"/>
     </property>
     <property name="plugin-6" type="string" value="pulseaudio"/>
     <property name="plugin-7" type="string" value="power-manager-plugin"/>

@@ -2,6 +2,10 @@
 xserver-xorg-core
 xserver-xorg-input-libinput
 x11-xserver-utils
+# polkit agent first in the list on purpose: it satisfies network-manager-applet's
+# "polkit-1-auth-agent" dependency (otherwise apt may pick a heavy one)
+mate-polkit
+network-manager-applet
 xfce4-session
 xfwm4
 xfce4-panel
@@ -26,10 +30,11 @@ pavucontrol
 rofi
 lightdm
 slick-greeter
-materia-gtk-theme
+orchis-gtk-theme
 papirus-icon-theme
 adwaita-icon-theme
 fonts-dejavu-core
+fonts-roboto
 fonts-noto-color-emoji
 ristretto
 mousepad

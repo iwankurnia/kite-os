@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Comment=Display, keyboard, touchpad, Wi-Fi, Bluetooth, power and appearance
+Exec=xfce4-settings-manager
+Icon=org.xfce.settings.manager
+Categories=System;
+Keywords=settings;preferences;control;display;wifi;bluetooth;keyboard;touchpad;
+Terminal=false

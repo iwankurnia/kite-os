@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=vim
+NoDisplay=true
+# Hidden from the KiteOS launcher (duplicate or not useful on its own).

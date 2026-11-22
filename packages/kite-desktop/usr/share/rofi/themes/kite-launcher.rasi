@@ -1,6 +1,9 @@
 /* KiteOS full-screen app launcher (ChromeOS-style). Opened by the Search key. */
 configuration {
     show-icons:            true;
+    icon-theme:            "Papirus";
+    /* Apps only: the individual settings dialogs live inside Settings. */
+    drun-categories:       "AudioVideo,Audio,Video,Development,Education,Game,Graphics,Network,Office,Science,Utility,System";
     drun-display-format:   "{name}";
     display-drun:          "";
     disable-history:       false;

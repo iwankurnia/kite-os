@@ -14,7 +14,7 @@ if [ "${KITE_IN_CONTAINER:-0}" != 1 ] && [ "${KITE_NATIVE:-0}" != 1 ]; then
     [ -n "$engine" ] || { echo "Install Docker or Podman, or run on Debian 13 with KITE_NATIVE=1" >&2; exit 1; }
     exec "$engine" run --rm --privileged \
         -v "$REPO:/kiteos" -w /kiteos \
-        -e KITE_IN_CONTAINER=1 -e KITE_MIRROR -e KITE_TRUST_NEW_KEYS \
+        -e KITE_IN_CONTAINER=1 -e KITE_MIRROR -e KITE_SECURITY_MIRROR -e KITE_BRAVE_MIRROR -e KITE_ONLYOFFICE_MIRROR -e KITE_TRUST_NEW_KEYS \
         docker.io/library/debian:trixie ./build.sh "$@"
 fi
 
@@ -26,12 +26,10 @@ echo "==> installing build tools"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends live-build debootstrap xorriso squashfs-tools \
-    dosfstools mtools grub-efi-amd64-bin grub-common dpkg-dev gnupg curl ca-certificates git file make gcc libc6-dev
+    dosfstools mtools grub-efi-amd64-bin grub-common dpkg-dev gnupg curl ca-certificates file mount
 
 rm -rf out/debs
 mkdir -p out/debs
-echo "==> keyd / docklike (from Debian, or built from upstream)"
-scripts/build-extra-debs.sh out/debs
 echo "==> KiteOS packages"
 scripts/build-packages.sh out/debs
 echo "==> Brave and ONLYOFFICE repositories"

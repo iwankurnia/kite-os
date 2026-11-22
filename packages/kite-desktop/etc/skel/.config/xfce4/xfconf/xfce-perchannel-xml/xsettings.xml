@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
   <property name="Net" type="empty">
-    <property name="ThemeName" type="string" value="Materia-light-compact"/>
-    <property name="IconThemeName" type="string" value="Papirus"/>
+    <property name="ThemeName" type="string" value="Orchis-Light-Compact"/>
+    <property name="IconThemeName" type="string" value="KiteOS"/>
     <property name="EnableEventSounds" type="bool" value="false"/>
     <property name="EnableInputFeedbackSounds" type="bool" value="false"/>
   </property>

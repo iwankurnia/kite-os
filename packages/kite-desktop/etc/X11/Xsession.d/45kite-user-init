@@ -5,3 +5,8 @@ fi
 # Skip the "which panel layout?" question; KiteOS ships its own.
 XFCE_PANEL_MIGRATE_DEFAULT=1
 export XFCE_PANEL_MIGRATE_DEFAULT
+# Launcher entries KiteOS hides (duplicates) live in /usr/share/kite/xdg;
+# it must come after /usr/local/share (apps moved to an external disk) and
+# before /usr/share.
+XDG_DATA_DIRS="/usr/local/share:/usr/share/kite/xdg:${XDG_DATA_DIRS:-/usr/share}"
+export XDG_DATA_DIRS

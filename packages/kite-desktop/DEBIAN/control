@@ -6,11 +6,11 @@ Architecture: all
 Maintainer: KiteOS builder <root@localhost>
 Depends: xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, thunar, xfce4-terminal,
  xfce4-power-manager, xfce4-power-manager-plugins, xfce4-pulseaudio-plugin, xfce4-docklike-plugin,
- xfce4-notifyd, xfce4-screensaver, exo-utils, rofi, lightdm, slick-greeter, materia-gtk-theme,
+ xfce4-notifyd, xfce4-screensaver, exo-utils, rofi, lightdm, slick-greeter, orchis-gtk-theme,
  papirus-icon-theme, x11-xserver-utils, procps, python3, kite-system
 Recommends: fonts-roboto | fonts-dejavu-core, xfce4-taskmanager, brave-browser, onlyoffice-desktopeditors
 Description: KiteOS ChromeOS-style desktop
  XFCE configured as a light ChromeOS-like desktop: bottom shelf with a
  full-screen app launcher (tap the Search key), centred pinned apps, status
- area and clock; Materia theme with Papirus icons; LightDM slick-greeter login
+ area and clock; Orchis theme with Papirus icons; LightDM slick-greeter login
  screen and KiteOS artwork.

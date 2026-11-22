@@ -6,3 +6,4 @@ Exec=kite-install
 Icon=kiteos
 Categories=System;
 Terminal=false
+StartupWMClass=calamares

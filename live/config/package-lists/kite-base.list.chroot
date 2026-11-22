@@ -4,7 +4,8 @@ linux-image-amd64
 firmware-linux-free
 firmware-iwlwifi
 firmware-sof-signed
-firmware-realtek
+firmware-intel-graphics
+firmware-intel-misc
 intel-microcode
 intel-media-va-driver
 libgl1-mesa-dri
@@ -31,7 +32,6 @@ unzip
 e2fsprogs
 dosfstools
 exfatprogs
-btrfs-progs
 grub-efi-amd64
 efibootmgr
 
@@ -39,6 +39,7 @@ efibootmgr
 network-manager
 wpasupplicant
 bluez
+blueman
 pipewire
 pipewire-pulse
 pipewire-alsa
@@ -49,3 +50,4 @@ upower
 earlyoom
 plymouth
 plymouth-themes
+plymouth-label

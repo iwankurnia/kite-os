@@ -1,0 +1,12 @@
+[Icon Theme]
+Name=KiteOS
+Comment=KiteOS status icons (Wi-Fi, volume, battery, power), everything else from Papirus
+Inherits=Papirus,Adwaita,hicolor
+Directories=scalable/status
+
+[scalable/status]
+Size=24
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Status
