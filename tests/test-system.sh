@@ -223,6 +223,12 @@ check "reads the release checksum list" ku_py \
 check "update source is the KiteOS repository" grep -qx 'REPO=iwankurnia/kite-os' "$REPO/packages/kite-system/etc/kite/update.conf"
 check "rejects unknown options" bash -c "! python3 '$KU' --bogus 2>/dev/null"
 
+echo "== touchpad defaults"
+TP=$REPO/packages/kite-desktop/etc/X11/xorg.conf.d/50-kite-touchpad.conf
+check "tap to click" grep -q 'Option "Tapping" "on"' "$TP"
+check "natural scrolling" grep -q 'Option "NaturalScrolling" "true"' "$TP"
+check "touchpads only" grep -q 'MatchIsTouchpad "on"' "$TP"
+
 echo
 echo "system tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
