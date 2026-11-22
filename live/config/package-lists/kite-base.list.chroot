@@ -44,9 +44,8 @@ pipewire
 pipewire-pulse
 pipewire-alsa
 wireplumber
-# PipeWire's Bluetooth audio (A2DP/HFP). Only a Recommends of wireplumber, so
-# without it Bluetooth speakers fail with "No audio endpoints registered".
-libspa-0.2-bluetooth
+# PipeWire's Bluetooth audio (libspa-0.2-bluetooth) is a dependency of
+# kite-desktop, so kite-update brings it to installed systems too.
 alsa-utils
 alsa-ucm-conf
 upower

@@ -1,5 +1,5 @@
 Package: kite-desktop
-Version: 1.1.4
+Version: 1.1.5
 Section: x11
 Priority: optional
 Architecture: all
@@ -7,7 +7,7 @@ Maintainer: KiteOS builder <root@localhost>
 Depends: xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, thunar, xfce4-terminal,
  xfce4-power-manager, xfce4-power-manager-plugins, xfce4-pulseaudio-plugin, xfce4-docklike-plugin,
  xfce4-notifyd, xfce4-screensaver, exo-utils, rofi, lightdm, slick-greeter, orchis-gtk-theme,
- papirus-icon-theme, x11-xserver-utils, procps, python3, picom, kite-system
+ papirus-icon-theme, x11-xserver-utils, procps, python3, picom, libspa-0.2-bluetooth, kite-system
 Recommends: fonts-roboto | fonts-dejavu-core, xfce4-taskmanager, brave-browser, onlyoffice-desktopeditors
 Description: KiteOS ChromeOS-style desktop
  XFCE configured as a light ChromeOS-like desktop: bottom shelf with a

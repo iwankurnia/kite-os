@@ -74,6 +74,19 @@ kite-storage status
 Apps & Storage → **Update apps and system**, or `sudo kite-storage update`
 (it uses the external disk for download space when available).
 
+## Updating KiteOS
+
+```bash
+kite-update --check     # what's new in the latest KiteOS release
+kite-update             # install it (asks for your password)
+sudo apt update && sudo apt upgrade     # Debian, Brave and ONLYOFFICE updates
+```
+
+`kite-update` installs the newer KiteOS packages (`kite-system`, `kite-desktop`, …)
+attached to the latest release on GitHub, after checking them against the
+release's checksum list, together with any new Debian packages they need. Your
+own changes to files under `/etc` are kept. Log out and in again afterwards.
+
 ## Light-weight defaults you may want to change
 
 - `/etc/apt/apt.conf.d/60kite-no-recommends`: Recommends are not installed.

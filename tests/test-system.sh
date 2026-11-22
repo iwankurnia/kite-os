@@ -194,6 +194,32 @@ check "picom shadow is rounded like the launcher card (16 px)" bash -c \
      grep -q 'border-radius: *16px' '$REPO/packages/kite-desktop/usr/share/rofi/themes/kite-launcher.rasi'"
 check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
 
+echo "== kite-update (KiteOS packages from GitHub releases)"
+KU=$REPO/packages/kite-system/usr/bin/kite-update
+ku_py() { python3 - "$KU" <<PYEOF
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("ku", sys.argv[1])
+spec = importlib.util.spec_from_loader("ku", loader); ku = importlib.util.module_from_spec(spec); loader.exec_module(ku)
+from itertools import zip_longest
+def vkey(v): return [int(x) for x in v.split(".")]
+newer = lambda a, b: vkey(a) > vkey(b)          # dpkg isn't available everywhere the tests run
+installed = {"kite-system": "1.0.0", "kite-desktop": "1.1.5", "kite-storage": "1.0.0"}.get
+release = {"tag_name": "v1.3", "assets": [
+    {"name": "kiteos-1.3-amd64.iso"}, {"name": "kite-packages.sha256"},
+    {"name": "kite-system_1.1.0_all.deb"}, {"name": "kite-desktop_1.1.5_all.deb"},
+    {"name": "kite-storage_0.9.0_all.deb"}, {"name": "kite-chromebook_1.0.0_all.deb"}]}
+$1
+PYEOF
+}
+check "offers only installed packages with a newer version" ku_py \
+    'assert [(p, h, v) for p, h, v, _ in ku.plan(release, installed, newer)] == [("kite-system", "1.0.0", "1.1.0")]'
+check "nothing to do when up to date" ku_py \
+    'assert ku.plan(release, {"kite-system": "1.1.0"}.get, newer) == []'
+check "reads the release checksum list" ku_py \
+    'assert ku.checksums("a" * 64 + "  kite-system_1.1.0_all.deb" + chr(10) + "junk line") == {"kite-system_1.1.0_all.deb": "a" * 64}'
+check "update source is the KiteOS repository" grep -qx 'REPO=iwankurnia/kite-os' "$REPO/packages/kite-system/etc/kite/update.conf"
+check "rejects unknown options" bash -c "! python3 '$KU' --bogus 2>/dev/null"
+
 echo
 echo "system tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

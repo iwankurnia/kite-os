@@ -53,9 +53,12 @@ jobs:
           sudo mv kiteos-*-amd64.iso "$name"
           sudo rm -f -- *.sha256
           sha256sum "$name" | sudo tee "$name.sha256"
+          # The KiteOS packages too, for kite-update on installed systems.
+          (cd debs && sha256sum kite-*.deb) | sudo tee kite-packages.sha256
+          files="$name $name.sha256 kite-packages.sha256 $(ls debs/kite-*.deb)"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$name" "$name.sha256" --clobber
+            gh release upload "$TAG" $files --clobber
           else
-            gh release create "$TAG" "$name" "$name.sha256" --verify-tag \
+            gh release create "$TAG" $files --verify-tag \
               --title "KiteOS ${TAG#v}" --generate-notes
           fi

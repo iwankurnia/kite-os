@@ -158,6 +158,12 @@ first; the workflow then only adds the files:
 gh release create v1.2 --title "KiteOS 1.2" --notes-file notes.md   # creates the tag, starts the build
 ```
 
+Every release also carries the four `kite-*.deb` files and
+`kite-packages.sha256`, which `kite-update` on installed systems uses. So a
+fix that needs a new Debian package must add it to a kite package's
+`Depends` (as `libspa-0.2-bluetooth` and `picom` are), not only to
+`live/config/package-lists`, or installed systems won't get it.
+
 Without a release, a pushed tag gets one with generated notes. Manual runs
 (`gh workflow run build-iso.yml`) only leave the ISO as a 90-day artifact.
 
