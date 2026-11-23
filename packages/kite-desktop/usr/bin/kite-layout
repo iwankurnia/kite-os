@@ -45,13 +45,13 @@ DECORATION = {"windows": "menu:minimize,maximize,close", "mac": "close,minimize,
 # Pinned apps, in order; only the installed ones are pinned. "Install KiteOS"
 # exists only in the live session.
 PINNED = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "thunar", "xfce4-terminal",
-          "kite-app-centre", "kite-apps", "xfce-settings-manager")
+          "kite-apps", "kite-settings")
 # Favourites in the Start/kite menu, so it opens with something to click; only
 # the installed ones are listed (the text editor and image viewer have both
 # their old and their reverse-DNS desktop file names here).
 FAVOURITES = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "thunar",
               "xfce4-terminal", "org.xfce.mousepad", "mousepad", "org.xfce.ristretto",
-              "ristretto", "kite-apps", "xfce-settings-manager")
+              "ristretto", "kite-apps", "kite-settings")
 
 # Files a layout owns (relative to ~/.config); removed before the layout's own
 # copies go in, so nothing of the other layout is left behind.

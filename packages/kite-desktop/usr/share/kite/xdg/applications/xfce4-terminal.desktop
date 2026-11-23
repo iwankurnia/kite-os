@@ -1,0 +1,12 @@
+[Desktop Entry]
+# KiteOS: Xfce Terminal under the plain name used on the taskbar.
+Type=Application
+Name=Terminal
+GenericName=Terminal
+Comment=Use the command line
+Exec=xfce4-terminal
+Icon=org.xfce.terminal
+Terminal=false
+StartupNotify=true
+Categories=GTK;System;TerminalEmulator;
+Keywords=terminal;command line;shell;console;

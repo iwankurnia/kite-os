@@ -1,0 +1,13 @@
+[Desktop Entry]
+# KiteOS: Thunar under the plain name used on the taskbar and in the installer.
+Type=Application
+Name=Files
+GenericName=File Manager
+Comment=Browse your files and folders
+Exec=thunar %F
+Icon=org.xfce.thunar
+Terminal=false
+StartupNotify=true
+Categories=System;Core;GTK;FileTools;FileManager;
+MimeType=inode/directory;
+Keywords=files;folders;file manager;explorer;finder;

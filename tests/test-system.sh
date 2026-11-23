@@ -466,11 +466,13 @@ j = json.dumps({"blockdevices": [
     {"name": "/dev/sdb1", "size": "16G", "fstype": "vfat", "label": "STICK", "type": "part", "pkname": "/dev/sdb"},
     {"name": "/dev/sdc", "size": "31G", "fstype": None, "label": None, "type": "disk", "pkname": None, "tran": "usb", "rm": True, "hotplug": True},
     {"name": "/dev/sdc2", "size": "3M", "fstype": "vfat", "label": "KiteOS", "type": "part", "pkname": "/dev/sdc"},
+    {"name": "/dev/sdd", "size": "4G", "fstype": None, "label": None, "type": "disk", "pkname": None, "tran": "usb", "rm": True, "hotplug": True},
     {"name": "/dev/loop0p1", "size": "1G", "fstype": "ext4", "label": None, "type": "part", "pkname": "/dev/loop0"}]})
 r = ac.external_partitions(j, "mmcblk0", "/dev/sdc", {"mmcblk1"})
-assert [x["name"] for x in r] == ["/dev/mmcblk1p1", "/dev/sda1", "/dev/sdb1"], r
+assert [x["name"] for x in r] == ["/dev/mmcblk1p1", "/dev/sda1", "/dev/sdb1", "/dev/sdd"], r
+assert r[3] == {"name": "/dev/sdd", "size": "4G", "fstype": "none", "label": "blank disk"}, r
 assert r[1] == {"name": "/dev/sda1", "size": "58G", "fstype": "none", "label": "-"}, r
-assert [x["name"] for x in ac.external_partitions(j, "", "", ())] == ["/dev/sda1", "/dev/sdb1", "/dev/sdc2"]
+assert [x["name"] for x in ac.external_partitions(j, "", "", ())] == ["/dev/sda1", "/dev/sdb1", "/dev/sdc2", "/dev/sdd"]
 assert ac.external_partitions("not json", "") == []'
 check "root steps match the kite-storage commands" ac_py '
 KS = "/usr/sbin/kite-storage"

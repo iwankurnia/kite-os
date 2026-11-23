@@ -351,6 +351,11 @@ def _flag(v):
     return v is True or str(v) == "1"
 
 
+def _unpluggable(disk, name, sd_disks):
+    return (disk.get("tran") == "usb" or _flag(disk.get("rm")) or _flag(disk.get("hotplug"))
+            or name in sd_disks)
+
+
 def external_partitions(lsblk_json, root_disk, live_disk="", sd_disks=()):
     """`lsblk -J -l -p -o NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME,TRAN,RM,HOTPLUG` ->
     partitions on disks that can be unplugged (USB, removable, hot-plug or an
@@ -370,12 +375,19 @@ def external_partitions(lsblk_json, root_disk, live_disk="", sd_disks=()):
         if (root and parent == root) or (live and parent == live) \
                 or parent.startswith(("zram", "loop", "sr")):
             continue
-        disk = disks.get(parent, {})
-        if not (disk.get("tran") == "usb" or _flag(disk.get("rm")) or _flag(disk.get("hotplug"))
-                or parent in sd_disks):
+        if not _unpluggable(disks.get(parent, {}), parent, sd_disks):
             continue
         out.append({"name": d.get("name") or "", "size": d.get("size") or "",
                     "fstype": d.get("fstype") or "none", "label": d.get("label") or "-"})
+    # A blank stick (no partition table) is offered as the whole disk:
+    # kite-storage setup --format gives it one partition.
+    parents = {os.path.basename(d.get("pkname") or "") for d in devices if d.get("type") == "part"}
+    for name, d in disks.items():
+        if name in parents or name in (root, live) or name.startswith(("zram", "loop", "sr")):
+            continue
+        if _unpluggable(d, name, sd_disks):
+            out.append({"name": d.get("name") or "", "size": d.get("size") or "",
+                        "fstype": "none", "label": "blank disk"})
     return out
 
 
@@ -415,6 +427,17 @@ def installed_apps(apps_dir=APPS_DIR):
 def installed_packages():
     _, out, _ = run(["dpkg-query", "-W", "-f", "${db:Status-Abbrev}\t${Package}\n"], env=C_ENV)
     return parse_installed(out)
+
+
+def collect_usage():
+    conf = parse_shell_conf(read_text(CONF))
+    state = external_state(conf)
+    mount = conf.get("EXT_MOUNT") or DEFAULT_MOUNT
+    targets = ["/"] + ([mount] if state == "ready" else [])
+    _, out, _ = run(["df", "-B1", "--output=size,used,avail,target"] + targets, env=C_ENV)
+    df = parse_df(out)
+    return {"state": state, "mount": mount, "internal": df.get("/"),
+            "external": df.get(mount) if state == "ready" else None}
 
 
 def collect_overview(user):
@@ -725,6 +748,7 @@ class AppCentre:
         c.pack_start(self.st_ext_text, False, False, 0)
         b = button("Set up external disk", self.setup_disk)
         b.set_halign(Gtk.Align.START)
+        self.st_setup_btn = b
         c.pack_start(b, False, False, 4)
         cards.pack_start(c, True, True, 0)
 
@@ -901,6 +925,8 @@ class AppCentre:
         threading.Thread(target=thread, daemon=True).start()
 
     def refresh(self):
+        # The disk figures first (quick), then the full overview (lists apps).
+        self.bg(collect_usage, self.show_quick_usage)
         self.bg(lambda: collect_overview(self.user), self.show_overview)
 
     def refresh_updates(self):
@@ -933,8 +959,14 @@ class AppCentre:
         buf.set_text(ov["status_text"])
         return False
 
+    def show_quick_usage(self, usage):
+        if not isinstance(usage, Exception):
+            self.show_usage(usage)
+        return False
+
     def show_usage(self, ov):
         state, internal, external = ov["state"], ov["internal"], ov["external"]
+        self.st_setup_btn.set_label("Set up external disk" if state == "none" else "Use another disk")
         int_note, ext_note = sidebar_lines(internal, state, external)
         self.side_int_note.set_text(int_note)
         self.side_ext_note.set_text(ext_note)
@@ -1105,7 +1137,7 @@ class AppCentre:
             self.disc_list.pack_end(c, False, False, 0)
         for r in results:
             c = card()
-            c.pack_start(app_image(r["name"], 32, "package-x-generic"), False, False, 0)
+            c.pack_start(app_image(r["name"], 32, "applications-other"), False, False, 0)
             text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             text.pack_start(label(markup="<b>%s</b>" % esc(r["name"]), ellipsize=True), False, False, 0)
             text.pack_start(label(r["summary"], dim=True, ellipsize=True), False, False, 0)
@@ -1241,6 +1273,10 @@ class AppCentre:
                                   transient_for=self.win, action=Gtk.FileChooserAction.SELECT_FOLDER)
         d.add_button("Cancel", Gtk.ResponseType.CANCEL)
         d.add_button("Move", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        # GTK's default is taller than a 768 px screen minus the taskbar, which
+        # hid the buttons behind it.
+        d.set_default_size(820, 520)
+        d.set_position(Gtk.WindowPosition.CENTER_ON_PARENT)
         d.set_current_folder(os.path.expanduser("~"))
         r = d.run()
         folder = d.get_filename()

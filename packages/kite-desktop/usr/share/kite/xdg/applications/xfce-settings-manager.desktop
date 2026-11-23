@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=xfce-settings-manager
+NoDisplay=true
+# Hidden: KiteOS's own "Settings" (kite-settings.desktop) opens the same window.

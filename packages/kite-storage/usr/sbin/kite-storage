@@ -382,6 +382,25 @@ cmd_setup() {
         shift
     done
     [ -b "$dev" ] || die "give the external partition, e.g. /dev/sda1 (see: lsblk -f)"
+    # A blank stick (a whole disk, no partition table): one partition for it,
+    # after the same safety checks as a partition.
+    if [ "$(lsblk -dno TYPE "$dev" 2>/dev/null)" = disk ]; then
+        local whole
+        whole=$(basename "$dev")
+        [ "$format" = 1 ] || die "$dev is a whole disk: use --format to give it one partition (erases it)"
+        [ "$whole" != "$(root_disk)" ] || die "$dev is the internal disk — choose the external USB/SD disk"
+        [ "$whole" != "$(live_disk)" ] || die "$dev is the KiteOS USB stick this session runs from — choose another disk"
+        if [ "${KITE_ALLOW_INTERNAL:-0}" != 1 ] && ! disk_is_external "$whole"; then
+            die "$dev is a built-in disk, not a USB stick or SD card (set KITE_ALLOW_INTERNAL=1 to use it anyway)"
+        fi
+        log "creating one partition on $dev — all data on it is erased"
+        while read -r m; do umount "$m" || true; done < <(lsblk -lnpo MOUNTPOINT "$dev" | grep . || true)
+        wipefs -q -a "$dev"
+        printf 'label: gpt\n,,L\n' | sfdisk -q "$dev"
+        udevadm settle 2>/dev/null || sleep 2
+        dev=$(lsblk -lnpo NAME,TYPE "$dev" | awk '$2 == "part" { print $1; exit }')
+        [ -b "$dev" ] || die "the new partition did not appear"
+    fi
     local rootdisk devdisk
     rootdisk=$(root_disk)
     devdisk=$(lsblk -no PKNAME "$dev" 2>/dev/null | head -n1)

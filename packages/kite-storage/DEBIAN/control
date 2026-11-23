@@ -1,11 +1,11 @@
 Package: kite-storage
-Version: 1.1.1
+Version: 1.1.2
 Section: admin
 Priority: optional
 Architecture: all
 Maintainer: KiteOS builder <root@localhost>
 Recommends: libnotify-bin
-Depends: bash, apt, dpkg, coreutils, diffutils, util-linux, e2fsprogs, udev, yad, pkexec, sudo, mate-polkit, python3, python3-gi, gir1.2-gtk-3.0
+Depends: bash, apt, dpkg, coreutils, diffutils, util-linux, fdisk, e2fsprogs, udev, yad, pkexec, sudo, mate-polkit, python3, python3-gi, gir1.2-gtk-3.0
 Description: KiteOS App Centre — install apps and keep them on an external disk
  App Centre (kite-app-centre) finds, installs and removes apps, updates
  KiteOS and the system, and with the kite-storage command keeps apps and
