@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+# Only on removal: an upgrade keeps the units and postinst enables them again.
+# earlyoom and fstrim.timer belong to other packages and stay as they are.
+if [ "$1" = remove ]; then
+    for unit in kite-zswap.service kite-hibernate-firstboot.service; do
+        systemctl disable "$unit" >/dev/null 2>&1 || true
+        if [ -d /run/systemd/system ]; then
+            systemctl stop "$unit" >/dev/null 2>&1 || true
+        fi
+    done
+fi
+exit 0

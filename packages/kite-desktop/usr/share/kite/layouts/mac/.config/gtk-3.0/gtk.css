@@ -62,4 +62,11 @@ tooltip, tooltip.background {
   border-radius: 10px;
 }
 tooltip { background-color: rgba(246, 246, 248, 0.96); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.12); }
+/* No drop shadow on tooltips: without a compositor the theme's shadow is
+   drawn as solid grey corners around the rounded tooltip. */
+tooltip, tooltip.background { box-shadow: none; }
 tooltip * { color: #1d1d1f; }
+
+/* KiteOS: the kite menu's header buttons (settings, lock, log out) were too
+   faint on Qogir; give their symbolic icons the menu bar's text colour. */
+#whiskermenu-window button image { color: #1d1d1f; opacity: 1; -gtk-icon-effect: none; }

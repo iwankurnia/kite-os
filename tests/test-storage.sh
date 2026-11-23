@@ -50,6 +50,25 @@ check "data intact after restore" test "$(sha256sum "$APP/share/data.bin" | cut 
 check "external copy removed" test ! -e "$T/ext/kite/system$APP"
 check "state cleared" bash -c "! grep -q '$APP' '$KITE_STATE_DIR/moved.tsv'"
 
+echo "== move-dir refuses dangerous folders"
+for d in /boot /etc/ssh /var/lib/apt /home; do
+    if "$KS" move-dir "$d" >/dev/null 2>&1; then bad "move-dir $d should be refused"; else ok "move-dir $d refused"; fi
+done
+check "/boot untouched" test -d /boot -a ! -L /boot
+if "$KS" move-dir "$APP" --user root >/dev/null 2>&1; then bad "--user: a folder outside the home should be refused"
+else ok "--user: a folder outside the home is refused"; fi
+check "refused folder left in place" bash -c "[ -d '$APP' ] && [ ! -L '$APP' ]"
+if (unset KITE_TEST_NO_MOUNTCHECK; . "$KS"; mkdir -p "$T/plain"; dir_is_protected "$T/plain") 2>/dev/null; then
+    bad "an ordinary folder looked protected"; else ok "an ordinary folder is not protected"; fi
+mkdir -p "$T/mnt-parent/inner"
+if mount -t tmpfs none "$T/mnt-parent/inner" 2>/dev/null; then
+    if (unset KITE_TEST_NO_MOUNTCHECK; . "$KS"; dir_is_protected "$T/mnt-parent"); then ok "a folder with a disk mounted inside is protected"
+    else bad "a folder with a disk mounted inside should be protected"; fi
+    umount "$T/mnt-parent/inner"
+else
+    echo "  skip mount-point check (cannot mount tmpfs here)"
+fi
+
 echo "== verify / repair"
 "$KS" move-dir "$APP" >/dev/null
 # Simulate something replacing the link with a real folder.

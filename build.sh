@@ -14,8 +14,8 @@ if [ "${KITE_IN_CONTAINER:-0}" != 1 ] && [ "${KITE_NATIVE:-0}" != 1 ]; then
     [ -n "$engine" ] || { echo "Install Docker or Podman, or run on Debian 13 with KITE_NATIVE=1" >&2; exit 1; }
     exec "$engine" run --rm --privileged \
         -v "$REPO:/kiteos" -w /kiteos \
-        -e KITE_IN_CONTAINER=1 -e KITE_MIRROR -e KITE_SECURITY_MIRROR -e KITE_BRAVE_MIRROR -e KITE_ONLYOFFICE_MIRROR -e KITE_TRUST_NEW_KEYS \
-        docker.io/library/debian:trixie ./build.sh "$@"
+        -e KITE_IN_CONTAINER=1 -e KITE_VERSION -e KITE_MIRROR -e KITE_SECURITY_MIRROR -e KITE_BRAVE_MIRROR -e KITE_ONLYOFFICE_MIRROR -e KITE_TRUST_NEW_KEYS \
+        "${KITE_BASE_IMAGE:-public.ecr.aws/docker/library/debian:trixie}" ./build.sh "$@"
 fi
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
@@ -38,6 +38,12 @@ scripts/fetch-vendor-keys.sh live/config
 rm -f live/config/packages.chroot/*.deb
 cp out/debs/*.deb live/config/packages.chroot/
 
+# The installer shows the release version (tag builds set KITE_VERSION=1.2.3).
+if [ -n "${KITE_VERSION:-}" ]; then
+    b=live/config/includes.chroot/etc/calamares/branding/kite/branding.desc
+    sed -i -E "s/^( *version: *).*/\\1$KITE_VERSION (Debian 13)/; s/^( *shortVersion: *).*/\\1\"$KITE_VERSION\"/; s/^( *(short)?[vV]ersionedName: *).*/\\1KiteOS $KITE_VERSION/" "$b"
+    grep -E 'ersion' "$b"
+fi
 echo "==> live-build (this takes a while)"
 cd live
 lb clean --purge

@@ -112,11 +112,14 @@ if in_ch apt-get install -y -q --reinstall alsa-ucm-conf > "$W/trigger.log" 2>&1
     check "UCM trigger fires on alsa-ucm-conf upgrade" grep -q 'kite-chromebook' "$W/trigger.log"
 fi
 check "purge works" in_ch apt-get purge -y -q kite-chromebook
+check "setup service link gone after purge" test ! -e "$CH/etc/systemd/system/multi-user.target.wants/kite-chromebook-setup.service"
 
 echo "== kite-desktop removal"
+in_ch kite-login-theme aurora >/dev/null 2>&1 || true
 in_ch apt-get purge -y -q kite-desktop >/dev/null 2>&1 && ok "kite-desktop purged" || bad "kite-desktop purge failed"
 check "Brave gets its own launcher back" test "$(readlink "$CH/usr/bin/brave-browser-stable")" = /opt/brave.com/brave/brave-browser
 check "no diversion left behind" bash -c "[ -z \"\$(chroot '$CH' dpkg-divert --listpackage /usr/bin/brave-browser-stable)\" ]"
+check "purge removes the login screen file kite-login-theme wrote" test ! -e "$CH/etc/lightdm/slick-greeter.conf"
 
 echo
 echo "package tests ($SUITE): $pass passed, $fail failed"

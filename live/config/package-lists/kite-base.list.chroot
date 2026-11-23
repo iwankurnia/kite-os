@@ -13,6 +13,8 @@ libgl1-mesa-dri
 # Core system
 systemd-sysv
 systemd-timesyncd
+# hwclock, used by the installer to set the hardware clock (not in util-linux on Debian 13)
+util-linux-extra
 dbus-user-session
 initramfs-tools
 sudo

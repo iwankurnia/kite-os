@@ -50,6 +50,9 @@ tooltip, tooltip.background {
   border-radius: 8px;
 }
 tooltip { background-color: rgba(243, 243, 243, 0.98); color: #1b1b1b; border: 1px solid rgba(0,0,0,0.12); }
+/* No drop shadow on tooltips: without a compositor the theme's shadow is
+   drawn as solid grey corners around the rounded tooltip. */
+tooltip, tooltip.background { box-shadow: none; }
 tooltip * { color: #1b1b1b; }
 
 /* Desktop icon labels: dark text without the glow, readable on the light

@@ -21,6 +21,9 @@ for l in frosted aurora dusk; do jpg login-$l.svg $P/kite-desktop/usr/share/back
 r -w 220 greeter-logo.svg       -o $P/kite-desktop/usr/share/kite/greeter-logo.png
 r -w 256 logo.svg               -o $P/kite-desktop/usr/share/icons/hicolor/256x256/apps/kiteos.png
 cp logo.svg     $P/kite-desktop/usr/share/icons/hicolor/scalable/apps/kiteos.svg
+# "Install KiteOS" (live session only): the kite with an install badge
+r -w 256 install.svg            -o ../live/config/includes.chroot/usr/share/icons/hicolor/256x256/apps/kiteos-install.png
+cp install.svg  ../live/config/includes.chroot/usr/share/icons/hicolor/scalable/apps/kiteos-install.svg
 r -w 300 watermark.svg          -o $P/kite-system/usr/share/kite/plymouth/watermark.png
 r -w 128 logo.svg               -o ../live/config/includes.chroot/etc/calamares/branding/kite/kite-logo.png
 r -w 800 -h 450 wallpaper-bloom.svg -o ../live/config/includes.chroot/etc/calamares/branding/kite/welcome.png

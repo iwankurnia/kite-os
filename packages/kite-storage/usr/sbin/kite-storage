@@ -43,6 +43,9 @@ EXT_MOUNT=${KITE_EXT_MOUNT:-$EXT_MOUNT}
 log()  { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 warn() { printf '%s: warning: %s\n' "$PROG" "$*" >&2; }
 die()  { printf '%s: error: %s\n' "$PROG" "$*" >&2; exit 1; }
+# Settings changed under /etc are kept when a package brings a new version,
+# instead of dpkg asking (App Centre has no terminal to answer in).
+DPKG_KEEP=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 need_root() { [ "$(id -u)" -eq 0 ] || die "this needs root (run it with sudo, or use App Centre)"; }
 
 # Directories that belong to many packages and must never be moved as a whole.
@@ -97,6 +100,44 @@ root_disk() {
     lsblk -no PKNAME "$src" 2>/dev/null | head -n1
 }
 
+# Disk (e.g. sdb) the live session was started from; empty on an installed system.
+live_disk() {
+    local src
+    src=$(findmnt -n -o SOURCE /run/live/medium 2>/dev/null | sed 's/\[.*//')
+    [ -b "$src" ] || return 0
+    lsblk -no PKNAME "$src" 2>/dev/null | head -n1
+}
+
+# True for a disk that can be unplugged: USB, removable or hot-plug, or an SD
+# card (an eMMC reports "MMC" as its type, an SD card "SD").
+disk_is_external() {
+    local disk=$1 tran rm hotplug
+    read -r tran rm hotplug < <(lsblk -dno TRAN,RM,HOTPLUG "/dev/$disk" 2>/dev/null | awk '{ if (NF == 2) print "-", $1, $2; else print $1, $2, $3 }')
+    [ "$tran" = usb ] || [ "$rm" = 1 ] || [ "$hotplug" = 1 ] && return 0
+    [ "$(cat "/sys/block/$disk/device/type" 2>/dev/null)" = SD ]
+}
+
+# Folders that must never be moved: the system's own, and anything with a
+# file system mounted on or below it (moving /boot would empty /boot/efi).
+dir_is_protected() {
+    local dir=$1 m
+    case "$dir" in
+        /|/boot|/boot/*|/etc|/etc/*|/proc|/proc/*|/sys|/sys/*|/dev|/dev/*|/run|/run/*|\
+        /usr|/usr/bin|/usr/bin/*|/usr/sbin|/usr/sbin/*|/usr/lib|/usr/lib/*|/bin|/bin/*|/sbin|/sbin/*|\
+        /lib|/lib/*|/lib64|/lib64/*|/var/lib/dpkg|/var/lib/dpkg/*|/var/lib/apt|/var/lib/apt/*|\
+        /var/cache/apt|/var/cache/apt/*|/root|/home|/mnt|/media|/tmp|/var)
+            return 0 ;;
+    esac
+    [[ "$dir" =~ ^/[^/]+$ ]] && return 0      # any top-level folder
+    [[ "$dir" =~ ^/home/[^/]+$ ]] && return 0 # a whole home folder
+    [ -n "${KITE_TEST_NO_MOUNTCHECK:-}" ] && return 1
+    while IFS= read -r m; do
+        m=$(printf '%b' "$m")     # findmnt -r writes a space as \x20
+        [ "$m" = "$dir" ] || [[ "$m" == "$dir"/* ]] && return 0
+    done < <(findmnt -rn -o TARGET 2>/dev/null)
+    return 1
+}
+
 free_mib() { df --output=avail -BM "$1" | tail -n1 | tr -dc '0-9'; }
 dir_mib() { du -sxm "$1" 2>/dev/null | awk '{print $1}'; }
 
@@ -135,7 +176,7 @@ relocate_dir() {
         mv "$orig.kite-moving" "$orig"
         die "could not create the link for $orig — rolled back"
     fi
-    rm -rf "$orig.kite-moving"
+    rm -rf --one-file-system "$orig.kite-moving"
     log "moved: $orig -> $ext"
 }
 
@@ -347,6 +388,12 @@ cmd_setup() {
     if [ -n "$rootdisk" ] && [ "${devdisk:-$(basename "$dev")}" = "$rootdisk" ]; then
         die "$dev is on the internal disk — choose the external USB/SD disk"
     fi
+    if [ -n "$devdisk" ] && [ "$devdisk" = "$(live_disk)" ]; then
+        die "$dev is the KiteOS USB stick this session runs from — choose another disk"
+    fi
+    if [ -n "$devdisk" ] && [ "${KITE_ALLOW_INTERNAL:-0}" != 1 ] && ! disk_is_external "$devdisk"; then
+        die "$dev is on a built-in disk, not a USB stick or SD card (set KITE_ALLOW_INTERNAL=1 to use it anyway)"
+    fi
     local fstype
     fstype=$(blkid -s TYPE -o value "$dev" 2>/dev/null || true)
     if [ "$format" = 1 ]; then
@@ -483,7 +530,7 @@ cmd_install() {
 
     local before after new
     before=$(dpkg-query -W -f='${Package}\n' | sort)
-    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" -y install "${pkgs[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" "${DPKG_KEEP[@]}" -y install "${pkgs[@]}"
     after=$(dpkg-query -W -f='${Package}\n' | sort)
     new=$(comm -13 <(echo "$before") <(echo "$after") | tr '\n' ' ')
     if ext_ready; then apt-get "${aptopts[@]}" clean || true; fi
@@ -530,18 +577,23 @@ cmd_restore_data() {
 cmd_move_dir() {
     need_root
     require_ext
-    local dir="" user
+    local dir="" user explicit=0
     user=$(parse_user)
     while [ $# -gt 0 ]; do
-        case "$1" in --user) shift; user=${1:?} ;; *) dir=$1 ;; esac
+        case "$1" in --user) shift; user=${1:?}; explicit=1 ;; *) dir=$1 ;; esac
         shift
     done
     [ -n "$dir" ] || die "which folder?"
     dir=$(realpath -s "$dir")
     [ -d "$dir" ] && [ ! -L "$dir" ] || die "$dir is not a folder (or is already moved)"
     [[ "$dir" =~ $SHARED_DIRS_RE ]] && die "$dir is a system folder and cannot be moved"
+    dir_is_protected "$dir" && die "$dir is a system folder (or has a disk mounted in it) and cannot be moved"
     local home ext
     home=$(user_home "${user:-root}")
+    # App Centre always names the user: then only folders in that user's home.
+    if (( explicit )) && [[ "$dir" != "$home"/* ]]; then
+        die "only folders inside $home can be moved for $user"
+    fi
     if [ -n "$user" ] && [[ "$dir" == "$home"/* ]]; then
         local rel=${dir#"$home"/}
         ext=$(ext_path_for_user "$user" "$rel")
@@ -653,8 +705,8 @@ cmd_update() {
         aptopts+=(-o "Dir::Cache::archives=$(ext_root)/apt-archives/")
     fi
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" -y full-upgrade
-    DEBIAN_FRONTEND=noninteractive apt-get -y autoremove --purge
+    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" "${DPKG_KEEP[@]}" -y full-upgrade
+    DEBIAN_FRONTEND=noninteractive apt-get "${DPKG_KEEP[@]}" -y autoremove --purge
     apt-get "${aptopts[@]}" clean
     log "system is up to date."
 }
@@ -677,8 +729,8 @@ cmd_remove() {
     removed=$(LC_ALL=C apt-get -s remove "${pkgs[@]}" 2>/dev/null | awk '$1 == "Remv" { print $2 }' || true)
     kite_pkgs=$(grep '^kite-' <<< "$removed" | tr '\n' ' ' || true)
     [ -z "$kite_pkgs" ] || die "removing ${pkgs[*]} would also remove part of KiteOS (${kite_pkgs% }) — nothing was changed"
-    DEBIAN_FRONTEND=noninteractive apt-get -y remove "${pkgs[@]}"
-    DEBIAN_FRONTEND=noninteractive apt-get -y autoremove || warn "could not remove packages that are no longer needed"
+    DEBIAN_FRONTEND=noninteractive apt-get "${DPKG_KEEP[@]}" -y remove "${pkgs[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get "${DPKG_KEEP[@]}" -y autoremove || warn "could not remove packages that are no longer needed"
     ( cmd_verify --repair --quiet ) || true
     log "removed: ${pkgs[*]}"
 }

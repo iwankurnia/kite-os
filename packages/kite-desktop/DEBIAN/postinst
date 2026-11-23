@@ -6,7 +6,9 @@ if [ "$1" = configure ]; then
     if [ -x /usr/bin/xfce4-terminal.wrapper ]; then
         update-alternatives --set x-terminal-emulator /usr/bin/xfce4-terminal.wrapper >/dev/null 2>&1 || true
     fi
-    if [ -x /usr/bin/brave-browser-stable ]; then
+    # /usr/bin/brave-browser-stable is our wrapper and always exists; look
+    # for Brave itself (its launcher, diverted by preinst, or the binary).
+    if [ -x /usr/bin/brave-browser-stable.distrib ] || [ -x /opt/brave.com/brave/brave ]; then
         update-alternatives --set x-www-browser /usr/bin/brave-browser-stable >/dev/null 2>&1 || true
     fi
     systemctl set-default graphical.target >/dev/null 2>&1 || true

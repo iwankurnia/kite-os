@@ -1,7 +1,10 @@
 #!/bin/sh
 set -e
-if [ "$1" = remove ] || [ "$1" = purge ]; then
+# dpkg never passes "purge" to prerm; purge-only clean-up is in postrm.
+if [ "$1" = remove ]; then
     systemctl disable kite-chromebook-setup.service >/dev/null 2>&1 || true
+    # Undo the UCM overlay and the generated keyd/modprobe files while the
+    # helper is still on disk.
     /usr/lib/kite/chromebook/kite-chromebook-uninstall || true
 fi
 exit 0

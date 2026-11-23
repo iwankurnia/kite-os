@@ -176,15 +176,16 @@ def usage_text(usage):
     return "%s of %s GB" % (gb(used), gb(size, whole=True))
 
 
-def sidebar_caption(internal, state, external):
-    left = usage_text(internal) if internal else "unknown"
+def sidebar_lines(internal, state, external):
+    """The figures under the sidebar's two disk bars: (internal, external)."""
+    left = usage_text(internal) if internal else "Unknown"
     if state == "none":
-        right = "not set up"
+        right = "Not set up"
     elif state == "missing" or not external:
-        right = "not connected"
+        right = "Not connected"
     else:
         right = usage_text(external)
-    return "%s · %s" % (left, right)
+    return left, right
 
 
 def plural(n, word):
@@ -204,6 +205,42 @@ def parse_apt_search(text, term, installed=(), limit=SEARCH_LIMIT):
         rows.append((rank, name, desc.strip()))
     rows.sort()
     return [{"name": n, "summary": d, "installed": n in installed} for _, n, d in rows[:limit]]
+
+
+# Packages people rarely mean when they search for an app: translations, help,
+# documentation, development and debug files, data and libraries. They are
+# hidden from the results unless asked for (or named exactly).
+_TECHNICAL = re.compile(
+    r"-(dev|dbg|dbgsym|doc|docs|data|common|l10n|i18n|locale|locales|help|lang|"
+    r"examples|tests?|dictionary|plugins?-dev)(-|$)"
+    r"|^lib(?!re)|^(python3?|ruby|node|golang|r-cran|perl|php\d*|lua\S*|haskell|ocaml|elpa)-")
+
+
+def is_technical(name, term=""):
+    return name != term.strip().lower() and bool(_TECHNICAL.search(name))
+
+
+def split_results(rows, term):
+    """Search results -> (apps, technical). When nothing but technical
+    packages matched, they are the results."""
+    apps = [r for r in rows if not is_technical(r["name"], term)]
+    tech = [r for r in rows if is_technical(r["name"], term)]
+    return (apps, tech) if apps else (tech, [])
+
+
+def friendly_update_error(message):
+    """kite-update's last line -> a sentence for people; the raw line stays
+    available as a tooltip."""
+    m = message or ""
+    if re.search(r"CERTIFICATE|SSL|certificate", m):
+        return ("Could not make a secure connection to GitHub to check for KiteOS updates. "
+                "Check that the date and time are right; the network may also be blocking it.")
+    if re.search(r"HTTP Error (403|429)|rate limit", m, re.I):
+        return "GitHub is limiting requests right now. Try again in a while."
+    if re.search(r"urlopen error|Name or service|name resolution|timed out|unreachable|"
+                 r"Connection refused|No route", m, re.I):
+        return "Could not reach GitHub to check for KiteOS updates. Check that you are online."
+    return "Could not check for KiteOS updates."
 
 
 def parse_installed(text):
@@ -310,20 +347,32 @@ def parse_simulated_removal(text):
     return re.findall(r"^Remv (\S+)", text, re.M)
 
 
-def external_partitions(lsblk_json, root_disk):
-    """`lsblk -J -l -p -o NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME` -> partitions that are
-    not on the system disk (nor zram, loop or optical)."""
+def _flag(v):
+    return v is True or str(v) == "1"
+
+
+def external_partitions(lsblk_json, root_disk, live_disk="", sd_disks=()):
+    """`lsblk -J -l -p -o NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME,TRAN,RM,HOTPLUG` ->
+    partitions on disks that can be unplugged (USB, removable, hot-plug or an
+    SD card), never the system disk, the live USB stick, zram, loop or optical."""
     try:
         devices = json.loads(lsblk_json or "{}").get("blockdevices", [])
     except ValueError:
         return []
     root = os.path.basename(root_disk or "")
+    live = os.path.basename(live_disk or "")
+    disks = {os.path.basename(d.get("name") or ""): d for d in devices if d.get("type") == "disk"}
     out = []
     for d in devices:
         if d.get("type") != "part":
             continue
         parent = os.path.basename(d.get("pkname") or "")
-        if (root and parent == root) or parent.startswith(("zram", "loop", "sr")):
+        if (root and parent == root) or (live and parent == live) \
+                or parent.startswith(("zram", "loop", "sr")):
+            continue
+        disk = disks.get(parent, {})
+        if not (disk.get("tran") == "usb" or _flag(disk.get("rm")) or _flag(disk.get("hotplug"))
+                or parent in sd_disks):
             continue
         out.append({"name": d.get("name") or "", "size": d.get("size") or "",
                     "fstype": d.get("fstype") or "none", "label": d.get("label") or "-"})
@@ -402,8 +451,17 @@ def find_partitions():
     if src:
         _, out, _ = run(["lsblk", "-no", "PKNAME", src])
         root_disk = (out.splitlines() or [""])[0].strip()
-    _, out, _ = run(["lsblk", "-J", "-l", "-p", "-o", "NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME"])
-    return external_partitions(out, root_disk)
+    live_disk = ""
+    _, live_src, _ = run(["findmnt", "-n", "-o", "SOURCE", "/run/live/medium"])
+    if live_src.strip():
+        _, out, _ = run(["lsblk", "-no", "PKNAME", re.sub(r"\[.*", "", live_src.strip())])
+        live_disk = (out.splitlines() or [""])[0].strip()
+    # An SD card reports "SD" here, the built-in eMMC "MMC".
+    sd_disks = {os.path.basename(os.path.dirname(os.path.dirname(t)))
+                for t in glob.glob("/sys/block/mmcblk*/device/type") if read_text(t).strip() == "SD"}
+    _, out, _ = run(["lsblk", "-J", "-l", "-p", "-o",
+                     "NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME,TRAN,RM,HOTPLUG"])
+    return external_partitions(out, root_disk, live_disk, sd_disks)
 
 
 # ---------------------------------------------------------------------- UI --
@@ -496,7 +554,7 @@ def clear(box):
         child.destroy()
 
 
-def app_image(icon, size):
+def app_image(icon, size, fallback="application-x-executable"):
     if icon and os.path.isabs(icon) and os.path.exists(icon):
         try:
             return Gtk.Image.new_from_pixbuf(
@@ -507,7 +565,7 @@ def app_image(icon, size):
     if name.endswith((".png", ".svg", ".xpm")):
         name = name.rsplit(".", 1)[0]
     if not name or not Gtk.IconTheme.get_default().has_icon(name):
-        name = "application-x-executable"
+        name = fallback
     img = Gtk.Image.new_from_icon_name(name, Gtk.IconSize.DIALOG)
     img.set_pixel_size(size)
     return img
@@ -600,13 +658,13 @@ class AppCentre:
         usage.pack_start(label("Internal disk", dim=True), False, False, 0)
         self.side_int = usage_bar("internal")
         usage.pack_start(self.side_int, False, False, 2)
-        usage.pack_start(label("External disk", dim=True), False, False, 4)
+        self.side_int_note = label("")
+        usage.pack_start(self.side_int_note, False, False, 0)
+        usage.pack_start(label("External disk", dim=True), False, False, 8)
         self.side_ext = usage_bar("external")
         self.side_ext_note = label("Not set up")
         usage.pack_start(self.side_ext, False, False, 2)
         usage.pack_start(self.side_ext_note, False, False, 0)
-        self.side_caption = label("", dim=True, wrap=True)
-        usage.pack_start(self.side_caption, False, False, 4)
         side.pack_end(usage, False, False, 0)
         return side
 
@@ -848,6 +906,7 @@ class AppCentre:
     def refresh_updates(self):
         self.updates_loaded = True
         self.up_kite_text.set_text("Checking for KiteOS updates…")
+        self.up_kite_text.set_tooltip_text(None)
         self.up_kite_list.set_text("")
         self.up_kite_btn.set_sensitive(False)
         self.up_sys_text.set_text("Looking for updates…")
@@ -876,7 +935,9 @@ class AppCentre:
 
     def show_usage(self, ov):
         state, internal, external = ov["state"], ov["internal"], ov["external"]
-        self.side_caption.set_text(sidebar_caption(internal, state, external))
+        int_note, ext_note = sidebar_lines(internal, state, external)
+        self.side_int_note.set_text(int_note)
+        self.side_ext_note.set_text(ext_note)
         if internal:
             self.side_int.set_fraction(used_fraction(internal))
             self.st_int_bar.set_fraction(used_fraction(internal))
@@ -886,16 +947,12 @@ class AppCentre:
         if state == "ready" and external:
             self.side_ext.set_fraction(used_fraction(external))
             self.side_ext.show()
-            self.side_ext_note.hide()
             self.st_ext_bar.set_fraction(used_fraction(external))
             self.st_ext_bar.show()
             self.st_ext_text.set_text("%s used · %s GB free · at %s"
                                       % (usage_text(external), gb(external[2]), ov["mount"]))
         else:
-            note = "Not set up" if state == "none" else "Not connected"
             self.side_ext.hide()
-            self.side_ext_note.set_text(note)
-            self.side_ext_note.show()
             self.st_ext_bar.hide()
             self.st_ext_text.set_text(
                 "Not set up yet. Plug in a USB stick or SD card and choose “Set up external disk”."
@@ -923,6 +980,9 @@ class AppCentre:
                                     frozenset(["data"]): "Settings and data are on the external disk"}
                                    .get(frozenset(kinds), "Program files, settings and data are on the external disk"))
                 c.pack_start(b, False, False, 0)
+                if set(kinds) != {"app", "data"}:
+                    # only half is on the external disk: the other half can follow
+                    c.pack_start(button("Move the rest", self.move_app, app), False, False, 0)
                 c.pack_start(button("Bring back", self.restore_app, app), False, False, 0)
             else:
                 c.pack_start(badge("Internal", "internal"), False, False, 0)
@@ -979,8 +1039,8 @@ class AppCentre:
             self.up_kite_list.set_text("\n".join("%s   %s → %s" % p for p in r["packages"]))
             self.up_kite_btn.set_sensitive(True)
         else:
-            self.up_kite_text.set_text("Could not check for KiteOS updates. Are you online?\n%s"
-                                       % r["message"])
+            self.up_kite_text.set_text(friendly_update_error(r["message"]))
+            self.up_kite_text.set_tooltip_text(r["message"] or None)
         return False
 
     def show_system_updates(self, rows):
@@ -1010,7 +1070,7 @@ class AppCentre:
 
     def search(self):
         term = self.disc_search.get_text().strip()
-        if not term or not self.idle_check():
+        if not term:    # searching is read-only, so it works while a task runs
             return
         self.last_search = term
         self.disc_status.set_text("Searching for “%s”…" % term)
@@ -1018,24 +1078,34 @@ class AppCentre:
 
         def work():
             _, out, _ = run(["apt-cache", "search", "--"] + term.split(), env=C_ENV)
-            return parse_apt_search(out, term, installed_packages())
+            return split_results(parse_apt_search(out, term, installed_packages()), term)
         self.bg(work, self.show_results)
 
-    def show_results(self, results):
-        if isinstance(results, Exception):
-            self.disc_status.set_text("The search failed: %s" % results)
+    def show_results(self, found, show_all=False):
+        if isinstance(found, Exception):
+            self.disc_status.set_text("The search failed: %s" % found)
             return False
+        apps, tech = found
+        results = apps + tech if show_all else apps
         term = self.last_search
         clear(self.disc_list)
         if not results:
             self.disc_status.set_text("Nothing found for “%s”." % term)
             return False
         more = " (the first %d; add words to narrow it down)" % SEARCH_LIMIT \
-            if len(results) >= SEARCH_LIMIT else ""
+            if len(apps) + len(tech) >= SEARCH_LIMIT else ""
         self.disc_status.set_text("%s for “%s”%s." % (plural(len(results), "result"), term, more))
+        if tech and not show_all:
+            c = card()
+            c.pack_start(label("%s hidden: translations, help, libraries and other parts "
+                               "apps use." % plural(len(tech), "more package"), dim=True, wrap=True),
+                         True, True, 0)
+            c.pack_start(button("Show them", self.show_results, found, True),
+                         False, False, 0)
+            self.disc_list.pack_end(c, False, False, 0)
         for r in results:
             c = card()
-            c.pack_start(app_image("package-x-generic", 32), False, False, 0)
+            c.pack_start(app_image(r["name"], 32, "package-x-generic"), False, False, 0)
             text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             text.pack_start(label(markup="<b>%s</b>" % esc(r["name"]), ellipsize=True), False, False, 0)
             text.pack_start(label(r["summary"], dim=True, ellipsize=True), False, False, 0)
@@ -1176,6 +1246,11 @@ class AppCentre:
         folder = d.get_filename()
         d.destroy()
         if r != Gtk.ResponseType.OK or not folder:
+            return
+        home = os.path.realpath(os.path.expanduser("~"))
+        if not os.path.realpath(folder).startswith(home + os.sep):
+            self.message("Only folders inside your home folder can be moved.",
+                         "Choose a folder such as Videos or Downloads.")
             return
         self.run_task("Moving “%s” to the external disk…" % folder,
                       [[KS, "move-dir", folder, "--user", self.user]],

@@ -27,8 +27,9 @@ In both:
 Switching layouts replaces the panels, theme and keyboard shortcuts with that
 layout's; your files, apps and other settings stay as they are.
 
-**Wallpaper:** KiteOS ships three (Bloom, the default; Aurora; Waves). Right-click
-the desktop → Desktop Settings and pick one from `/usr/share/backgrounds/kite`.
+**Wallpaper:** KiteOS ships three (Bloom, the default; Aurora; Waves). Open
+**Settings → Desktop** and pick one from `/usr/share/backgrounds/kite` (the
+desktop itself has no right-click menu).
 
 **Login screen:** three backgrounds too. `kite-login-theme` shows the current
 one; `sudo kite-login-theme aurora` (or `frosted`, the default, or `dusk`)

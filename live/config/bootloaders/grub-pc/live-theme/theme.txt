@@ -4,6 +4,14 @@ title-font: "Unifont Regular 16"
 title-text: ""
 message-font: "Unifont Regular 16"
 terminal-font: "Unifont Regular 16"
+# A see-through console box: without one GRUB clears the console area to
+# black while it loads Linux, a large black rectangle for a few seconds.
+terminal-box: "terminal_box_*.png"
+terminal-left: "0"
+terminal-top: "0"
+terminal-width: "100%"
+terminal-height: "100%"
+terminal-border: "0"
 
 #help bar at the bottom
 + label {

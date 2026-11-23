@@ -1,5 +1,8 @@
 // KiteOS: refuse to upgrade/remove apps stored on a disconnected external disk,
 // and keep the symlinks and launchers of moved apps healthy after every run.
-DPkg::Pre-Install-Pkgs { "/usr/sbin/kite-storage apt-pre-install"; };
+// The command still starts with the program's path (APT finds the Version
+// option by it); once kite-storage is removed, the rest lets apt carry on
+// instead of failing every install, as this file stays behind until purge.
+DPkg::Pre-Install-Pkgs { "/usr/sbin/kite-storage apt-pre-install || { [ ! -e /usr/sbin/kite-storage ] && cat >/dev/null; }"; };
 DPkg::Tools::Options::/usr/sbin/kite-storage::Version "2";
 DPkg::Post-Invoke { "if [ -x /usr/sbin/kite-storage ]; then /usr/sbin/kite-storage verify --repair --quiet || true; fi"; };

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Start a tray app only once the shelf's status area is ready. Otherwise apps
+# Start a tray app only once the panel's status area is ready. Otherwise apps
 # like nm-applet fall back to an old-style icon AND add a new one (two icons).
 #   after-tray COMMAND [ARGS...]
 i=0

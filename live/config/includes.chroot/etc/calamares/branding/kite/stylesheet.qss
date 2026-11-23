@@ -1,0 +1,36 @@
+/* KiteOS installer: the sidebar is dark (branding.desc), but its "About" button
+   kept the default dark text and was nearly invisible. */
+#sidebarApp QPushButton,
+#aboutButton,
+#debugButton {
+    color: #e8eaed;
+}
+#sidebarApp QPushButton:hover,
+#aboutButton:hover {
+    color: #ffffff;
+}
+
+/* Desktop page (packagechooser): the two layouts read as a short menu of
+   choices beside the picture, not as a mostly empty white list box. */
+QListView#products {
+    background: transparent;
+    border: none;
+    font-size: 12pt;
+    outline: none;
+}
+QListView#products::item {
+    padding: 12px 10px;
+    margin: 2px 4px;
+    border-radius: 8px;
+}
+QListView#products::item:hover {
+    background: rgba(43, 87, 151, 0.10);
+}
+QListView#products::item:selected {
+    background: #2b5797;
+    color: #ffffff;
+}
+QLabel#productName {
+    font-size: 14pt;
+    font-weight: bold;
+}

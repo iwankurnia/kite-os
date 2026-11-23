@@ -1,6 +1,6 @@
 [x.dm.slick-greeter]
 background='/usr/share/backgrounds/kite/login-frosted.jpg'
-background-color='#111a2e'
+background-color='#e8ecf4'
 draw-user-backgrounds=false
 draw-grid=false
 show-hostname=false
@@ -10,9 +10,9 @@ show-clock=true
 show-power=true
 show-quit=true
 logo='/usr/share/kite/greeter-logo.png'
-theme-name='Orchis-Dark'
-icon-theme-name='Papirus-Dark'
-font-name='Roboto 11'
+theme-name='Fluent-Light'
+icon-theme-name='Papirus-Light'
+font-name='Inter 11'
 xft-antialias=true
 xft-hintstyle='hintslight'
 xft-rgba='rgb'

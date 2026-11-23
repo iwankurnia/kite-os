@@ -1,5 +1,9 @@
 # KiteOS test report
 
+> This report is for the 1.2 build (the dark "shelf" desktop). KiteOS 1.3
+> replaced that desktop with the windows and mac layouts; the 1.3.0 VM test is
+> summarised in HANDOFF.md.
+
 ISO: `kiteos-20261122-amd64.iso` (1.3 GB), Debian 13.8 "trixie", Linux
 6.12.117, Brave 1.100.58, ONLYOFFICE 10.0.0.
 

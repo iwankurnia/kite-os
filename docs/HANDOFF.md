@@ -32,10 +32,10 @@ Follow-up requests, all done:
 | | |
 |---|---|
 | Last commit | see `git log` |
-| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device). Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
+| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds picom fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device); **v1.3.0** (Latest) replaces the shelf and rofi with the windows and mac layouts, and its `xfwm4.xml` (xfwm4's own compositor, no picom) replaces 1.2.4's fades and shadows; **v1.3.1 in progress** (installer Desktop page, light login screen, menu Favourites, App Centre fixes, live `kite-layout` switch without restarting xfwm4). Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
 | Base | Debian 13.8, kernel 6.12.117, XFCE 4.20, Calamares 3.3.14, Brave 1.100.58, ONLYOFFICE 10.0.0 |
 | Tests | `sudo tests/run-all.sh`: 38 scripts lint-clean, 35 system and 31 storage checks pass |
-| Verified in a VM | Everything in [TEST-REPORT.md](TEST-REPORT.md): boot, live desktop, every app, installer (3 full runs), installed-system boot and login, hibernate and resume, external-drive features, resource use |
+| Verified in a VM | Everything in [TEST-REPORT.md](TEST-REPORT.md): boot, live desktop, every app, installer (3 full runs), installed-system boot and login, hibernate and resume, external-drive features, resource use. That report tested the 1.2 shelf build; the 1.3 layouts and the installer's Desktop page have not had a full VM run yet |
 | **Not verified** | Anything needing the real Chromebook: keyboard map (Search key, top row), SOF audio, Wi-Fi, brightness keys, lid suspend, real hibernate timing, and the ONLYOFFICE editor (crashes under QEMU emulation only; works natively) |
 
 ## Open to-do list
@@ -91,7 +91,7 @@ emulation). Needs `qemu-system-x86 ovmf imagemagick tesseract-ocr`.
 qemu-img create -f qcow2 emmc.qcow2 32G
 KITEVM_RES=1360x768 tests/vm/kitevm.py start live --iso out/kiteos-*.iso --disk emmc.qcow2
 tests/vm/kitevm.py shot live screen.png
-KITE_INSTALL_X=445 tests/vm/install-flow.sh live     # x of "Install KiteOS" on the shelf
+KITE_LAYOUT=windows tests/vm/install-flow.sh live    # or mac; KITE_INSTALL_X/Y move the taskbar click
 tests/vm/kitevm.py start inst --disk emmc.qcow2       # boot the installed system
 tests/vm/kitevm.py usb inst add usb.img               # hot-plug a USB disk image
 ```
@@ -124,8 +124,9 @@ cores). On the device, use `sudo kite-resource-report`.
   `/usr/lib/kite/desktop/after-tray`, which waits for `org.kde.StatusNotifierWatcher`.
 - **Tray icons:** GTK only recolours *fills* of symbolic SVGs, so
   `artwork/status-icons.py` draws filled shapes, not strokes. The systray
-  requests `<name>-symbolic` at a forced size. Panel and systray icon size are
-  both fixed at 24.
+  requests `<name>-symbolic` at a forced size. Panel/tray icon sizes: windows
+  24/20, mac 18/18 (`xfce4-panel.xml` of each layout). The plain variants are
+  near black (`#1b1b1b`) for the light panels.
 - **Brave's launcher reads no flags file** (`/opt/brave.com/brave/brave-browser`
   just runs `brave "$@"`); `~/.config/brave-flags.conf` is an Arch packaging
   convention. Hence the diversion and wrapper in kite-desktop. Chromium keeps
@@ -142,7 +143,7 @@ cores). On the device, use `sudo kite-resource-report`.
   - The screen stays black after DPMS blanking under QEMU VGA (`xrefresh` fixes it).
   - OVMF only boots devices that have a `bootindex`.
   - The installed system uses the UK layout, so typed `|` and `@` come out wrong unless you `setxkbmap us`.
-  - The shelf re-centres when windows open, so click coordinates shift.
+  - The mac Dock re-centres when windows open, so click coordinates shift.
 
 ## Key design decisions
 
@@ -157,7 +158,7 @@ cores). On the device, use `sudo kite-resource-report`.
 | zswap (zstd), not zram | zram can't hold a hibernation image |
 | suspend-then-hibernate enabled **only after** resume is configured | A half-configured system must never make the lid do nothing |
 | `kite-storage`: move whole package-private dirs and symlink them | dpkg follows directory symlinks on upgrade. APT `Pre-Install-Pkgs` hook refuses to touch apps whose disk is unplugged |
-| Orchis theme (Materia isn't in Debian 13), KiteOS status icon theme inheriting Papirus | Material/ChromeOS look with uniform tray |
+| Fluent-Light (windows) and Qogir-Light (mac) themes; Orchis and the Papirus-inheriting KiteOS icon theme were the 1.2 shelf's | 1.3 layouts; the icon stacking is in the tray-packs row above |
 | Brave policy: Rewards/Wallet/VPN/Tor/P3A off | Lighter; owner can change `/etc/brave/policies/managed/kite.json` |
 
 ## Releasing
@@ -193,8 +194,8 @@ git config user.email "6760806+iwankurnia@users.noreply.github.com"   # repo onl
 claude                             # reads CLAUDE.md, which points here
 ```
 
-Where things stand (2026-11-23): v1.1 is Latest and flashed to the owner's
-Kingston USB stick (read-back verified), not booted yet. Next is the
+Where things stand (2026-11-24): v1.3.0 is Latest; v1.3.1 is in progress
+(see "Current state"). v1.2.3 is the release proven on the device from USB. Next is the
 real-hardware run (to-do 3) and the Brave video check on the device (to-do 4).
 
 - Builds: no local build needed. Push a tag or use

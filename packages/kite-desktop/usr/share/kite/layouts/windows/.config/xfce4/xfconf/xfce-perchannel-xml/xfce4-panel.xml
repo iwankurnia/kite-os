@@ -61,6 +61,9 @@
     </property>
     <property name="plugin-10" type="string" value="systray">
       <property name="square-icons" type="bool" value="true"/>
+      <!-- Symbolic tray icons take the panel's text colour (as in the mac
+           layout); without it the network icon came out faint. -->
+      <property name="symbolic-icons" type="bool" value="true"/>
       <property name="icon-size" type="int" value="20"/>
     </property>
     <!-- KiteOS: battery and power (laptop) -->

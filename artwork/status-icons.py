@@ -3,7 +3,7 @@
 
 All icons share one 24×24 grid and one visual weight, and are drawn with
 filled shapes only, which is what GTK needs to recolour "symbolic" icons. The
-shelf then paints them all in its own text colour at the same size.
+panel's tray then paints them all in its own text colour at the same size.
 
   artwork/status-icons.py OUTPUT_DIR      (writes OUTPUT_DIR/*.svg)
 
@@ -16,6 +16,7 @@ import os
 import sys
 
 FG = "#bebebe"   # GTK replaces this with the theme's text colour
+PLAIN = "#1b1b1b"  # colour of the plain (non-symbolic) variants
 DIM = 0.3        # opacity of the "empty" part of a level indicator
 
 
@@ -248,13 +249,13 @@ def main():
     icons = build()
     for name, parts in icons.items():
         text = svg(*parts)
-        # Symbolic variant (recoloured by GTK) and plain variant (light
-        # grey, for programs that don't ask for symbolic icons; the shelf
-        # is dark).
+        # Symbolic variant (recoloured by GTK) and plain variant (near
+        # black, for programs that don't ask for symbolic icons; both
+        # layouts have light panels, and the tray packs use this colour).
         with open(os.path.join(out, f"{name}-symbolic.svg"), "w") as fh:
             fh.write(text)
         with open(os.path.join(out, f"{name}.svg"), "w") as fh:
-            fh.write(text.replace(FG, "#e8eaed"))
+            fh.write(text.replace(FG, PLAIN))
     print(f"{len(icons)} icons ({2 * len(icons)} files) written to {out}")
 
 

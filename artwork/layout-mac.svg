@@ -22,7 +22,7 @@
   <text x="44" y="19" font-family="Inter, Helvetica, Arial" font-size="13" font-weight="700" fill="#1D1D1F">Files</text>
   <text x="944" y="19" text-anchor="end" font-family="Inter, Helvetica, Arial" font-size="13" font-weight="600" fill="#1D1D1F">Mon 23 Nov  21:30</text>
   <g transform="translate(180 80)"><rect width="560" height="340" rx="10" fill="#FFFFFF" opacity=".97"/>
-      <rect width="560" height="34" rx="10" fill="#F3F4F6"/><rect y="24" width="560" height="10" fill="#F3F4F6"/><circle cx="22" cy="17" r="6" fill="#FF5F57"/><circle cx="40" cy="17" r="6" fill="#FEBC2E"/><circle cx="58" cy="17" r="6" fill="#28C840"/>
+      <rect width="560" height="34" rx="10" fill="#F3F4F6"/><rect y="24" width="560" height="10" fill="#F3F4F6"/><circle cx="22" cy="17" r="6" fill="#BFC1C6"/><circle cx="40" cy="17" r="6" fill="#BFC1C6"/><circle cx="58" cy="17" r="6" fill="#BFC1C6"/>
       <rect x="20" y="56" width="156.8" height="264" rx="6" fill="#F3F4F6"/>
       <g fill="#93C5FD"><rect x="184.8" y="60" width="54" height="44" rx="6"/><rect x="254.8" y="60" width="54" height="44" rx="6"/><rect x="324.8" y="60" width="54" height="44" rx="6"/></g></g>
   <rect x="300" y="514" width="360" height="68" rx="18" fill="#FFFFFF" opacity=".7" stroke="#000000" stroke-opacity=".1"/>

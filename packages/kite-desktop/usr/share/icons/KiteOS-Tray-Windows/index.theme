@@ -1,6 +1,6 @@
 [Icon Theme]
 Name=KiteOS Tray (Windows)
-Comment=KiteOS panel and tray glyphs for the windows layout (from docker-crd-vstunnel)
+Comment=KiteOS panel and tray icons for the Windows-style layout
 # KiteOS's own pack fills the gaps (NetworkManager nm-* glyphs, power, drives),
 # then the layout's icon theme.
 Inherits=KiteOS,Papirus-Light,Papirus,hicolor

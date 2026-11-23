@@ -1,6 +1,6 @@
 [Icon Theme]
 Name=KiteOS Tray (Mac)
-Comment=KiteOS panel and tray glyphs for the mac layout (from docker-crd-vstunnel)
+Comment=KiteOS panel and tray icons for the Mac-style layout
 # KiteOS's own pack fills the gaps (NetworkManager nm-* glyphs, power, drives),
 # then the layout's icon theme.
 Inherits=KiteOS,Qogir,WhiteSur,Papirus,hicolor

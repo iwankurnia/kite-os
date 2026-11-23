@@ -12,18 +12,24 @@ Debian, Brave and ONLYOFFICE updates come from apt as usual:
   sudo apt update && sudo apt upgrade
 """
 import hashlib
+import http.client
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 
 CONF = "/etc/kite/update.conf"
 DEFAULT_REPO = "iwankurnia/kite-os"
 DEB = re.compile(r"^(kite-[a-z0-9-]+)_([^_]+)_(all|amd64)\.deb$")
 SUMS = "kite-packages.sha256"
+# A dropped or refused connection while downloading. URLError, TimeoutError
+# and ssl.SSLError are all OSErrors; a body cut short is an HTTPException.
+NETWORK_ERRORS = (urllib.error.URLError, OSError, http.client.HTTPException)
+UNREACHABLE = "Could not reach the KiteOS releases on GitHub: %s"
 
 
 def repo():
@@ -92,7 +98,7 @@ def main(args):
     try:
         release = json.loads(fetch("https://api.github.com/repos/%s/releases/latest" % repo()))
     except Exception as e:  # network, rate limit, no release yet
-        print("Could not reach the KiteOS releases on GitHub: %s" % e, file=sys.stderr)
+        print(UNREACHABLE % e, file=sys.stderr)
         return 1
     todo = plan(release)
     tag = release.get("tag_name", "?")
@@ -111,11 +117,19 @@ def main(args):
     if SUMS not in assets:
         print("The release has no %s; not installing unchecked files." % SUMS, file=sys.stderr)
         return 1
-    sums = checksums(fetch(assets[SUMS]["browser_download_url"]))
+    try:
+        sums = checksums(fetch(assets[SUMS]["browser_download_url"]))
+    except NETWORK_ERRORS as e:
+        print(UNREACHABLE % e, file=sys.stderr)
+        return 1
     with tempfile.TemporaryDirectory(prefix="kite-update.") as tmp:
         files = []
         for pkg, _, _, asset in todo:
-            data = fetch(asset["browser_download_url"], binary=True)
+            try:
+                data = fetch(asset["browser_download_url"], binary=True)
+            except NETWORK_ERRORS as e:
+                print(UNREACHABLE % e, file=sys.stderr)
+                return 1
             if hashlib.sha256(data).hexdigest() != sums.get(asset["name"]):
                 print("%s: checksum does not match %s; nothing installed." % (asset["name"], SUMS),
                       file=sys.stderr)

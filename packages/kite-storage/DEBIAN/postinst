@@ -3,7 +3,7 @@ set -e
 if [ "$1" = configure ]; then
     mkdir -p /var/lib/kite/storage
     # Launchers of apps moved to the external disk are wrapped here. The
-    # folder must exist before login, or the shelf never looks inside it.
+    # folder must exist before login, or the menu never looks inside it.
     mkdir -p /usr/local/share/applications
     command -v update-desktop-database >/dev/null && update-desktop-database -q /usr/share/applications || true
 fi

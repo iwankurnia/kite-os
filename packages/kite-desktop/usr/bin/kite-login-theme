@@ -7,6 +7,7 @@
 set -eu
 conf=${KITE_GREETER_CONF:-/etc/lightdm/slick-greeter.conf}
 dir=/usr/share/backgrounds/kite
+marker="# Written by kite-login-theme (removed when kite-desktop is purged)"
 
 case "${1:-}" in
     "")
@@ -21,7 +22,8 @@ case "${1:-}" in
         fi
         line="background=$dir/login-$1.jpg"
         mkdir -p "$(dirname "$conf")"
-        touch "$conf"
+        # Mark a file we create, so purging kite-desktop removes only ours.
+        [ -s "$conf" ] || echo "$marker" > "$conf"
         tmp="$conf.kite-tmp"
         # Replace the background in [Greeter], add it there, or add the section.
         awk -v line="$line" '

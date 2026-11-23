@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+if [ "$1" = purge ]; then
+    # Safety net in case the undo in prerm did not finish: the files that
+    # kite-chromebook-setup generates go with the package.
+    rm -f /etc/keyd/kite-chromebook.conf /etc/modprobe.d/kite-chromebook-sof.conf
+    # Keep the state folder if it still lists UCM files to restore: it holds
+    # the only copies of the files the overlay replaced.
+    if [ ! -f /var/lib/kite/chromebook/ucm-files.list ]; then
+        rm -rf /var/lib/kite/chromebook
+    fi
+fi
+exit 0
