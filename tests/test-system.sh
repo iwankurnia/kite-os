@@ -135,10 +135,21 @@ mkdir -p "$LH/fake"
 for c in xfce4-panel pkill xfconf-query xfsettingsd xfdesktop xfwm4; do
     printf '#!/bin/sh\necho "%s $*" >> "%s/calls"\n' "$c" "$LH" > "$LH/fake/$c"; chmod 755 "$LH/fake/$c"
 done
+# wmctrl: one window at the very top, one lower down, plus a sticky panel.
+cat > "$LH/fake/wmctrl" <<WM
+#!/bin/sh
+if [ "\$1" = -lG ]; then
+    printf '0x01 0 100 0 400 300 kiteos Terminal\n0x02 0 100 200 400 300 kiteos Files\n0x03 -1 0 0 1366 28 kiteos xfce4-panel\n'
+else
+    echo "wmctrl \$*" >> "$LH/calls"
+fi
+WM
+chmod 755 "$LH/fake/wmctrl"
 rm -f "$LH/calls"
 env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" XDG_CACHE_HOME="$LH/cache" DISPLAY=:99 PATH="$LH/fake:$PATH" \
     KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" KITE_LAYOUT_SYSTEM="$LH/system-layout" \
     KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" mac >/dev/null
+check "live switch to mac: a window under the menu bar is moved below it, others left" bash -c "grep -qx 'wmctrl -i -r 0x01 -e 0,-1,28,-1,-1' '$LH/calls' && ! grep -q '0x02\\|0x03' '$LH/calls'"
 check "live switch: never starts a window manager" bash -c "! grep -q '^xfwm4' '$LH/calls'"
 check "live switch: window theme set through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default' "$LH/calls"
 check "live switch: mac buttons on the left through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s CHM|' "$LH/calls"

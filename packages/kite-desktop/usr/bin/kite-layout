@@ -337,6 +337,46 @@ def apply_shortcuts_live():
             run(*ch, "-p", f"/{section}/custom/{p.get('name')}", "-n", "-t", typ, "-s", p.get("value", ""))
 
 
+def panel_top(layout):
+    """Height of the panel along the top of the screen in LAYOUT (xfce4-panel
+    position p=6, as the mac menu bar uses), or 0."""
+    try:
+        root = ET.parse(os.path.join(DATA, layout, ".config",
+                                     "xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml")).getroot()
+    except (OSError, ET.ParseError):
+        return 0
+    for panel in root.findall("./property[@name='panels']/property"):
+        pos = panel.find("./property[@name='position']")
+        size = panel.find("./property[@name='size']")
+        if pos is not None and size is not None and re.search(r"\bp=6\b", pos.get("value", "")):
+            return int(size.get("value", "0"))
+    return 0
+
+
+def clear_top(height, seconds=8.0):
+    """Move windows that sit under a new top panel down below it (the panel
+    takes the space for new windows only). Needs wmctrl."""
+    if height <= 0 or not shutil.which("wmctrl"):
+        return
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:         # wait for the panel to claim its space
+        time.sleep(1)
+        try:
+            out = subprocess.run(["wmctrl", "-lG"], capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.SubprocessError):
+            return
+        moved = False
+        for line in out.splitlines():
+            f = line.split(None, 7)
+            if len(f) < 6 or f[1] == "-1":          # sticky: panels and the desktop
+                continue
+            if int(f[3]) < height:
+                run("wmctrl", "-i", "-r", f[0], "-e", "0,-1,%d,-1,-1" % height)
+                moved = True
+        if moved:
+            return
+
+
 def xfwm4_settings(layout):
     """(name, type, value) of the window manager's settings in LAYOUT's files,
     placeholders filled in and the theme checked like write_layout does."""
@@ -386,6 +426,7 @@ def switch_live(layout):
     time.sleep(1)
     spawn("xfce4-panel")
     run("xfdesktop", "--reload")
+    clear_top(panel_top(layout))
 
 
 def main(args):
