@@ -75,8 +75,14 @@ k wait "$VM" 'zzz-never' 25 >/dev/null; shot 03-splash
 k stop "$VM"; sleep 2
 
 # ---------------------------------------------------------- live session --
-xorriso -osirrox on -indev "$ISO" -extract /live/vmlinuz "$OUT/run/vmlinuz" \
-        -extract /live/initrd.img "$OUT/run/initrd.img" >/dev/null 2>&1 || die "could not extract the live kernel"
+# live-build may name them with the kernel version (vmlinuz-6.12…).
+isofind() { xorriso -indev "$ISO" -find /live -name "$1" 2>/dev/null | tr -d "'" | grep '^/live/' | sort | tail -n1; }
+KERN=$(isofind 'vmlinuz*') INITRD=$(isofind 'initrd.img*')
+log "live kernel: ${KERN:-?}, initrd: ${INITRD:-?}"
+[ -n "$KERN" ] && [ -n "$INITRD" ] || die "no kernel/initrd under /live in the ISO"
+xorriso -osirrox on -indev "$ISO" -extract "$KERN" "$OUT/run/vmlinuz" \
+        -extract "$INITRD" "$OUT/run/initrd.img" > "$OUT/xorriso.log" 2>&1 ||
+    die "could not extract the live kernel: $(tail -n2 "$OUT/xorriso.log" | tr '\n' ' ')"
 APPEND="boot=live components quiet splash username=kite user-fullname=KiteOS hostname=kiteos locales=en_GB.UTF-8 keyboard-layouts=us console=tty0 console=ttyS0,115200"
 k start "$VM" --iso "$ISO" --disk "$OUT/run/emmc.qcow2" --kernel "$OUT/run/vmlinuz" \
         --initrd "$OUT/run/initrd.img" --append "$APPEND" || die "live VM did not start"
