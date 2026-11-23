@@ -32,13 +32,21 @@ Follow-up requests, all done:
 | | |
 |---|---|
 | Last commit | see `git log` |
-| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds picom fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device); **v1.3.0** (Latest) replaces the shelf and rofi with the windows and mac layouts, and its `xfwm4.xml` (xfwm4's own compositor, no picom) replaces 1.2.4's fades and shadows; **v1.3.1 in progress** (installer Desktop page, light login screen, menu Favourites, App Centre fixes, live `kite-layout` switch without restarting xfwm4). Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
+| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds picom fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device); **v1.3.0** (Latest) replaces the shelf and rofi with the windows and mac layouts, and its `xfwm4.xml` (xfwm4's own compositor, no picom) replaces 1.2.4's fades and shadows; **v1.3.1** (2026-11-24) fixes everything the 1.3.0 VM test and code review found (installer Desktop choice, live switch without restarting xfwm4, `/boot` move guard, light login screen, Chromebook/standard window keys); **v1.3.2** (2026-11-24, newest) fixes what the 1.3.1 VM test found (US keyboard kept, live switch really changes the window theme, `kite-layout keys` applies at once, panel plugins back inside the panel for RAM, App Centre chooser and blank USB sticks, plain menu names, windows moved out from under the mac menu bar). v1.3.2 was released without a re-test and has NOT been flashed. Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
 | Base | Debian 13.8, kernel 6.12.117, XFCE 4.20, Calamares 3.3.14, Brave 1.100.58, ONLYOFFICE 10.0.0 |
 | Tests | `sudo tests/run-all.sh`: 38 scripts lint-clean, 35 system and 31 storage checks pass |
-| Verified in a VM | Everything in [TEST-REPORT.md](TEST-REPORT.md): boot, live desktop, every app, installer (3 full runs), installed-system boot and login, hibernate and resume, external-drive features, resource use. That report tested the 1.2 shelf build; the 1.3 layouts and the installer's Desktop page have not had a full VM run yet |
+| Verified in a VM | 1.2 shelf build: everything in [TEST-REPORT.md](TEST-REPORT.md). 1.3.0 and 1.3.1: full VM runs by a cloud Claude session (live, every installer page, Mac-style install, installed boot, layout switches, keys, App Centre, kite-storage safety) and by the GitHub "VM test" workflow (below). 1.3.2: not VM-tested yet |
 | **Not verified** | Anything needing the real Chromebook: keyboard map (Search key, top row), SOF audio, Wi-Fi, brightness keys, lid suspend, real hibernate timing, and the ONLYOFFICE editor (crashes under QEMU emulation only; works natively) |
 
 ## Open to-do list
+
+0. **Next session:** run the GitHub VM test on v1.3.2
+   (`gh workflow run vm-test.yml -f tag=v1.3.2 -f layout=mac`, ~10 min, report
+   on the run page), look at its screenshots, then flash the stick and do the
+   real-hardware run (3). Things only a person can see on 1.3.2: the mac window
+   buttons change on a live switch, new keys work right after `kite-layout keys
+   chromebook`, windows move below the mac menu bar, the second account's name
+   on the Frosted login screen.
 
 1. ~~Push to GitHub and release v1.0~~: done 2026-11-23.
 2. ~~Commit email~~: the owner kept the history as it is; new commits in this
@@ -64,13 +72,17 @@ Follow-up requests, all done:
    - trim Papirus icon sizes (~10 MB, low value)
    - an "updates available" notification
    - a check that the keyd map matches the 11 G8 EE top row
-7. **App Centre** (`kite-app-centre`, kite-storage 1.1.0, branch
-   `wip/app-centre`): one GTK 3 window replaces the yad dialogs of kite-apps
-   (Discover, Installed, Storage, Updates; `kite-apps` now just opens it).
-   Unit-tested helpers only so far; still to do in a VM: every page in
-   Fluent-Light and Qogir-Light at 1366×768, the polkit prompt before the
-   progress area, the `sudo -A` fallback with no polkit agent, the taskbar pin
-   grouping (WM_CLASS `kite-apps`), and the new `kite-storage remove`.
+7. **App Centre** (`kite-app-centre`): VM-tested in 1.3.1 (all four pages,
+   Move a folder guard, disk setup). Still open: the `sudo -A` fallback with no
+   polkit agent; Discover still lists some packages that are not apps.
+8. **GitHub VM test** (`.github/workflows/vm-test.yml`,
+   `tests/vm/ci-vm-test.sh`): KVM on the runner, a full live + install +
+   installed-system run takes ~7 min (the install itself 161 s; 38 min in an
+   emulated cloud VM). Run by hand for now; chain it after the ISO build on
+   tags once it has passed on a release. It checks settings, not pixels, so a
+   look at its screenshots is still needed.
+9. Known and left: the installer Summary cannot show the Desktop choice
+   (Calamares' packagechooser has no summary line).
 
 ## How it was built and tested (so you can repeat it)
 
@@ -194,9 +206,17 @@ git config user.email "6760806+iwankurnia@users.noreply.github.com"   # repo onl
 claude                             # reads CLAUDE.md, which points here
 ```
 
-Where things stand (2026-11-24): v1.3.0 is Latest; v1.3.1 is in progress
-(see "Current state"). v1.2.3 is the release proven on the device from USB. Next is the
-real-hardware run (to-do 3) and the Brave video check on the device (to-do 4).
+Where things stand (2026-11-24): v1.3.2 is the newest release (build started
+unwatched; check it finished with `gh run list --limit 3`). v1.2.3 is the
+release proven on the device from USB. Next: to-do 0 (VM-test v1.3.2, then
+flash and the real-hardware run), then the Brave video check (to-do 4).
+
+To pick up in Claude Code on the other laptop, start a **fresh** session in the
+cloned folder (not a moved one) and say: "Read CLAUDE.md and docs/HANDOFF.md,
+then continue with the open to-do list". On the Windows laptop the clone goes
+in `Code\Personal\kite-os`; first time there, run the clone and git config
+lines above. The skills repo's memory (`notes/memory/project-kiteos.md`) has
+the same pointers.
 
 - Builds: no local build needed. Push a tag or use
   `gh workflow run build-iso.yml` (see "Releasing"); `gh run download <run-id> -n kiteos-iso`
