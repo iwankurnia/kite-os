@@ -112,6 +112,7 @@ check "windows: Fluent theme and tray pack" bash -c "grep -q 'value=\"Fluent-Lig
 check "windows: buttons on the right" grep -q 'value="menu:minimize,maximize,close"' "$X/xsettings.xml"
 check "no placeholders left" bash -c "! grep -rq '@[A-Z_]*@' '$LH/home/.config'"
 check "nothing of the mac layout left (its launchers)" test ! -d "$LH/home/.config/xfce4/panel/launcher-4"
+check "panel plugins run inside the panel (force-all-internal, saves RAM)" grep -q 'name="force-all-internal" type="bool" value="true"' "$X/xfce4-panel.xml"
 check "battery on the taskbar" grep -q 'value="power-manager-plugin"' "$X/xfce4-panel.xml"
 check "Start menu offers shut down" grep -qx 'show-command-shutdown=true' "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
 check "pins only installed apps, Brave first" grep -qx "pinned=$LH/apps/brave-browser.desktop;$LH/apps/thunar.desktop;$LH/apps/xfce4-terminal.desktop;$LH/apps/kite-apps.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
