@@ -97,7 +97,8 @@ def start(name, argv):
     ]
     if a.iso:
         cmd += ["-drive", f"id=cd0,if=none,media=cdrom,readonly=on,file={a.iso}",
-                "-device", f"ide-cd,drive=cd0,bus=ahci.0{',bootindex=2' if a.boot_disk else ',bootindex=0'}"]
+                "-device", "ide-cd,drive=cd0,bus=ahci.0" + (
+                    "" if a.kernel else ",bootindex=2" if a.boot_disk else ",bootindex=0")]
     if a.disk:
         # The Chromebook's eMMC shows up as mmcblk0; emulate it with an SD/MMC host.
         cmd += ["-drive", f"id=d0,if=none,format=qcow2,file={a.disk},cache=unsafe,discard=unmap"]
