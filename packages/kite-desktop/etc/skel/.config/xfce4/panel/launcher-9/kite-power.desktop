@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Power
-Comment=Lock, sleep, hibernate, restart or shut down
-Exec=xfce4-session-logout
-Icon=kite-power-symbolic
-Terminal=false
-StartupNotify=false

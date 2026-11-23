@@ -1,0 +1,65 @@
+/* macOS-style chrome for the XFCE panels. Edit freely; the panel reloads on
+   the next session. xfce4-panel gives every panel the same CSS classes
+   (.xfce4-panel), so the per-panel colours live in xfce4-panel.xml
+   (background-style 1 + background-rgba); this file styles what is common. */
+
+/* Flat, rounded panel buttons (menu, launchers, tray, clock) */
+.xfce4-panel.background,
+.xfce4-panel.background button,
+.xfce4-panel.background label { color: #1d1d1f; font-weight: 500; }
+/* Symbolic tray icons take the text colour; Arc would leave them pale */
+.xfce4-panel.background image,
+.xfce4-panel.background button image { color: #1d1d1f; opacity: 1; -gtk-icon-effect: none; }
+.xfce4-panel button,
+.xfce4-panel button.flat {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 0 7px;
+  margin: 3px 0;
+  color: inherit;
+  box-shadow: none;
+  transition: background-color 120ms ease-in-out;
+}
+.xfce4-panel button:hover,
+.xfce4-panel button:checked,
+.xfce4-panel button:active {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+.xfce4-panel .separator { color: transparent; }
+
+/* Dock tray: the Dock panel itself is fully transparent (xfce4-panel.xml), the
+   docklike widget draws the frosted, rounded tray floating above the edge. */
+#docklike-plugin {
+  background-color: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  border-radius: 18px;
+  padding: 3px 6px;
+  margin: 2px 0 6px 0;
+}
+
+/* Dock items (docklike plugin). docklike draws the running-app dot along the
+   bottom edge of each item; keep the vertical margin at 0, a margin clips it. */
+#docklike-plugin .group {
+  background-color: transparent;
+  border: none;
+  border-radius: 12px;
+  margin: 0 1px;
+  padding: 4px;
+  box-shadow: none;
+  transition: background-color 120ms ease-in-out;
+}
+#docklike-plugin .group:hover,
+#docklike-plugin .group.hover_group { background-color: rgba(0, 0, 0, 0.06); }
+#docklike-plugin .group.active_group { background-color: rgba(0, 0, 0, 0.10); }
+#docklike-plugin .group.open_group   { background-color: rgba(0, 0, 0, 0.08); }
+
+/* Pop-ups: rounded like macOS menus. The app menu window itself stays
+   square: it has no alpha channel, so rounded corners show black. */
+#whiskermenu-window .view,
+.xfce4-panel menu,
+tooltip, tooltip.background {
+  border-radius: 10px;
+}
+tooltip { background-color: rgba(246, 246, 248, 0.96); color: #1d1d1f; border: 1px solid rgba(0,0,0,0.12); }
+tooltip * { color: #1d1d1f; }

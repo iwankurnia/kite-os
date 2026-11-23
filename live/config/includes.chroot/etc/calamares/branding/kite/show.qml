@@ -50,7 +50,7 @@ Presentation
             anchors.centerIn: parent
             text: qsTr("<h2>Hibernation built in</h2>" +
                   "Close the lid to sleep; after an hour KiteOS hibernates, so a flat battery never loses your work.<br/>" +
-                  "Use <b>Apps &amp; Storage</b> to keep apps and their data on a USB or SD disk.")
+                  "Use <b>App Centre</b> to keep apps and their data on a USB or SD disk.")
             wrapMode: Text.WordWrap
             width: 560
             horizontalAlignment: Text.AlignHCenter

@@ -6,13 +6,13 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
 
 | | |
 |---|---|
-| **Desktop** | XFCE set up to feel like ChromeOS: a bottom shelf with a launcher button and pinned and running apps on the left, and the tray, volume, battery, clock and power buttons on the right. An app launcher menu opens at the bottom left when you tap the **Search** key or the launcher button. Orchis theme, KiteOS's own uniform tray icons, Papirus app icons, Roboto font. |
+| **Desktop** | XFCE in two layouts, picked at install and switchable with `kite-layout`: **windows** (Fluent theme, Papirus icons, a taskbar with the Start menu, search and apps on the left) and **mac** (Qogir theme and icons, a menu bar at the top and a Dock). The **Search** key opens the menu in both. KiteOS tray icons, Inter font, three KiteOS wallpapers and three login screens. |
 | **Boot and login** | Hidden GRUB menu, KiteOS splash screen (Plymouth, early Intel KMS), LightDM with Slick Greeter on a matching background. |
 | **Hibernation** | A swap file of RAM + 1 GB is created at install time, and `resume=` / `resume_offset=` are set up automatically. Closing the lid suspends; after 60 min the machine hibernates. It also hibernates on critical battery and after 30 min idle on battery. Hibernate is also in the power menu. |
 | **Low memory** | zswap (zstd-compressed RAM cache in front of the swap file; unlike zram, it works with hibernation), earlyoom to end the biggest browser tab rather than freeze, panel plugins inside the panel, no always-on Bluetooth applet, a small journal, no Recommends and no docs. |
 | **Apps** | **Brave** and **ONLYOFFICE Desktop Editors** from their vendors' official APT repositories. Brave's Rewards, Wallet, VPN and Tor are turned off by policy to keep it light. |
-| **External storage** | **Apps & Storage** (`kite-apps`) installs an app to the internal disk, then can copy its program files and/or its settings and data to a USB or SD disk and symlink them back. APT refuses to touch those apps while the disk is unplugged, and their launchers say "connect your disk" instead of failing silently. |
-| **Chromebook hardware** | Keyboard via `keyd`: tap Search for the launcher, the top row works as printed, Search + top row = F1–F10, Search + Backspace = Delete, Search + arrows = Home/End/PgUp/PgDn. Audio through SOF with the Chromebook UCM profiles (`alsa-ucm-conf-cros`), and the touchpad ignores input while you type. |
+| **External storage** | **App Centre** (`kite-app-centre`) finds, installs and removes apps and installs updates. It installs an app to the internal disk, then can copy its program files and/or its settings and data to a USB or SD disk and symlink them back. APT refuses to touch those apps while the disk is unplugged, and their launchers say "connect your disk" instead of failing silently. |
+| **Chromebook hardware** | Keyboard via `keyd`: tap Search for the menu, the top row works as printed, Search + top row = F1–F10, Search + Backspace = Delete, Search + arrows = Home/End/PgUp/PgDn. Audio through SOF with the Chromebook UCM profiles (`alsa-ucm-conf-cros`), and the touchpad ignores input while you type. |
 | **Installer** | A live USB with a graphical installer (Calamares). |
 
 ## Quick start
@@ -24,7 +24,7 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
    with `sudo ./build.sh` (see [docs/BUILD.md](docs/BUILD.md)).
 3. **Write the ISO to a USB stick**, plug it into the Chromebook,
    power on and press **Esc** to choose the USB drive. The live desktop
-   starts. Click **Install KiteOS** (the first icon on the shelf). See
+   starts. Click **Install KiteOS** (the first pinned app). See
    [docs/INSTALL.md](docs/INSTALL.md).
 4. After the first reboot, check hibernation:
    ```bash
@@ -34,14 +34,14 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
 
 ## Using it
 
-- [docs/USING.md](docs/USING.md) covers the keyboard, the launcher, hibernation, and installing apps on an external disk.
+- [docs/USING.md](docs/USING.md) covers the layouts, the keyboard, hibernation, and installing apps on an external disk.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) covers audio, keyboard, hibernation, the splash screen, login, and recovery.
 
 ## Why these choices
 
 | Constraint | Decision |
 |---|---|
-| 4 GB RAM, of which Brave needs most | XFCE (X11) instead of GNOME or Plasma. rofi for the launcher, with no daemon running between uses. Docklike shelf plugin. Session saving is off. |
+| 4 GB RAM, of which Brave needs most | XFCE (X11) instead of GNOME or Plasma, with XFCE's own compositor. Whisker menu and docklike taskbar/Dock plugins inside the panel process. Session saving is off. |
 | Hibernation must work | ext4 root and a swap file (not zram), resume configured by `kite-hibernate-setup`. zswap supplies the compression that zram would have. Suspend-then-hibernate only switches on once resume is verified, so a broken setup can't leave the lid doing nothing. |
 | 32 GB eMMC | `--no-install-recommends` throughout, no package docs, only the firmware this machine needs, weekly `fstrim` instead of continuous discard, journal capped at 64 MB, and the installer removes itself after installing. |
 | Slow eMMC | `noatime`, earlier dirty-page writeback, and `vm.swappiness=100` (swapping into zswap is cheaper than re-reading files from eMMC). |
@@ -54,8 +54,8 @@ build.sh                    ISO build entry point (runs live-build in a Debian 1
 packages/
   kite-system/              hibernation setup, zswap, memory/OOM tuning, boot splash, GRUB defaults
   kite-chromebook/          keyd keyboard map generator, Chromebook audio UCM, libinput quirk
-  kite-desktop/             ChromeOS-style XFCE config, launcher, login screen, artwork, defaults
-  kite-storage/             kite-storage CLI + "Apps & Storage" GUI, APT safety hooks
+  kite-desktop/             XFCE layouts (windows, mac), kite-layout, login screens, artwork, defaults
+  kite-storage/             kite-storage CLI + App Centre (GTK 3), APT safety hooks
 live/                       live-build config, Calamares installer config and branding
 scripts/                    package build, vendor repository keys
 artwork/                    SVG sources for the logo, wallpaper, splash (render.sh → PNGs)
@@ -92,6 +92,7 @@ gotchas and to-do list. `CLAUDE.md` gives Claude Code the same pointers.
 - [MrChromebox](https://mrchromebox.tech) UEFI firmware.
 - Audio UCM profiles from [WeirdTreeThing/alsa-ucm-conf-cros](https://github.com/WeirdTreeThing/alsa-ucm-conf-cros) (BSD-3-Clause, vendored at a pinned commit).
 - Keyboard mapping logic adapted from [WeirdTreeThing/cros-keyboard-map](https://github.com/WeirdTreeThing/cros-keyboard-map) (BSD-3-Clause).
-- Debian, XFCE, rofi, keyd, Calamares and Plymouth.
+- Debian, XFCE, keyd, Calamares and Plymouth.
+- Desktop layouts from [docker-crd-vstunnel](https://github.com/iwankurnia/docker-crd-vstunnel); themes by [vinceliuice](https://github.com/vinceliuice) (Fluent, Qogir, WhiteSur; GPL-3.0) and Papirus icons.
 
 KiteOS is an unofficial personal build. It is not affiliated with Google, HP, Debian, Brave or ONLYOFFICE.

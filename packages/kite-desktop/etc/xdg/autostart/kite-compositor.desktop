@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=KiteOS compositor
-Comment=Animations and shadows (picom); falls back to the XFCE compositor
-Exec=/usr/lib/kite/desktop/start-compositor
-NoDisplay=true
-OnlyShowIn=XFCE;
-X-XFCE-Autostart-Override=true

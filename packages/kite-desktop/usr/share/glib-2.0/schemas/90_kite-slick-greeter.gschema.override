@@ -1,5 +1,5 @@
 [x.dm.slick-greeter]
-background='/usr/share/backgrounds/kite/kite-login.png'
+background='/usr/share/backgrounds/kite/login-frosted.jpg'
 background-color='#111a2e'
 draw-user-backgrounds=false
 draw-grid=false

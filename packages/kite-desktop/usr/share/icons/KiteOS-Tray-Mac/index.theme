@@ -1,0 +1,49 @@
+[Icon Theme]
+Name=KiteOS Tray (Mac)
+Comment=KiteOS panel and tray glyphs for the mac layout (from docker-crd-vstunnel)
+# KiteOS's own pack fills the gaps (NetworkManager nm-* glyphs, power, drives),
+# then the layout's icon theme.
+Inherits=KiteOS,Qogir,WhiteSur,Papirus,hicolor
+Directories=scalable/actions,scalable/apps,scalable/categories,scalable/devices,scalable/places,scalable/status
+
+[scalable/actions]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Actions
+
+[scalable/apps]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Applications
+
+[scalable/categories]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Categories
+
+[scalable/devices]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Devices
+
+[scalable/places]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Places
+
+[scalable/status]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Status

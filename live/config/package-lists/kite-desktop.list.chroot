@@ -27,7 +27,8 @@ thunar-volman
 gvfs
 udisks2
 pavucontrol
-rofi
+xfce4-whiskermenu-plugin
+xfce4-appfinder
 lightdm
 slick-greeter
 orchis-gtk-theme
@@ -35,6 +36,8 @@ papirus-icon-theme
 adwaita-icon-theme
 fonts-dejavu-core
 fonts-roboto
+fonts-inter
+fonts-jetbrains-mono
 fonts-noto-color-emoji
 ristretto
 mousepad

@@ -2,18 +2,43 @@
 
 ## The desktop
 
-- **Launcher:** tap the **Search** key (or click the circle at bottom-left). Type to search; Esc closes it.
-- **Overview:** the top-row "overview" key (□|| icon) shows all open windows.
-- **Shelf:** pinned apps in the middle (Brave, ONLYOFFICE, Files, Terminal,
-  Apps & Storage, Settings). Right-click an app to pin or unpin it.
-- **Power button** (bottom-right) lets you suspend, hibernate, restart, shut
-  down or log out. Lock the screen with **Search + L**.
+KiteOS has two desktop layouts. You pick one when installing (the live USB
+starts in **windows**) and can switch at any time, without logging out:
+
+```bash
+kite-layout mac        # or: kite-layout windows
+```
+
+- **windows:** a taskbar at the bottom: the **Start** menu, search and your
+  apps on the left; notifications, volume, tray icons, battery and the clock
+  on the right. Fluent theme, Papirus icons.
+- **mac:** a menu bar at the top (the KiteOS kite menu, the active app, search,
+  settings, tray icons, battery, clock) and a **Dock** at the bottom that
+  steps aside when a window needs the space. Qogir theme and icons.
+
+In both:
+- **Menu:** tap the **Search** key (or click Start / the kite). Type to search;
+  Esc closes it. The menu also has lock, log out, restart and shut down.
+- **Window list:** the top-row "overview" key (□|| icon) lists all open windows.
+- **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
+  Right-click an app to pin or unpin it.
+- Lock the screen with **Search + L**.
+
+Switching layouts replaces the panels, theme and keyboard shortcuts with that
+layout's; your files, apps and other settings stay as they are.
+
+**Wallpaper:** KiteOS ships three (Bloom, the default; Aurora; Waves). Right-click
+the desktop → Desktop Settings and pick one from `/usr/share/backgrounds/kite`.
+
+**Login screen:** three backgrounds too. `kite-login-theme` shows the current
+one; `sudo kite-login-theme aurora` (or `frosted`, the default, or `dusk`)
+changes it.
 
 ## Keyboard (ChromeOS habits)
 
 | Keys | Does |
 |---|---|
-| Tap Search | Open/close the launcher |
+| Tap Search | Open/close the menu |
 | Top row | Back, Refresh, Full screen, Overview, brightness, volume (as printed) |
 | Search + top-row key | F1 … F10 |
 | Search + Backspace (or Alt + Backspace) | Delete |
@@ -38,20 +63,27 @@ in `/etc/keyd/`.
 
 ## Apps on an external disk
 
-Open **Apps & Storage** (shelf, or the launcher).
+Open **App Centre** (a pinned app, or from the menu). The sidebar has four pages
+and, at the bottom, how full the internal and external disks are.
 
-1. **Set up an external disk:** choose your USB/SD partition. A Linux file
+1. **Storage → Set up external disk:** choose your USB/SD partition. A Linux file
    system (ext4) is required because apps need permissions and symlinks. If the
    disk is FAT/exFAT/NTFS it will offer to format it, which **erases it**. The disk
    is then mounted at `/mnt/kite-external` and remounted automatically whenever it
    is plugged in.
-2. **Install an app:** search, pick, then tick where the app's **program
+2. **Discover:** search, press **Install**, then tick where the app's **program
    files** and its **settings & data** should live. The app is installed on the
    internal disk first, copied to the external disk, verified, and the
    originals are replaced by symlinks.
-3. **Move an existing app** (for example Brave or ONLYOFFICE) the same way, and
-   **bring it back** when you like.
-4. **Keep a folder** (Downloads, Videos, …) on the external disk.
+3. **Installed:** every app shows **Internal** or **External**. **Move to
+   external** moves an existing app (for example Brave or ONLYOFFICE) the same
+   way, **Bring back** returns it, and **Remove** uninstalls it (your settings
+   are kept).
+4. **Storage → Move a folder to the external disk** keeps a folder (Downloads,
+   Videos, …) there; moved folders are listed with **Bring back**.
+
+Long tasks run at the bottom of the window with a **Details** log; you can
+keep browsing meanwhile.
 
 How it behaves:
 - Updates keep working: dpkg follows the symlinks and writes to the external disk.
@@ -66,12 +98,13 @@ sudo kite-storage setup /dev/sda1 --format
 sudo kite-storage install --app-ext --data-ext --user "$USER" gimp
 sudo kite-storage move-app brave-browser
 sudo kite-storage move-data brave-browser --user "$USER"
+sudo kite-storage remove gimp
 kite-storage status
 ```
 
 ## Updating
 
-Apps & Storage → **Update apps and system**, or `sudo kite-storage update`
+App Centre → Updates → **Update all**, or `sudo kite-storage update`
 (it uses the external disk for download space when available).
 
 ## Updating KiteOS
@@ -82,6 +115,7 @@ kite-update             # install it (asks for your password)
 sudo apt update && sudo apt upgrade     # Debian, Brave and ONLYOFFICE updates
 ```
 
+App Centre → Updates shows the same check, with **Update KiteOS**.
 `kite-update` installs the newer KiteOS packages (`kite-system`, `kite-desktop`, …)
 attached to the latest release on GitHub, after checking them against the
 release's checksum list, together with any new Debian packages they need. Your
@@ -96,6 +130,4 @@ own changes to files under `/etc` are kept. Log out and in again afterwards.
 - `/etc/kite/zswap.conf`: compressed swap cache (zstd, up to 25% of RAM).
 - `/etc/kite/display.conf`: "vivid" colours on the built-in screen (1.2× saturation, done by the
   graphics hardware). Change it for yourself with `kite-vivid 1.3`, `kite-vivid off` or `kite-vivid status`.
-  `ANIMATIONS=0` there (or in `~/.config/kite/display.conf`) turns off window and launcher
-  animations: XFCE's simpler compositor is used instead of picom (`/etc/kite/picom.conf`).
 - `/usr/lib/systemd/system/earlyoom.service.d/kite.conf`: out-of-memory guard.

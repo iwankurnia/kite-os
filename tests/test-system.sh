@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC1090,SC2016,SC2034  # tests source scripts dynamically and match literal ${...}
-# Tests for the hibernation helper, keyboard map generator, splash builder
-# and the user-init script. Safe: works only inside a temp directory.
+# Tests for the hibernation helper, keyboard map generator, splash builder,
+# the user-init script and App Centre's helpers. Safe: works only inside a temp directory.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -89,23 +89,64 @@ else
     echo "  skip (plymouth-themes not installed here)"
 fi
 
-echo "== kite-user-init (keyboard shortcuts merge)"
+echo "== kite-layout (windows and mac desktops)"
+KL=$REPO/packages/kite-desktop/usr/bin/kite-layout
+LH=$T/layout; mkdir -p "$LH/themes/Fluent-Light/gtk-3.0" "$LH/themes/Fluent-Light/xfwm4" "$LH/apps"
+for a in brave-browser thunar xfce4-terminal kite-apps; do touch "$LH/apps/$a.desktop"; done
+echo mac > "$LH/system-layout"
+kl() { env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" DISPLAY= KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
+       KITE_LAYOUT_SYSTEM="$LH/system-layout" KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" "$@"; }
+X=$LH/home/.config/xfce4/xfconf/xfce-perchannel-xml
+kl --first-login
+check "first login: system default layout (mac)" grep -qx mac "$LH/home/.config/kite/layout"
+check "mac: menu bar + Dock (two panels)" grep -q '<property name="panel-2"' "$X/xfce4-panel.xml"
+check "mac: missing Qogir theme falls back to Orchis" grep -q 'value="Orchis-Light-Compact"' "$X/xsettings.xml"
+check "mac: window theme falls back to Default" grep -q 'name="theme" type="string" value="Default"' "$X/xfwm4.xml"
+check "mac: KiteOS kite as the menu button" grep -qx 'button-icon=kiteos' "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
+echo windows > "$LH/home/.config/kite/layout.keep"; kl --first-login
+check "first login runs only once" grep -qx mac "$LH/home/.config/kite/layout"
+kl windows >/dev/null
+check "switch: windows recorded" grep -qx windows "$LH/home/.config/kite/layout"
+check "windows: one taskbar" bash -c "! grep -q '<property name=\"panel-2\"' '$X/xfce4-panel.xml'"
+check "windows: Fluent theme and tray pack" bash -c "grep -q 'value=\"Fluent-Light\"' '$X/xsettings.xml' && grep -q 'value=\"KiteOS-Tray-Windows\"' '$X/xsettings.xml'"
+check "windows: buttons on the right" grep -q 'value="menu:minimize,maximize,close"' "$X/xsettings.xml"
+check "no placeholders left" bash -c "! grep -rq '@[A-Z_]*@' '$LH/home/.config'"
+check "nothing of the mac layout left (its launchers)" test ! -d "$LH/home/.config/xfce4/panel/launcher-4"
+check "battery on the taskbar" grep -q 'value="power-manager-plugin"' "$X/xfce4-panel.xml"
+check "Start menu offers shut down" grep -qx 'show-command-shutdown=true' "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
+check "pins only installed apps, Brave first" grep -qx "pinned=$LH/apps/brave-browser.desktop;$LH/apps/thunar.desktop;$LH/apps/xfce4-terminal.desktop;$LH/apps/kite-apps.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
+touch "$LH/apps/kite-install.desktop"; kl windows >/dev/null
+check "live session: Install KiteOS pinned first" grep -q "^pinned=$LH/apps/kite-install.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
 if [ -f /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml ]; then
-    HOME=$T/home DISPLAY='' python3 "$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init"
-    f=$T/home/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml
-    check "user shortcut file created" test -f "$f"
-    check "valid XML" xmllint --noout "$f"
-    check "custom list marked as override" bash -c "xmllint --xpath \"//property[@name='commands']/property[@name='custom']/property[@name='override']/@value\" '$f' | grep -q true"
-    check "Super+Space -> launcher" bash -c "xmllint --xpath \"//property[@name='commands']/property[@name='custom']/property[@name='<Super>space']/@value\" '$f' | grep -q kite-launcher"
+    f=$X/xfce4-keyboard-shortcuts.xml
+    check "shortcuts: Search key opens the Start menu" bash -c "xmllint --xpath \"//property[@name='commands']/property[@name='custom']/property[@name='<Super>space']/@value\" '$f' | grep -q xfce4-popup-whiskermenu"
+    check "shortcuts: windows tiling keys" bash -c "xmllint --xpath \"//property[@name='xfwm4']/property[@name='custom']/property[@name='<Super>Left']/@value\" '$f' | grep -q tile_left_key"
     n_def=$(xmllint --xpath "count(//property[@name='commands']/property[@name='default']/property)" "$f")
     n_cus=$(xmllint --xpath "count(//property[@name='commands']/property[@name='custom']/property)" "$f")
-    check "XFCE defaults kept ($n_def defaults, $n_cus custom)" test "${n_cus%.*}" -gt "${n_def%.*}"
-    echo "<marker/>" > "$T/marker"; cp "$f" "$T/before.xml"
-    HOME=$T/home DISPLAY='' python3 "$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init"
-    check "never overwrites the user's file" cmp -s "$f" "$T/before.xml"
+    check "shortcuts: XFCE defaults kept ($n_def defaults, $n_cus custom)" test "${n_cus%.*}" -gt "${n_def%.*}"
 else
-    echo "  skip (xfce4-settings not installed here)"
+    echo "  skip shortcut merge (xfce4-settings not installed here)"
 fi
+kl --system windows >/dev/null
+check "--system sets the default for new accounts" grep -qx windows "$LH/system-layout"
+check "rejects unknown layouts" bash -c "! python3 '$KL' gnome 2>/dev/null"
+check "default for the live USB is windows" grep -qx windows "$REPO/packages/kite-desktop/etc/kite/layout"
+check "installer offers both layouts" bash -c "grep -q 'id: windows' '$REPO/live/config/includes.chroot/etc/calamares/modules/packagechooser-kite-layout.conf' && grep -q 'mac: \"/usr/bin/kite-layout --system mac\"' '$REPO/live/config/includes.chroot/etc/calamares/modules/contextualprocess-kite-layout.conf'"
+
+echo "== kite-login-theme (login screen background)"
+LT=$REPO/packages/kite-desktop/usr/bin/kite-login-theme; G=$T/greeter/slick-greeter.conf
+check "default is frosted" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'frosted (default)'"
+KITE_GREETER_CONF=$G sh "$LT" aurora >/dev/null
+check "new file gets a [Greeter] background" test "$(cat "$G")" = "$(printf '[Greeter]\nbackground=/usr/share/backgrounds/kite/login-aurora.jpg')"
+printf '[Greeter]\ntheme-name=X\nbackground=/old.png\n[Other]\nbackground=keep\n' > "$G"; KITE_GREETER_CONF=$G sh "$LT" dusk >/dev/null
+check "replaces only the greeter's background" test "$(cat "$G")" = "$(printf '[Greeter]\ntheme-name=X\nbackground=/usr/share/backgrounds/kite/login-dusk.jpg\n[Other]\nbackground=keep')"
+printf '[Greeter]\ntheme-name=X\n[Other]\na=1\n' > "$G"; KITE_GREETER_CONF=$G sh "$LT" frosted >/dev/null
+check "adds it to an existing [Greeter]" test "$(sed -n 3p "$G")" = background=/usr/share/backgrounds/kite/login-frosted.jpg
+check "reports the current one" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'login screen: frosted$'"
+check "rejects unknown names" bash -c "! KITE_GREETER_CONF='$G' sh '$LT' sunset 2>/dev/null"
+check "all three login images ship" bash -c "for l in frosted aurora dusk; do [ -s '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/login-'\$l.jpg ] || exit 1; done"
+check "all three wallpapers ship, Bloom by default" bash -c "for w in bloom aurora waves; do [ -s '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/'\$w.jpg ] || exit 1; done; grep -q 'kite/bloom.jpg' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init'"
+check "greeter default is frosted" grep -q "login-frosted.jpg" "$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override"
 
 echo "== Brave flags wrapper"
 W=$REPO/packages/kite-desktop/usr/bin/brave-browser-stable
@@ -175,28 +216,6 @@ for n in drive-harddisk-solidstate-sdio drive-removable-media-flash-mmc media-re
 done
 check "devices folder declared in index.theme" grep -q '^Directories=.*scalable/devices' "$REPO/packages/kite-desktop/usr/share/icons/KiteOS/index.theme"
 
-echo "== compositor (picom with xfwm4 fallback)"
-SC=$REPO/packages/kite-desktop/usr/lib/kite/desktop/start-compositor
-C=$T/comp; mkdir -p "$C/bin" "$C/cfg/kite"
-printf '#!/bin/sh\necho "xfwm $6" >> "%s/log"\n' "$C" > "$C/bin/xfconf-query"
-printf '#!/bin/sh\necho "picom $*" >> "%s/log"\nexit ${FAKE_PICOM_EXIT:-0}\n' "$C" > "$C/bin/picom"
-chmod 755 "$C/bin/xfconf-query" "$C/bin/picom"
-run_sc() { rm -f "$C/log"; env PATH="$C/bin:/usr/bin:/bin" XDG_CONFIG_HOME="$C/cfg" KITE_DISPLAY_CONF=/nonexistent "$@" sh "$SC" || true; }
-run_sc FAKE_PICOM_EXIT=1
-check "picom replaces xfwm4 compositing, then hands it back when picom exits" \
-    test "$(tr '\n' '|' < "$C/log")" = "xfwm false|picom --config /etc/kite/picom.conf|xfwm true|"
-echo ANIMATIONS=0 > "$C/cfg/kite/display.conf"; run_sc
-check "ANIMATIONS=0: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
-printf '#!/bin/sh\nexit 0\n' > "$C/bin/pgrep"; chmod 755 "$C/bin/pgrep"; rm "$C/cfg/kite/display.conf"; run_sc
-check "second start while picom runs: touches nothing" test ! -e "$C/log"
-rm "$C/bin/pgrep" "$C/bin/picom"; run_sc
-check "picom missing: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
-check "shelf and launcher fade (no zoom) with a shadow" bash -c "c='$REPO/packages/kite-desktop/etc/kite/picom.conf'; [ \$(grep -A3 -E \"class_g = 'Rofi'|window_type = 'dock'\" \"\$c\" | grep -c 'shadow = true') = 2 ] && [ \$(grep -c 'preset = \"appear\";    duration = 0.[0-9]*; scale = 1.0' \"\$c\") -ge 2 ]"
-check "picom shadow is rounded like the launcher card (16 px)" bash -c \
-    "grep -A2 \"class_g = 'Rofi'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'corner-radius = 16' &&
-     grep -q 'border-radius: *16px' '$REPO/packages/kite-desktop/usr/share/rofi/themes/kite-launcher.rasi'"
-check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
-
 echo "== kite-update (KiteOS packages from GitHub releases)"
 KU=$REPO/packages/kite-system/usr/bin/kite-update
 ku_py() { python3 - "$KU" <<PYEOF
@@ -222,6 +241,109 @@ check "reads the release checksum list" ku_py \
     'assert ku.checksums("a" * 64 + "  kite-system_1.1.0_all.deb" + chr(10) + "junk line") == {"kite-system_1.1.0_all.deb": "a" * 64}'
 check "update source is the KiteOS repository" grep -qx 'REPO=iwankurnia/kite-os' "$REPO/packages/kite-system/etc/kite/update.conf"
 check "rejects unknown options" bash -c "! python3 '$KU' --bogus 2>/dev/null"
+
+echo "== kite-app-centre (App Centre helpers; no GTK or display needed)"
+AC=$REPO/packages/kite-storage/usr/bin/kite-app-centre
+ac_py() { KITE_NO_GTK=1 python3 - "$AC" <<PYEOF
+import importlib.machinery, importlib.util, json, sys
+loader = importlib.machinery.SourceFileLoader("ac", sys.argv[1])
+spec = importlib.util.spec_from_loader("ac", loader); ac = importlib.util.module_from_spec(spec); loader.exec_module(ac)
+G = 1024 ** 3
+status = """External disk:
+  UUID 1234-abcd  mount /mnt/kite-external  (connected)
+   Size  Used Avail
+    58G  3.4G   52G
+Internal disk:
+   Size  Used Avail
+    29G   20G  7.8G
+On the external disk:
+  app   gimp                         -          /usr/lib/gimp  [ok]
+  data  gimp                         iwan       /home/iwan/.config/GIMP  [ok]
+  data  brave-browser                other      /home/other/.config/BraveSoftware  [ok]
+  data  folder                       iwan       /home/iwan/My Videos  [disk missing]
+  data  folder                       -          /srv/media  [ok]
+"""
+$1
+PYEOF
+}
+check "loads without GTK" ac_py 'assert ac.Gtk is None and ac.WM_CLASS == "kite-apps"'
+check "status: external disk connected" ac_py \
+    'e = ac.parse_status(status)["external"]; assert e == {"configured": True, "connected": True, "uuid": "1234-abcd", "mount": "/mnt/kite-external"}, e'
+check "status: moved entries, path with a space and state kept" ac_py \
+    'm = ac.parse_status(status)["moved"]; assert len(m) == 5; assert m[3] == {"kind": "data", "pkg": "folder", "user": "iwan", "path": "/home/iwan/My Videos", "state": "disk missing"}, m[3]; assert m[0]["user"] == ""'
+check "status: not set up, nothing moved" ac_py \
+    'r = ac.parse_status("External disk:\n  not set up (run: sudo kite-storage setup /dev/sdXN)\nInternal disk:\n   Size\nOn the external disk:\n  nothing yet\n"); assert r == {"external": {"configured": False, "connected": False, "uuid": "", "mount": ""}, "moved": []}, r'
+check "badges: apps on the external disk (other people's data ignored)" ac_py \
+    'm = ac.moved_apps(ac.parse_status(status)["moved"], "iwan"); assert m == {"gimp": {"app", "data"}}, m'
+check "moved folders: own and system-wide ones" ac_py \
+    'f = [e["path"] for e in ac.moved_folders(ac.parse_status(status)["moved"], "iwan")]; assert f == ["/home/iwan/My Videos", "/srv/media"], f'
+check "storage.conf parsed like the shell does" ac_py \
+    'c = ac.parse_shell_conf("# Written by kite-storage setup\nEXT_UUID=abc\nEXT_MOUNT=\"/mnt/x y\"\nexport EXT_FSTYPE=ext4\nbad line\n"); assert c == {"EXT_UUID": "abc", "EXT_MOUNT": "/mnt/x y", "EXT_FSTYPE": "ext4"}, c'
+check "external disk state: none / missing / ready" ac_py \
+    'assert ac.external_state({}) == "none"; assert ac.external_state({"EXT_UUID": "a"}, lambda p: False) == "missing"; assert ac.external_state({"EXT_UUID": "a"}, lambda p: p == "/mnt/kite-external/kite/.kite-storage") == "ready"'
+check "df -B1 output parsed" ac_py \
+    'd = ac.parse_df("1B-blocks Used Avail Mounted on\n31138512896 21582062387 8000000000 /\n62277025792 3650722201 55000000000 /mnt/kite-external\n"); assert d["/"] == (31138512896, 21582062387, 8000000000) and "/mnt/kite-external" in d, d'
+check "sidebar caption: 20.1 of 29 GB · 3.4 of 58 GB" ac_py \
+    'c = ac.sidebar_caption((29 * G, int(20.1 * G) + 1, 8 * G), "ready", (58 * G, int(3.4 * G) + 1, 52 * G)); assert c == "20.1 of 29 GB · 3.4 of 58 GB", c'
+check "sidebar caption: external not set up / not connected" ac_py \
+    'assert ac.sidebar_caption((29 * G, 20 * G, 9 * G), "none", None).endswith(" · not set up"); assert ac.sidebar_caption(None, "missing", None) == "unknown · not connected"'
+check "usage bar uses used / (used + free), like df" ac_py \
+    'assert ac.used_fraction((100, 30, 30)) == 0.5 and ac.used_fraction((0, 0, 0)) == 0.0'
+check "apt-cache search: exact, then prefix, then the rest; installed marked" ac_py \
+    'r = ac.parse_apt_search("libgimp2.0 - libraries for GIMP\ngimp-data - data files for GIMP\ngimp - GNU Image Manipulation Program\nbroken line\n", "GIMP", {"gimp-data"}); assert [(x["name"], x["installed"]) for x in r] == [("gimp", False), ("gimp-data", True), ("libgimp2.0", False)], r; assert r[0]["summary"] == "GNU Image Manipulation Program"'
+check "apt-cache search: at most 300 results" ac_py \
+    'assert len(ac.parse_apt_search("".join("p%d - x\n" % i for i in range(400)), "p")) == 300'
+check "dpkg-query -W: installed packages (held too, removed ones not)" ac_py \
+    'assert ac.parse_installed("ii \tgimp\nrc \told\nhi \theld\nun \tnever\n") == {"gimp", "held"}'
+check "apt list --upgradable parsed" ac_py \
+    'r = ac.parse_upgradable("Listing...\nfirefox-esr/stable-security 128.5.0esr-1~deb13u1 amd64 [upgradable from: 128.4.0esr-1~deb13u1]\nbrave-browser/stable 1.73.97 amd64 [upgradable from: 1.73.91]\n"); assert [(x["name"], x["version"], x["old"]) for x in r] == [("firefox-esr", "128.5.0esr-1~deb13u1", "128.4.0esr-1~deb13u1"), ("brave-browser", "1.73.97", "1.73.91")], r; assert r[0]["suite"] == "stable-security"'
+check "kite-update --check: up to date" ac_py \
+    'assert ac.parse_kite_update_check("KiteOS is up to date (latest release v1.2.4).\n", 0) == {"state": "current", "tag": "v1.2.4", "packages": [], "message": ""}'
+check "kite-update --check: updates listed" ac_py \
+    'r = ac.parse_kite_update_check("Updates in KiteOS v1.3:\n  kite-desktop     1.1.5 -> 1.2.0\n  kite-storage     1.0.0 -> 1.1.0\n", 0); assert r["state"] == "updates" and r["tag"] == "v1.3" and r["packages"] == [("kite-desktop", "1.1.5", "1.2.0"), ("kite-storage", "1.0.0", "1.1.0")], r'
+check "kite-update --check: offline is an error with the reason" ac_py \
+    'r = ac.parse_kite_update_check("Could not reach the KiteOS releases on GitHub: timed out\n", 1); assert r["state"] == "error" and "timed out" in r["message"], r'
+check "launchers: hidden and settings dialogs are not apps" ac_py \
+    'assert ac.launcher_visible("[Desktop Entry]\nName=GIMP\nCategories=Graphics;\n"); assert not ac.launcher_visible("[Desktop Entry]\nNoDisplay=true\n"); assert not ac.launcher_visible("[Desktop Entry]\nCategories=GTK;Settings;\n")'
+check "desktop entry: main group only" ac_py \
+    'e = ac.parse_desktop_entry("[Desktop Entry]\nName=Files\nComment=Browse\nIcon=org.xfce.thunar\n[Desktop Action New]\nName=New window\n"); assert e == {"Name": "Files", "Comment": "Browse", "Icon": "org.xfce.thunar"}, e'
+check "dpkg-query -S: shared files, arch suffix, diversions" ac_py \
+    'r = ac.parse_dpkg_search("gimp: /usr/share/applications/gimp.desktop\nlibreoffice-writer, libreoffice-core: /x.desktop\nthunar:amd64: /usr/share/applications/thunar.desktop\ndiversion by kite-desktop from: /y.desktop\n"); assert r == [("gimp", "/usr/share/applications/gimp.desktop"), ("libreoffice-writer", "/x.desktop"), ("thunar", "/usr/share/applications/thunar.desktop")], r'
+check "installed apps: desktop parts hidden, launcher named after the package wins" ac_py '
+A = "/usr/share/applications/"
+owners = [("thunar", A + "thunar-bulk-rename.desktop"), ("thunar", A + "thunar.desktop"), ("kite-desktop", A + "kite-x.desktop"),
+          ("xfce4-terminal", A + "xfce4-terminal.desktop"), ("vlc", A + "vlc.desktop"), ("ghost", A + "ghost.desktop")]
+entries = {A + "thunar-bulk-rename.desktop": {"Name": "Bulk Rename"}, A + "thunar.desktop": {"Name": "Files", "Comment": "Browse"},
+           A + "kite-x.desktop": {"Name": "X"}, A + "xfce4-terminal.desktop": {"Name": "Terminal"}, A + "vlc.desktop": {"Name": "VLC media player", "GenericName": "Media player", "Icon": "vlc"}}
+r = ac.pick_installed_apps(owners, entries)
+assert [(a["pkg"], a["name"], a["summary"]) for a in r] == [("thunar", "Files", "Browse"), ("vlc", "VLC media player", "Media player")], r'
+check "apt-get -s remove: packages that would go" ac_py \
+    'assert ac.parse_simulated_removal("NOTE: This is only a simulation!\nRemv gimp [2.10.38-1]\nRemv gimp-data [2.10.38-1]\n") == ["gimp", "gimp-data"]'
+check "set-up partitions: not the system disk, zram or loop; blanks shown" ac_py '
+j = json.dumps({"blockdevices": [
+    {"name": "/dev/mmcblk0", "size": "29G", "fstype": None, "label": None, "type": "disk", "pkname": None},
+    {"name": "/dev/mmcblk0p2", "size": "28G", "fstype": "ext4", "label": None, "type": "part", "pkname": "/dev/mmcblk0"},
+    {"name": "/dev/sda1", "size": "58G", "fstype": None, "label": None, "type": "part", "pkname": "/dev/sda"},
+    {"name": "/dev/sdb1", "size": "16G", "fstype": "vfat", "label": "STICK", "type": "part", "pkname": "/dev/sdb"},
+    {"name": "/dev/loop0p1", "size": "1G", "fstype": "ext4", "label": None, "type": "part", "pkname": "/dev/loop0"}]})
+r = ac.external_partitions(j, "mmcblk0")
+assert r == [{"name": "/dev/sda1", "size": "58G", "fstype": "none", "label": "-"}, {"name": "/dev/sdb1", "size": "16G", "fstype": "vfat", "label": "STICK"}], r
+assert ac.external_partitions("not json", "") == []'
+check "root steps match the kite-storage commands" ac_py '
+KS = "/usr/sbin/kite-storage"
+assert ac.install_steps("gimp", "iwan", True, False) == [[KS, "install", "--app-ext", "--user", "iwan", "gimp"]]
+assert ac.install_steps("gimp", "iwan", False, False) == [[KS, "install", "--user", "iwan", "gimp"]]
+assert ac.move_steps("gimp", "iwan", True, True) == [[KS, "move-app", "gimp"], [KS, "move-data", "gimp", "--user", "iwan"]]
+assert ac.move_steps("gimp", "iwan", False, True) == [[KS, "move-data", "gimp", "--user", "iwan"]]
+assert ac.restore_steps("gimp", "iwan") == [[KS, "restore-app", "gimp"], [KS, "restore-data", "gimp", "--user", "iwan"]]'
+check "every root command App Centre uses exists in kite-storage" bash -c \
+    "for c in ping install move-app move-data restore-app restore-data move-dir restore-dir setup update remove status; do grep -qE \"^        \$c\\) \" '$REPO/packages/kite-storage/usr/sbin/kite-storage' || { echo \"missing: \$c\"; exit 1; }; done"
+check "rejects unknown options" bash -c "! KITE_NO_GTK=1 python3 '$AC' --bogus 2>/dev/null"
+check "says what is missing without GTK" bash -c "KITE_NO_GTK=1 python3 '$AC' 2>&1 | grep -q 'needs GTK 3'"
+check "kite-apps still opens App Centre" grep -qx 'exec /usr/bin/kite-app-centre "\$@"' "$REPO/packages/kite-storage/usr/bin/kite-apps"
+D=$REPO/packages/kite-storage/usr/share/applications/kite-apps.desktop
+check "launcher: App Centre, grouped as kite-apps" bash -c "grep -qx 'Name=App Centre' '$D' && grep -qx 'Exec=kite-app-centre' '$D' && grep -qx 'StartupWMClass=kite-apps' '$D'"
+check "kite-storage depends on Python GTK 3" grep -qE '^Depends:.*python3-gi, gir1.2-gtk-3.0' "$REPO/packages/kite-storage/DEBIAN/control"
 
 echo "== touchpad defaults"
 TP=$REPO/packages/kite-desktop/etc/X11/xorg.conf.d/50-kite-touchpad.conf

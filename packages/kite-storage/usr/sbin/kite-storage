@@ -15,6 +15,7 @@
 #   kite-storage candidates PKG...          (what move-app would move)
 #   kite-storage verify [--repair] [--quiet]
 #   kite-storage update                     (apt full-upgrade with checks)
+#   kite-storage remove PKG...              (apt remove; settings are kept)
 #   kite-storage apt-pre-install            (APT hook, reads stdin)
 
 set -euo pipefail
@@ -42,7 +43,7 @@ EXT_MOUNT=${KITE_EXT_MOUNT:-$EXT_MOUNT}
 log()  { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 warn() { printf '%s: warning: %s\n' "$PROG" "$*" >&2; }
 die()  { printf '%s: error: %s\n' "$PROG" "$*" >&2; exit 1; }
-need_root() { [ "$(id -u)" -eq 0 ] || die "this needs root (run it with sudo, or use the Apps & Storage tool)"; }
+need_root() { [ "$(id -u)" -eq 0 ] || die "this needs root (run it with sudo, or use App Centre)"; }
 
 # Directories that belong to many packages and must never be moved as a whole.
 SHARED_DIRS_RE='^/(opt|usr|usr/lib|usr/lib64|usr/lib/x86_64-linux-gnu|usr/libexec|usr/share|usr/local|usr/bin|usr/sbin|etc|var|var/lib)$'
@@ -658,6 +659,30 @@ cmd_update() {
     log "system is up to date."
 }
 
+# Remove apps (never KiteOS's own packages). Settings in the home folder are
+# kept; anything stored on the external disk for the app is cleaned up.
+cmd_remove() {
+    need_root
+    local p pkgs=() removed kite
+    for p in "$@"; do
+        case "$p" in
+            -*) die "unknown option: $p" ;;
+            kite-*) die "$p is part of KiteOS and cannot be removed here" ;;
+        esac
+        pkg_installed "$p" || die "$p is not installed"
+        pkgs+=("$p")
+    done
+    (( ${#pkgs[@]} > 0 )) || die "which package(s)?"
+    # Refuse if apt would take part of KiteOS away with them.
+    removed=$(LC_ALL=C apt-get -s remove "${pkgs[@]}" 2>/dev/null | awk '$1 == "Remv" { print $2 }' || true)
+    kite=$(grep '^kite-' <<< "$removed" | tr '\n' ' ' || true)
+    [ -z "$kite" ] || die "removing ${pkgs[*]} would also remove part of KiteOS (${kite% }) — nothing was changed"
+    DEBIAN_FRONTEND=noninteractive apt-get -y remove "${pkgs[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get -y autoremove || warn "could not remove packages that are no longer needed"
+    ( cmd_verify --repair --quiet ) || true
+    log "removed: ${pkgs[*]}"
+}
+
 main() {
     local cmd=${1:-status}
     [ $# -gt 0 ] && shift
@@ -674,9 +699,10 @@ main() {
         candidates) cmd_candidates "$@" ;;
         verify) cmd_verify "$@" ;;
         update) cmd_update ;;
+        remove) cmd_remove "$@" ;;
         apt-pre-install) cmd_apt_pre_install ;;
         ping) need_root ;;   # used by the GUI to ask for the password up front
-        -h|--help|help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' ;;
+        -h|--help|help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' ;;
         *) die "unknown command: $cmd (see: $PROG --help)" ;;
     esac
 }

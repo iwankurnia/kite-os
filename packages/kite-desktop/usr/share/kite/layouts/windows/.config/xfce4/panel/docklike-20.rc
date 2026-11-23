@@ -1,0 +1,19 @@
+[user]
+# Pinned apps are filled in by kite-layout from what is installed.
+pinned=@PINNED@
+iconSize=24
+forceIconSize=true
+showPreviews=true
+showWindowCount=false
+noWindowsListIfSingle=true
+onlyDisplayVisible=false
+onlyDisplayScreen=false
+indicatorStyle=0
+inactiveIndicatorStyle=0
+indicatorColorFromTheme=false
+indicatorColor=rgb(0,103,192)
+inactiveColor=rgb(134,134,134)
+indicatorOrientation=0
+keyComboActive=true
+keyAloneActive=false
+middleButtonBehavior=0

@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Launcher
-Comment=Search and open apps
-Exec=kite-launcher
-Icon=kite-launcher
-NoDisplay=true
-Terminal=false

@@ -94,6 +94,11 @@ printf 'VERSION 2\n\nfakepkg 1.0 > - **REMOVE**\n' | "$KS" apt-pre-install 2>/de
 printf 'VERSION 2\n\notherpkg - < 2.0 /x/otherpkg_2.0_all.deb\n' | "$KS" apt-pre-install 2>/dev/null && ok "unrelated packages are not blocked" || bad "unrelated packages must not be blocked"
 mv "$T/ext/kite/.kite-storage.off" "$T/ext/kite/.kite-storage"
 
+echo "== remove"
+if "$KS" remove kite-system >/dev/null 2>&1; then bad "remove must refuse KiteOS packages"; else ok "remove refuses KiteOS packages"; fi
+if "$KS" remove no-such-package-kitetest >/dev/null 2>&1; then bad "remove must refuse packages that are not installed"; else ok "remove refuses packages that are not installed"; fi
+if "$KS" remove --purge >/dev/null 2>&1; then bad "remove must refuse unknown options"; else ok "remove refuses unknown options"; fi
+
 echo "== launcher overrides"
 # awk reads everything (head would SIGPIPE dpkg-query under pipefail), and
 # dpkg-query exits 1 when any launcher has no owner, as on CI runners.

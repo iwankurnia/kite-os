@@ -1,7 +1,6 @@
 [Icon Theme]
 Name=KiteOS
-Comment=KiteOS status icons (Wi-Fi, volume, battery, power) and drive icons, everything else from Papirus
-Inherits=Papirus,Adwaita,hicolor
+Comment=KiteOS status and drive icons; used under the layout tray packs (KiteOS-Tray-*) to fill their gaps
 Directories=scalable/status,scalable/devices
 
 [scalable/status]

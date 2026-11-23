@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build the KiteOS boot splash from Debian's "spinner" theme: same animation,
-# KiteOS logo in the middle, dark ChromeOS-like background.
+# KiteOS logo and wordmark in the middle on a deep indigo gradient.
 #   kite-plymouth-theme [SRC_DIR] [DST_DIR] [WATERMARK_PNG]
 set -eu
 src=${1:-/usr/share/plymouth/themes/spinner}
@@ -19,10 +19,10 @@ cp "$mark" "$dst/watermark.png"
 awk -v dir="$dst" '
     function flush() {
         print "WatermarkHorizontalAlignment=.5"
-        print "WatermarkVerticalAlignment=.45"
-        print "VerticalAlignment=.68"
-        print "BackgroundStartColor=0x202124"
-        print "BackgroundEndColor=0x202124"
+        print "WatermarkVerticalAlignment=.42"
+        print "VerticalAlignment=.72"
+        print "BackgroundStartColor=0x070b1f"
+        print "BackgroundEndColor=0x1e1b4b"
         flushed = 1
     }
     /^\[/ {

@@ -1,8 +1,0 @@
-#!/bin/sh
-# Toggle the window overview (bound to the top-row "overview" key / Super+W).
-uid=$(id -u)
-if pgrep -u "$uid" -x rofi >/dev/null 2>&1; then
-    pkill -u "$uid" -x rofi
-    exit 0
-fi
-exec rofi -show window -theme kite-overview

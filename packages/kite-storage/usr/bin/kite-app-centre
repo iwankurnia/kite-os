@@ -1,0 +1,1394 @@
+#!/usr/bin/python3
+"""App Centre: install and remove apps, keep apps and folders on an external
+disk, and update KiteOS and the system. A GTK 3 front end for the root tool
+/usr/sbin/kite-storage (it replaces the yad dialogs of kite-apps).
+
+  kite-app-centre                     open the window
+  kite-app-centre --page PAGE         open on installed, discover, storage or updates
+  kite-app-centre --askpass [PROMPT]  password box for sudo -A (no polkit agent)
+
+The parsing helpers at the top import without GTK or a display, so the tests
+can load this file anywhere.
+"""
+import fnmatch
+import glob
+import json
+import os
+import pwd
+import re
+import shlex
+import subprocess
+import sys
+import threading
+
+Gtk = Gdk = GLib = Gio = GdkPixbuf = None
+if os.environ.get("KITE_NO_GTK") != "1":
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: F811
+    except (ImportError, ValueError):
+        Gtk = Gdk = GLib = Gio = GdkPixbuf = None
+
+TITLE = "App Centre"
+APP_ID = "org.kiteos.AppCentre"
+WM_CLASS = "kite-apps"           # taskbar pins and the .desktop file group by this
+ICON = "system-software-install"
+KS = "/usr/sbin/kite-storage"
+KITE_UPDATE = "/usr/bin/kite-update"
+CONF = os.environ.get("KITE_STORAGE_CONF", "/etc/kite/storage.conf")
+APPS_DIR = "/usr/share/applications"
+DEFAULT_MOUNT = "/mnt/kite-external"
+LINUX_FS = ("ext4", "ext3", "btrfs", "xfs", "f2fs")
+SEARCH_LIMIT = 300
+GIB = 1024 ** 3
+C_ENV = dict(os.environ, LC_ALL="C.UTF-8")
+
+# Packages that ship a launcher but are part of the desktop itself, not apps
+# (the same list as kite-apps had).
+HIDDEN_PACKAGES = ("kite-*", "calamares*", "xfce4-*", "xfconf", "xfdesktop4", "xfwm4",
+                   "exo-utils", "rofi", "blueman", "pavucontrol", "nm-connection-editor",
+                   "thunar-volman", "vim*", "yad")
+
+
+# ------------------------------------------------------------ pure helpers --
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def run(argv, timeout=120, env=None):
+    """(exit status, stdout, stderr); 127 if the program is missing."""
+    try:
+        p = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE, timeout=timeout, env=env)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 127, "", str(e)
+    return (p.returncode, p.stdout.decode("utf-8", "replace"),
+            p.stderr.decode("utf-8", "replace"))
+
+
+def parse_shell_conf(text):
+    """KEY=VALUE lines of a shell-style file such as /etc/kite/storage.conf."""
+    out = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[7:].strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        out[key] = value
+    return out
+
+
+def external_state(conf, exists=os.path.isfile):
+    """'none' (not set up), 'missing' (set up but not connected) or 'ready'.
+    Same test as kite-apps' ext_ready: a UUID and our marker file."""
+    if not conf.get("EXT_UUID"):
+        return "none"
+    mount = conf.get("EXT_MOUNT") or DEFAULT_MOUNT
+    return "ready" if exists(os.path.join(mount, "kite", ".kite-storage")) else "missing"
+
+
+_MOVED = re.compile(r"^\s+(\S+)\s+(\S+)\s+(\S+)\s+(.+?)\s+\[([^\]]*)\]\s*$")
+_EXT = re.compile(r"^\s+UUID (\S+)\s+mount (.+?)\s+\((connected|NOT connected)\)")
+
+
+def parse_status(text):
+    """`kite-storage status` -> {"external": {...}, "moved": [{kind, pkg, user, path, state}]}"""
+    ext = {"configured": False, "connected": False, "uuid": "", "mount": ""}
+    moved, section = [], None
+    for line in text.splitlines():
+        if line.startswith("External disk:"):
+            section = "ext"
+        elif line.startswith("Internal disk:"):
+            section = "int"
+        elif line.startswith("On the external disk:"):
+            section = "moved"
+        elif section == "ext":
+            m = _EXT.match(line)
+            if m:
+                ext.update(configured=True, uuid=m.group(1), mount=m.group(2),
+                           connected=m.group(3) == "connected")
+        elif section == "moved":
+            m = _MOVED.match(line)
+            if m:
+                kind, pkg, user, path, state = m.groups()
+                moved.append({"kind": kind, "pkg": pkg, "user": "" if user == "-" else user,
+                              "path": path, "state": state})
+    return {"external": ext, "moved": moved}
+
+
+def moved_apps(moved, user):
+    """{package: {"app", "data"}} for apps with files on the external disk.
+    Settings and data count only for USER (they are per person)."""
+    out = {}
+    for e in moved:
+        if e["pkg"] == "folder":
+            continue
+        if e["kind"] == "app" or (e["kind"] == "data" and e["user"] == user):
+            out.setdefault(e["pkg"], set()).add(e["kind"])
+    return out
+
+
+def moved_folders(moved, user):
+    """Folders moved with move-dir: this user's and system-wide ones."""
+    return [e for e in moved if e["pkg"] == "folder" and e["user"] in ("", user)]
+
+
+def parse_df(text):
+    """`df -B1 --output=size,used,avail,target ...` -> {mount point: (size, used, avail)}"""
+    out = {}
+    for line in text.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and all(p.isdigit() for p in parts[:3]):
+            out[parts[3].strip()] = tuple(int(p) for p in parts[:3])
+    return out
+
+
+def used_fraction(usage):
+    size, used, avail = usage
+    total = used + avail          # what df's Use% shows (reserved blocks left out)
+    return min(1.0, used / total) if total else 0.0
+
+
+def gb(n, whole=False):
+    v = n / GIB
+    return "%d" % round(v) if whole and v >= 10 else "%.1f" % v
+
+
+def usage_text(usage):
+    """(size, used, avail) -> '20.1 of 29 GB'"""
+    size, used, _ = usage
+    return "%s of %s GB" % (gb(used), gb(size, whole=True))
+
+
+def sidebar_caption(internal, state, external):
+    left = usage_text(internal) if internal else "unknown"
+    if state == "none":
+        right = "not set up"
+    elif state == "missing" or not external:
+        right = "not connected"
+    else:
+        right = usage_text(external)
+    return "%s · %s" % (left, right)
+
+
+def plural(n, word):
+    return "%d %s%s" % (n, word, "" if n == 1 else "s")
+
+
+def parse_apt_search(text, term, installed=(), limit=SEARCH_LIMIT):
+    """`apt-cache search` lines -> [{name, summary, installed}], exact and prefix
+    matches first, as kite-apps sorted them."""
+    term = term.strip().lower()
+    rows = []
+    for line in text.splitlines():
+        name, sep, desc = line.partition(" - ")
+        if not sep or not name or " " in name:
+            continue
+        rank = 0 if name == term else 1 if name.startswith(term) else 2
+        rows.append((rank, name, desc.strip()))
+    rows.sort()
+    return [{"name": n, "summary": d, "installed": n in installed} for _, n, d in rows[:limit]]
+
+
+def parse_installed(text):
+    """`dpkg-query -W -f='${db:Status-Abbrev}\\t${Package}\\n'` -> set of installed packages."""
+    out = set()
+    for line in text.splitlines():
+        status, sep, pkg = line.partition("\t")
+        if sep and status[1:2] == "i":
+            out.add(pkg.strip())
+    return out
+
+
+_UPGRADABLE = re.compile(r"^([^/\s]+)/(\S+)\s+(\S+)\s+(\S+)(?:\s+\[[^\]]*?(\S+)\])?\s*$")
+
+
+def parse_upgradable(text):
+    """`apt list --upgradable` -> [{name, suite, version, arch, old}]"""
+    out = []
+    for line in text.splitlines():
+        m = _UPGRADABLE.match(line)
+        if m:
+            name, suite, version, arch, old = m.groups()
+            out.append({"name": name, "suite": suite, "version": version,
+                        "arch": arch, "old": old or ""})
+    return out
+
+
+def parse_kite_update_check(text, rc):
+    """`kite-update --check` output and exit status -> {state, tag, packages, message}.
+    state: 'current', 'updates' or 'error'."""
+    text = text.strip()
+    pkgs = re.findall(r"^\s+(kite-\S+)\s+(\S+) -> (\S+)\s*$", text, re.M)
+    head = re.search(r"^Updates in KiteOS (\S+?):", text, re.M)
+    current = re.search(r"up to date \(latest release ([^)]*)\)", text)
+    if rc == 0 and current:
+        return {"state": "current", "tag": current.group(1), "packages": [], "message": ""}
+    if rc == 0 and (head or pkgs):
+        return {"state": "updates", "tag": head.group(1) if head else "",
+                "packages": pkgs, "message": ""}
+    last = text.splitlines()[-1] if text else "kite-update gave no answer (exit status %d)" % rc
+    return {"state": "error", "tag": "", "packages": [], "message": last}
+
+
+def parse_desktop_entry(text):
+    """Keys of the [Desktop Entry] group (first value wins)."""
+    entry, main = {}, False
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            main = s == "[Desktop Entry]"
+        elif main and "=" in s and not s.startswith("#"):
+            key, _, value = s.partition("=")
+            entry.setdefault(key.strip(), value.strip())
+    return entry
+
+
+def launcher_visible(text):
+    """kite-apps' rule: an app launcher, not hidden and not a settings dialog."""
+    for line in text.splitlines():
+        if line.startswith("NoDisplay=true") or re.match(r"Categories=.*Settings", line):
+            return False
+    return True
+
+
+def parse_dpkg_search(text):
+    """`dpkg-query -S FILE...` -> [(package, file)]. 'a, b: f' keeps a; 'pkg:amd64' drops the arch."""
+    out = []
+    for line in text.splitlines():
+        if ": " not in line or line.startswith("diversion "):
+            continue
+        pkg, _, path = line.partition(": ")
+        pkg = pkg.split(",")[0].split(":")[0].strip()
+        if pkg and " " not in pkg:
+            out.append((pkg, path.strip()))
+    return out
+
+
+def pick_installed_apps(owners, entries):
+    """One app per package that owns a visible launcher, preferring the launcher
+    named after the package (thunar.desktop over thunar-bulk-rename.desktop).
+    owners: [(pkg, path)]; entries: {path: desktop entry}."""
+    best = {}
+    for pkg, path in owners:
+        if any(fnmatch.fnmatchcase(pkg, pat) for pat in HIDDEN_PACKAGES):
+            continue
+        entry = entries.get(path)
+        if entry is None:
+            continue
+        stem = os.path.basename(path)
+        stem = stem[:-8] if stem.endswith(".desktop") else stem
+        key = (0 if stem == pkg else 1, path)
+        if pkg not in best or key < best[pkg][0]:
+            best[pkg] = (key, path, entry)
+    apps = []
+    for pkg, (_, path, entry) in best.items():
+        apps.append({"pkg": pkg, "name": entry.get("Name") or pkg,
+                     "summary": entry.get("Comment") or entry.get("GenericName") or "",
+                     "icon": entry.get("Icon", ""), "desktop": path})
+    return sorted(apps, key=lambda a: (a["name"].lower(), a["pkg"]))
+
+
+def parse_simulated_removal(text):
+    """`apt-get -s remove PKG` -> packages apt would remove."""
+    return re.findall(r"^Remv (\S+)", text, re.M)
+
+
+def external_partitions(lsblk_json, root_disk):
+    """`lsblk -J -l -p -o NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME` -> partitions that are
+    not on the system disk (nor zram, loop or optical)."""
+    try:
+        devices = json.loads(lsblk_json or "{}").get("blockdevices", [])
+    except ValueError:
+        return []
+    root = os.path.basename(root_disk or "")
+    out = []
+    for d in devices:
+        if d.get("type") != "part":
+            continue
+        parent = os.path.basename(d.get("pkname") or "")
+        if (root and parent == root) or parent.startswith(("zram", "loop", "sr")):
+            continue
+        out.append({"name": d.get("name") or "", "size": d.get("size") or "",
+                    "fstype": d.get("fstype") or "none", "label": d.get("label") or "-"})
+    return out
+
+
+def install_steps(pkg, user, app_ext, data_ext):
+    flags = (["--app-ext"] if app_ext else []) + (["--data-ext"] if data_ext else [])
+    return [[KS, "install"] + flags + ["--user", user, pkg]]
+
+
+def move_steps(pkg, user, app_ext, data_ext):
+    steps = []
+    if app_ext:
+        steps.append([KS, "move-app", pkg])
+    if data_ext:
+        steps.append([KS, "move-data", pkg, "--user", user])
+    return steps
+
+
+def restore_steps(pkg, user):
+    return [[KS, "restore-app", pkg], [KS, "restore-data", pkg, "--user", user]]
+
+
+# ------------------------------------------------- data gathering (threads) --
+
+def installed_apps(apps_dir=APPS_DIR):
+    entries = {}
+    for path in sorted(glob.glob(os.path.join(apps_dir, "*.desktop"))):
+        text = read_text(path)
+        if text and launcher_visible(text):
+            entries[path] = parse_desktop_entry(text)
+    if not entries:
+        return []
+    # One query for every launcher: one per file is far too slow on a Celeron.
+    _, out, _ = run(["dpkg-query", "-S"] + list(entries), env=C_ENV)
+    return pick_installed_apps(parse_dpkg_search(out), entries)
+
+
+def installed_packages():
+    _, out, _ = run(["dpkg-query", "-W", "-f", "${db:Status-Abbrev}\t${Package}\n"], env=C_ENV)
+    return parse_installed(out)
+
+
+def collect_overview(user):
+    conf = parse_shell_conf(read_text(CONF))
+    state = external_state(conf)
+    mount = conf.get("EXT_MOUNT") or DEFAULT_MOUNT
+    targets = ["/"] + ([mount] if state == "ready" else [])
+    _, out, _ = run(["df", "-B1", "--output=size,used,avail,target"] + targets, env=C_ENV)
+    df = parse_df(out)
+    rc, status_text, err = run([KS, "status"], env=C_ENV)
+    status = parse_status(status_text)
+    return {"state": state, "mount": mount, "internal": df.get("/"),
+            "external": df.get(mount) if state == "ready" else None,
+            "status_text": (status_text + err).strip() or "kite-storage status failed (%d)" % rc,
+            "moved": status["moved"], "apps": installed_apps(), "user": user}
+
+
+def collect_system_updates():
+    _, out, _ = run(["apt", "list", "--upgradable"], env=C_ENV)
+    return parse_upgradable(out)
+
+
+def collect_kiteos_updates():
+    if not os.path.exists(KITE_UPDATE):
+        return {"state": "absent", "tag": "", "packages": [], "message": ""}
+    rc, out, err = run([KITE_UPDATE, "--check"], timeout=90, env=C_ENV)
+    return parse_kite_update_check(out + "\n" + err, rc)
+
+
+def find_partitions():
+    _, src, _ = run(["findmnt", "-n", "-o", "SOURCE", "/"])
+    src = re.sub(r"\[.*", "", src.strip())
+    root_disk = ""
+    if src:
+        _, out, _ = run(["lsblk", "-no", "PKNAME", src])
+        root_disk = (out.splitlines() or [""])[0].strip()
+    _, out, _ = run(["lsblk", "-J", "-l", "-p", "-o", "NAME,SIZE,FSTYPE,LABEL,TYPE,PKNAME"])
+    return external_partitions(out, root_disk)
+
+
+# ---------------------------------------------------------------------- UI --
+
+CSS = b"""
+@define-color kite_violet #7c4dff;
+@define-color kite_red #e01b24;
+.kite-sidebar { background-color: shade(@theme_bg_color, 0.95);
+                border-right: 1px solid alpha(@theme_fg_color, 0.08); }
+.kite-sidebar stacksidebar, .kite-sidebar stacksidebar scrolledwindow,
+.kite-sidebar stacksidebar list { background-color: transparent; border: none; }
+.kite-sidebar stacksidebar row { padding: 8px 14px; margin: 1px 10px; border-radius: 8px; }
+.kite-content { background-color: @theme_bg_color; }
+.kite-card { background-color: @theme_base_color; border-radius: 12px;
+             border: 1px solid alpha(@theme_fg_color, 0.08); padding: 12px 16px; }
+.kite-badge { border-radius: 12px; padding: 2px 10px; font-weight: bold; font-size: smaller; }
+.kite-badge-internal { color: @theme_selected_bg_color;
+                       background-color: alpha(@theme_selected_bg_color, 0.14); }
+.kite-badge-external { color: @kite_violet; background-color: alpha(@kite_violet, 0.14); }
+.kite-badge-installed { color: @theme_fg_color; background-color: alpha(@theme_fg_color, 0.08); }
+button.kite-remove { color: @kite_red; background-image: none; box-shadow: none;
+                     background-color: alpha(@kite_red, 0.08); border-color: alpha(@kite_red, 0.25); }
+button.kite-remove:hover { background-color: alpha(@kite_red, 0.16); }
+progressbar.kite-bar trough, progressbar.kite-bar progress { min-height: 6px; border-radius: 3px; }
+progressbar.kite-internal progress { background-image: none; background-color: @theme_selected_bg_color;
+                                     border-color: @theme_selected_bg_color; }
+progressbar.kite-external progress { background-image: none; background-color: @kite_violet;
+                                     border-color: @kite_violet; }
+.kite-progress { background-color: @theme_base_color; padding: 10px 24px;
+                 border-top: 1px solid alpha(@theme_fg_color, 0.10); }
+"""
+
+
+def esc(text):
+    return GLib.markup_escape_text(text or "")
+
+
+def label(text="", markup=None, dim=False, wrap=False, xalign=0.0, ellipsize=False, cls=None):
+    w = Gtk.Label(xalign=xalign)
+    if markup is not None:
+        w.set_markup(markup)
+    else:
+        w.set_text(text)
+    if wrap:
+        w.set_line_wrap(True)
+    if ellipsize:
+        from gi.repository import Pango
+        w.set_ellipsize(Pango.EllipsizeMode.END)
+    if dim:
+        w.get_style_context().add_class("dim-label")
+    if cls:
+        w.get_style_context().add_class(cls)
+    return w
+
+
+def title_label(text):
+    return label(markup='<span size="xx-large" weight="bold">%s</span>' % esc(text))
+
+
+def heading(text):
+    return label(markup='<span size="large" weight="bold">%s</span>' % esc(text))
+
+
+def badge(text, kind):
+    w = label(text, cls="kite-badge")
+    w.get_style_context().add_class("kite-badge-" + kind)
+    w.set_valign(Gtk.Align.CENTER)
+    return w
+
+
+def button(text, callback, *args, cls=None):
+    b = Gtk.Button(label=text)
+    b.set_valign(Gtk.Align.CENTER)
+    if cls:
+        b.get_style_context().add_class(cls)
+    b.connect("clicked", lambda _b: callback(*args))
+    return b
+
+
+def card(spacing=12, vertical=False):
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL if vertical else Gtk.Orientation.HORIZONTAL,
+                  spacing=spacing)
+    box.get_style_context().add_class("kite-card")
+    return box
+
+
+def clear(box):
+    for child in box.get_children():
+        box.remove(child)
+        child.destroy()
+
+
+def app_image(icon, size):
+    if icon and os.path.isabs(icon) and os.path.exists(icon):
+        try:
+            return Gtk.Image.new_from_pixbuf(
+                GdkPixbuf.Pixbuf.new_from_file_at_size(icon, size, size))
+        except GLib.Error:
+            pass
+    name = os.path.basename(icon or "")
+    if name.endswith((".png", ".svg", ".xpm")):
+        name = name.rsplit(".", 1)[0]
+    if not name or not Gtk.IconTheme.get_default().has_icon(name):
+        name = "application-x-executable"
+    img = Gtk.Image.new_from_icon_name(name, Gtk.IconSize.DIALOG)
+    img.set_pixel_size(size)
+    return img
+
+
+def usage_bar(kind):
+    bar = Gtk.ProgressBar()
+    for c in ("kite-bar", "kite-" + kind):
+        bar.get_style_context().add_class(c)
+    return bar
+
+
+def page_box():
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    for side in ("top", "bottom"):
+        getattr(box, "set_margin_" + side)(24)
+    for side in ("start", "end"):
+        getattr(box, "set_margin_" + side)(32)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.add(box)
+    scroller.get_style_context().add_class("kite-content")
+    return scroller, box
+
+
+def header(title, search_placeholder=None):
+    row = Gtk.Box(spacing=12)
+    row.pack_start(title_label(title), False, False, 0)
+    entry = None
+    if search_placeholder:
+        entry = Gtk.SearchEntry(placeholder_text=search_placeholder)
+        entry.set_width_chars(28)
+        entry.set_valign(Gtk.Align.CENTER)
+        row.pack_end(entry, False, False, 0)
+    return row, entry
+
+
+class AppCentre:
+    def __init__(self, app, page):
+        self.user = pwd.getpwuid(os.getuid()).pw_name
+        self.busy = None             # title of the running task
+        self.overview = None
+        self.updates_loaded = False
+        self.last_search = ""
+        self.self_path = os.path.realpath(__file__)
+
+        self.win = Gtk.ApplicationWindow(application=app, title=TITLE)
+        self.win.set_default_size(1000, 640)
+        self.win.set_icon_name(ICON)
+        self.win.connect("delete-event", self.on_delete)
+
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_hexpand(True)
+        self.stack.set_vexpand(True)
+        self.stack.add_titled(self.build_discover(), "discover", "Discover")
+        self.stack.add_titled(self.build_installed(), "installed", "Installed")
+        self.stack.add_titled(self.build_storage(), "storage", "Storage")
+        self.stack.add_titled(self.build_updates(), "updates", "Updates")
+        self.stack.connect("notify::visible-child-name", self.on_page)
+
+        outer = Gtk.Box()
+        outer.pack_start(self.build_sidebar(), False, False, 0)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        right.pack_start(self.stack, True, True, 0)
+        right.pack_end(self.build_progress(), False, False, 0)
+        outer.pack_start(right, True, True, 0)
+        self.win.add(outer)
+        self.win.show_all()
+        self.stack.set_visible_child_name(page)
+        self.refresh()
+
+    # ----------------------------------------------------------- layout --
+    def build_sidebar(self):
+        side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        side.set_size_request(260, -1)
+        side.get_style_context().add_class("kite-sidebar")
+        t = label(markup='<span size="x-large" weight="bold">%s</span>' % TITLE)
+        t.set_margin_start(24)
+        t.set_margin_top(20)
+        t.set_margin_bottom(8)
+        side.pack_start(t, False, False, 0)
+        nav = Gtk.StackSidebar()
+        nav.set_stack(self.stack)
+        side.pack_start(nav, True, True, 0)
+
+        usage = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for s in ("start", "end"):
+            getattr(usage, "set_margin_" + s)(24)
+        usage.set_margin_bottom(20)
+        usage.pack_start(label("Internal disk", dim=True), False, False, 0)
+        self.side_int = usage_bar("internal")
+        usage.pack_start(self.side_int, False, False, 2)
+        usage.pack_start(label("External disk", dim=True), False, False, 4)
+        self.side_ext = usage_bar("external")
+        self.side_ext_note = label("Not set up")
+        usage.pack_start(self.side_ext, False, False, 2)
+        usage.pack_start(self.side_ext_note, False, False, 0)
+        self.side_caption = label("", dim=True, wrap=True)
+        usage.pack_start(self.side_caption, False, False, 4)
+        side.pack_end(usage, False, False, 0)
+        return side
+
+    def build_installed(self):
+        scroller, box = page_box()
+        row, self.inst_search = header("Installed", "Search installed apps")
+        self.inst_search.connect("search-changed", lambda _e: self.filter_installed())
+        box.pack_start(row, False, False, 0)
+        self.inst_summary = label("Looking for installed apps…", dim=True)
+        box.pack_start(self.inst_summary, False, False, 0)
+        self.inst_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.pack_start(self.inst_list, False, False, 4)
+        self.inst_empty = label("", dim=True)
+        self.inst_empty.set_no_show_all(True)
+        box.pack_start(self.inst_empty, False, False, 0)
+        self.inst_cards = []
+        return scroller
+
+    def build_discover(self):
+        scroller, box = page_box()
+        row, self.disc_search = header("Discover", "Search for apps to install")
+        self.disc_search.connect("activate", lambda _e: self.search())
+        box.pack_start(row, False, False, 0)
+        self.disc_status = label("Search for an app by name or by what it does, for example "
+                                 "gimp, vlc, inkscape or “video editor”, then press Enter.",
+                                 dim=True, wrap=True)
+        box.pack_start(self.disc_status, False, False, 0)
+        self.disc_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.pack_start(self.disc_list, False, False, 4)
+        return scroller
+
+    def build_storage(self):
+        scroller, box = page_box()
+        row, _ = header("Storage")
+        box.pack_start(row, False, False, 0)
+        cards = Gtk.Box(spacing=12, homogeneous=True)
+        box.pack_start(cards, False, False, 4)
+
+        c = card(vertical=True, spacing=6)
+        top = Gtk.Box(spacing=10)
+        top.pack_start(app_image("drive-harddisk", 32), False, False, 0)
+        top.pack_start(heading("Internal disk"), False, False, 0)
+        c.pack_start(top, False, False, 0)
+        self.st_int_bar = usage_bar("internal")
+        c.pack_start(self.st_int_bar, False, False, 4)
+        self.st_int_text = label("", dim=True)
+        c.pack_start(self.st_int_text, False, False, 0)
+        cards.pack_start(c, True, True, 0)
+
+        c = card(vertical=True, spacing=6)
+        top = Gtk.Box(spacing=10)
+        top.pack_start(app_image("drive-removable-media", 32), False, False, 0)
+        top.pack_start(heading("External disk"), False, False, 0)
+        c.pack_start(top, False, False, 0)
+        self.st_ext_bar = usage_bar("external")
+        c.pack_start(self.st_ext_bar, False, False, 4)
+        self.st_ext_text = label("", dim=True, wrap=True)
+        c.pack_start(self.st_ext_text, False, False, 0)
+        b = button("Set up external disk", self.setup_disk)
+        b.set_halign(Gtk.Align.START)
+        c.pack_start(b, False, False, 4)
+        cards.pack_start(c, True, True, 0)
+
+        c = card(vertical=True, spacing=8)
+        top = Gtk.Box(spacing=12)
+        top.pack_start(heading("Folders on the external disk"), False, False, 0)
+        top.pack_end(button("Move a folder to the external disk", self.move_folder), False, False, 0)
+        c.pack_start(top, False, False, 0)
+        c.pack_start(label("Keep big folders such as Videos or Downloads on the external disk. "
+                           "They stay where they are in Files; only the space they use moves.",
+                           dim=True, wrap=True), False, False, 0)
+        self.st_folders = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        c.pack_start(self.st_folders, False, False, 4)
+        box.pack_start(c, False, False, 4)
+
+        exp = Gtk.Expander(label="Details")
+        self.st_details = Gtk.TextView(editable=False, cursor_visible=False)
+        self.st_details.set_monospace(True)
+        self.st_details.set_left_margin(8)
+        exp.add(self.st_details)
+        box.pack_start(exp, False, False, 4)
+        return scroller
+
+    def build_updates(self):
+        scroller, box = page_box()
+        row, _ = header("Updates")
+        box.pack_start(row, False, False, 0)
+
+        c = card(vertical=True, spacing=8)
+        top = Gtk.Box(spacing=8)
+        top.pack_start(heading("KiteOS"), False, False, 0)
+        self.up_kite_btn = button("Update KiteOS", self.update_kiteos, cls="suggested-action")
+        top.pack_end(self.up_kite_btn, False, False, 0)
+        self.up_kite_check = button("Check again", self.refresh_updates)
+        top.pack_end(self.up_kite_check, False, False, 0)
+        c.pack_start(top, False, False, 0)
+        self.up_kite_text = label("", wrap=True)
+        c.pack_start(self.up_kite_text, False, False, 0)
+        self.up_kite_list = label("", dim=True)
+        c.pack_start(self.up_kite_list, False, False, 0)
+        box.pack_start(c, False, False, 4)
+
+        c = card(vertical=True, spacing=8)
+        top = Gtk.Box(spacing=8)
+        top.pack_start(heading("System"), False, False, 0)
+        top.pack_end(button("Update all", self.update_system, cls="suggested-action"), False, False, 0)
+        c.pack_start(top, False, False, 0)
+        self.up_sys_text = label("", wrap=True)
+        c.pack_start(self.up_sys_text, False, False, 0)
+        c.pack_start(label("This list comes from the last package-list download. "
+                           "“Update all” downloads fresh lists first, then installs "
+                           "everything that is newer (Debian, Brave, ONLYOFFICE and other apps).",
+                           dim=True, wrap=True), False, False, 0)
+        self.up_sys_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        c.pack_start(self.up_sys_list, False, False, 4)
+        box.pack_start(c, False, False, 4)
+        return scroller
+
+    def build_progress(self):
+        self.prog = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_UP)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.get_style_context().add_class("kite-progress")
+        row = Gtk.Box(spacing=10)
+        self.prog_spin = Gtk.Spinner()
+        self.prog_icon = Gtk.Image()
+        self.prog_label = label("", ellipsize=True)
+        self.prog_close = button("Close", self.hide_progress)
+        row.pack_start(self.prog_spin, False, False, 0)
+        row.pack_start(self.prog_icon, False, False, 0)
+        row.pack_start(self.prog_label, True, True, 0)
+        row.pack_end(self.prog_close, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        self.prog_exp = Gtk.Expander(label="Details")
+        sw = Gtk.ScrolledWindow()
+        sw.set_min_content_height(170)
+        self.prog_view = Gtk.TextView(editable=False, cursor_visible=False)
+        self.prog_view.set_monospace(True)
+        self.prog_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        buf = self.prog_view.get_buffer()
+        self.prog_end = buf.create_mark("end", buf.get_end_iter(), False)
+        sw.add(self.prog_view)
+        self.prog_exp.add(sw)
+        box.pack_start(self.prog_exp, False, False, 0)
+        self.prog.add(box)
+        return self.prog
+
+    # --------------------------------------------------------- dialogs --
+    def message(self, text, secondary=None, kind="error"):
+        types = {"error": Gtk.MessageType.ERROR, "info": Gtk.MessageType.INFO}
+        d = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=types[kind],
+                              buttons=Gtk.ButtonsType.OK, text=text)
+        if secondary:
+            d.format_secondary_text(secondary)
+        d.run()
+        d.destroy()
+
+    def ask(self, markup, buttons, kind=Gtk.MessageType.QUESTION if Gtk else None, default=0):
+        """buttons: [(label, response id, style class or None)]; returns the response."""
+        d = Gtk.MessageDialog(transient_for=self.win, modal=True, message_type=kind,
+                              buttons=Gtk.ButtonsType.NONE)
+        d.set_markup(markup)
+        for text, rid, cls in buttons:
+            b = d.add_button(text, rid)
+            if cls:
+                b.get_style_context().add_class(cls)
+        d.set_default_response(default)
+        r = d.run()
+        d.destroy()
+        return r
+
+    def choose_location(self, explanation):
+        """Where should this app live? Returns (app_ext, data_ext) or None."""
+        d = Gtk.Dialog(title=TITLE, transient_for=self.win, modal=True)
+        d.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        d.add_button("Continue", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        d.set_default_response(Gtk.ResponseType.OK)
+        box = d.get_content_area()
+        box.set_spacing(8)
+        for s in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + s)(16)
+        box.pack_start(label(markup="<b>Where should this app live?</b>"), False, False, 0)
+        box.pack_start(label(explanation, wrap=True, dim=True), False, False, 0)
+        app = Gtk.CheckButton(label="Put the app's program files on the external disk", active=True)
+        data = Gtk.CheckButton(label="Put its settings and data on the external disk", active=True)
+        box.pack_start(app, False, False, 4)
+        box.pack_start(data, False, False, 0)
+        d.show_all()
+        r = d.run()
+        choice = (app.get_active(), data.get_active())
+        d.destroy()
+        return choice if r == Gtk.ResponseType.OK else None
+
+    def choose_partition(self, parts):
+        d = Gtk.Dialog(title=TITLE, transient_for=self.win, modal=True)
+        d.set_default_size(560, 320)
+        d.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        d.add_button("Next", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        d.set_default_response(Gtk.ResponseType.OK)
+        box = d.get_content_area()
+        box.set_spacing(8)
+        for s in ("top", "bottom", "start", "end"):
+            getattr(box, "set_margin_" + s)(16)
+        box.pack_start(label("Choose the external disk partition:"), False, False, 0)
+        store = Gtk.ListStore(str, str, str, str)
+        for p in parts:
+            store.append([p["name"], p["size"], p["fstype"], p["label"]])
+        view = Gtk.TreeView(model=store)
+        for i, title in enumerate(("Partition", "Size", "File system", "Label")):
+            view.append_column(Gtk.TreeViewColumn(title, Gtk.CellRendererText(), text=i))
+        view.get_selection().select_path(Gtk.TreePath.new_first())
+        view.connect("row-activated", lambda *_a: d.response(Gtk.ResponseType.OK))
+        sw = Gtk.ScrolledWindow()
+        sw.set_vexpand(True)
+        sw.add(view)
+        box.pack_start(sw, True, True, 0)
+        d.show_all()
+        r = d.run()
+        model, it = view.get_selection().get_selected()
+        choice = model[it] if it is not None else None
+        d.destroy()
+        if r != Gtk.ResponseType.OK or choice is None:
+            return None
+        return {"name": choice[0], "fstype": choice[2]}
+
+    # ------------------------------------------------------- background --
+    def bg(self, work, done, *done_args):
+        """Run work() in a thread, then done(result, *done_args) in the UI thread."""
+        def thread():
+            try:
+                result = work()
+            except Exception as e:      # never leave the UI waiting
+                result = e
+            GLib.idle_add(done, result, *done_args)
+        threading.Thread(target=thread, daemon=True).start()
+
+    def refresh(self):
+        self.bg(lambda: collect_overview(self.user), self.show_overview)
+
+    def refresh_updates(self):
+        self.updates_loaded = True
+        self.up_kite_text.set_text("Checking for KiteOS updates…")
+        self.up_kite_list.set_text("")
+        self.up_kite_btn.set_sensitive(False)
+        self.up_sys_text.set_text("Looking for updates…")
+        self.bg(collect_kiteos_updates, self.show_kiteos_updates)
+        self.bg(collect_system_updates, self.show_system_updates)
+
+    def on_page(self, *_a):
+        if self.stack.get_visible_child_name() == "updates" and not self.updates_loaded:
+            self.refresh_updates()
+
+    def ext_ready(self):
+        return external_state(parse_shell_conf(read_text(CONF))) == "ready"
+
+    # --------------------------------------------------------- showing --
+    def show_overview(self, ov):
+        if isinstance(ov, Exception):
+            self.inst_summary.set_text("Could not read the installed apps: %s" % ov)
+            return False
+        self.overview = ov
+        self.show_usage(ov)
+        self.show_installed(ov)
+        self.show_folders(ov)
+        buf = self.st_details.get_buffer()
+        buf.set_text(ov["status_text"])
+        return False
+
+    def show_usage(self, ov):
+        state, internal, external = ov["state"], ov["internal"], ov["external"]
+        self.side_caption.set_text(sidebar_caption(internal, state, external))
+        if internal:
+            self.side_int.set_fraction(used_fraction(internal))
+            self.st_int_bar.set_fraction(used_fraction(internal))
+            self.st_int_text.set_text("%s used · %s GB free" % (usage_text(internal), gb(internal[2])))
+        else:
+            self.st_int_text.set_text("Could not read the disk usage.")
+        if state == "ready" and external:
+            self.side_ext.set_fraction(used_fraction(external))
+            self.side_ext.show()
+            self.side_ext_note.hide()
+            self.st_ext_bar.set_fraction(used_fraction(external))
+            self.st_ext_bar.show()
+            self.st_ext_text.set_text("%s used · %s GB free · at %s"
+                                      % (usage_text(external), gb(external[2]), ov["mount"]))
+        else:
+            note = "Not set up" if state == "none" else "Not connected"
+            self.side_ext.hide()
+            self.side_ext_note.set_text(note)
+            self.side_ext_note.show()
+            self.st_ext_bar.hide()
+            self.st_ext_text.set_text(
+                "Not set up yet. Plug in a USB stick or SD card and choose “Set up external disk”."
+                if state == "none" else
+                "Set up, but not connected. Plug the disk in to use the apps and folders kept on it.")
+
+    def show_installed(self, ov):
+        clear(self.inst_list)
+        self.inst_cards = []
+        moved = moved_apps(ov["moved"], self.user)
+        n_ext = 0
+        for app in ov["apps"]:
+            kinds = moved.get(app["pkg"])
+            n_ext += bool(kinds)
+            c = card()
+            c.pack_start(app_image(app["icon"], 48), False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text.set_valign(Gtk.Align.CENTER)
+            text.pack_start(label(markup="<b>%s</b>" % esc(app["name"]), ellipsize=True), False, False, 0)
+            text.pack_start(label(app["summary"] or app["pkg"], dim=True, ellipsize=True), False, False, 0)
+            c.pack_start(text, True, True, 0)
+            if kinds:
+                b = badge("External", "external")
+                b.set_tooltip_text({frozenset(["app"]): "Program files are on the external disk",
+                                    frozenset(["data"]): "Settings and data are on the external disk"}
+                                   .get(frozenset(kinds), "Program files, settings and data are on the external disk"))
+                c.pack_start(b, False, False, 0)
+                c.pack_start(button("Bring back", self.restore_app, app), False, False, 0)
+            else:
+                c.pack_start(badge("Internal", "internal"), False, False, 0)
+                c.pack_start(button("Move to external", self.move_app, app), False, False, 0)
+            c.pack_start(button("Remove", self.remove_app, app, cls="kite-remove"), False, False, 0)
+            c.show_all()
+            self.inst_list.pack_start(c, False, False, 0)
+            self.inst_cards.append((("%s %s %s" % (app["name"], app["summary"], app["pkg"])).lower(), c))
+        self.inst_summary.set_text("%s · %d on the external disk" % (plural(len(ov["apps"]), "app"), n_ext))
+        self.filter_installed()
+
+    def filter_installed(self):
+        words = self.inst_search.get_text().lower().split()
+        shown = 0
+        for text, c in self.inst_cards:
+            visible = all(w in text for w in words)
+            c.set_visible(visible)
+            shown += visible
+        if self.inst_cards and not shown:
+            self.inst_empty.set_text("No installed app matches “%s”." % self.inst_search.get_text())
+            self.inst_empty.show()
+        else:
+            self.inst_empty.hide()
+
+    def show_folders(self, ov):
+        clear(self.st_folders)
+        folders = moved_folders(ov["moved"], self.user)
+        if not folders:
+            self.st_folders.pack_start(label("No folders are kept on the external disk yet.", dim=True),
+                                       False, False, 0)
+        for f in folders:
+            row = Gtk.Box(spacing=10)
+            row.pack_start(app_image("folder", 24), False, False, 0)
+            row.pack_start(label(f["path"], ellipsize=True), True, True, 0)
+            if f["state"] != "ok":
+                row.pack_start(label(f["state"], dim=True), False, False, 0)
+            row.pack_end(button("Bring back", self.restore_folder, f["path"]), False, False, 0)
+            self.st_folders.pack_start(row, False, False, 0)
+        self.st_folders.show_all()
+
+    def show_kiteos_updates(self, r):
+        self.up_kite_btn.set_sensitive(False)
+        if isinstance(r, Exception):
+            r = {"state": "error", "message": str(r), "packages": [], "tag": ""}
+        if r["state"] == "absent":
+            self.up_kite_text.set_text("KiteOS updates are not available here (the kite-system "
+                                       "package is not installed).")
+            self.up_kite_check.set_sensitive(False)
+        elif r["state"] == "current":
+            self.up_kite_text.set_text("KiteOS is up to date (latest release %s)." % r["tag"])
+        elif r["state"] == "updates":
+            self.up_kite_text.set_text("KiteOS %s is available." % r["tag"] if r["tag"]
+                                       else "KiteOS updates are available.")
+            self.up_kite_list.set_text("\n".join("%s   %s → %s" % p for p in r["packages"]))
+            self.up_kite_btn.set_sensitive(True)
+        else:
+            self.up_kite_text.set_text("Could not check for KiteOS updates. Are you online?\n%s"
+                                       % r["message"])
+        return False
+
+    def show_system_updates(self, rows):
+        clear(self.up_sys_list)
+        if isinstance(rows, Exception):
+            self.up_sys_text.set_text("Could not list the updates: %s" % rows)
+            return False
+        if not rows:
+            self.up_sys_text.set_text("No updates waiting.")
+        else:
+            self.up_sys_text.set_text("%s waiting." % plural(len(rows), "update"))
+        for r in rows:
+            line = Gtk.Box(spacing=12)
+            line.pack_start(label(r["name"]), False, False, 0)
+            line.pack_end(label("%s → %s" % (r["old"] or "?", r["version"]), dim=True, ellipsize=True),
+                          False, False, 0)
+            self.up_sys_list.pack_start(line, False, False, 0)
+        self.up_sys_list.show_all()
+        return False
+
+    # -------------------------------------------------------- actions --
+    def idle_check(self):
+        if self.busy:
+            self.message("Please wait until “%s” has finished." % self.busy, kind="info")
+            return False
+        return True
+
+    def search(self):
+        term = self.disc_search.get_text().strip()
+        if not term or not self.idle_check():
+            return
+        self.last_search = term
+        self.disc_status.set_text("Searching for “%s”…" % term)
+        clear(self.disc_list)
+
+        def work():
+            _, out, _ = run(["apt-cache", "search", "--"] + term.split(), env=C_ENV)
+            return parse_apt_search(out, term, installed_packages())
+        self.bg(work, self.show_results)
+
+    def show_results(self, results):
+        if isinstance(results, Exception):
+            self.disc_status.set_text("The search failed: %s" % results)
+            return False
+        term = self.last_search
+        clear(self.disc_list)
+        if not results:
+            self.disc_status.set_text("Nothing found for “%s”." % term)
+            return False
+        more = " (the first %d; add words to narrow it down)" % SEARCH_LIMIT \
+            if len(results) >= SEARCH_LIMIT else ""
+        self.disc_status.set_text("%s for “%s”%s." % (plural(len(results), "result"), term, more))
+        for r in results:
+            c = card()
+            c.pack_start(app_image("package-x-generic", 32), False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            text.pack_start(label(markup="<b>%s</b>" % esc(r["name"]), ellipsize=True), False, False, 0)
+            text.pack_start(label(r["summary"], dim=True, ellipsize=True), False, False, 0)
+            c.pack_start(text, True, True, 0)
+            if r["installed"]:
+                c.pack_start(badge("Installed", "installed"), False, False, 0)
+            else:
+                c.pack_start(button("Install", self.install, r["name"], cls="suggested-action"),
+                             False, False, 0)
+            self.disc_list.pack_start(c, False, False, 0)
+        self.disc_list.show_all()
+        return False
+
+    def install(self, pkg):
+        if not self.idle_check():
+            return
+        state = external_state(parse_shell_conf(read_text(CONF)))
+        if state == "ready":
+            where = self.choose_location("It is installed on the internal disk first, then copied "
+                                         "to the external disk and linked back.")
+            if where is None:
+                return
+        else:
+            why = ("No external disk is set up" if state == "none"
+                   else "The external disk is not connected")
+            r = self.ask("%s, so <b>%s</b> will be installed on the internal disk.\n"
+                         "You can move it later." % (why, esc(pkg)),
+                         [("Cancel", 1, None), ("Install", 0, "suggested-action")])
+            if r != 0:
+                return
+            where = (False, False)
+        self.run_task("Installing %s…" % pkg, install_steps(pkg, self.user, *where),
+                      "%s is installed." % pkg,
+                      "Installing %s failed. See the details for why." % pkg,
+                      after=self.after_install)
+
+    def after_install(self, ok):
+        self.refresh()
+        if self.last_search:
+            self.search()
+
+    def move_app(self, app):
+        if not self.idle_check():
+            return
+        if not self.ext_ready():
+            self.message("Set up and connect an external disk first.")
+            return
+        where = self.choose_location("Its files are copied to the external disk, checked, and "
+                                     "linked back, so %s keeps working as before." % app["name"])
+        if not where or not any(where):
+            return
+        self.run_task("Moving %s to the external disk…" % app["name"],
+                      move_steps(app["pkg"], self.user, *where),
+                      "Done. Close and reopen %s if it was running." % app["name"],
+                      "Moving %s failed. See the details for why." % app["name"])
+
+    def restore_app(self, app):
+        if not self.idle_check():
+            return
+        self.run_task("Bringing %s back to the internal disk…" % app["name"],
+                      restore_steps(app["pkg"], self.user),
+                      "%s is back on the internal disk." % app["name"],
+                      "Restoring %s failed. See the details for why." % app["name"])
+
+    def remove_app(self, app):
+        if not self.idle_check():
+            return
+
+        def work():
+            _, out, _ = run(["apt-get", "-s", "remove", app["pkg"]], env=C_ENV)
+            return parse_simulated_removal(out)
+        self.bg(work, self.confirm_remove, app)
+
+    def confirm_remove(self, removed, app):
+        if isinstance(removed, Exception):
+            removed = []
+        kite = [p for p in removed if p.startswith("kite-")]
+        if kite:
+            self.message("%s cannot be removed here." % app["name"],
+                         "Removing it would also remove part of KiteOS (%s)." % ", ".join(kite))
+            return False
+        others = [p for p in removed if p != app["pkg"]]
+        extra = ("\n\nThis also removes: %s." % esc(", ".join(others))) if others else ""
+        r = self.ask("<b>Remove %s?</b>\n\nYour settings and files in your home folder are kept.%s"
+                     % (esc(app["name"]), extra),
+                     [("Cancel", 1, None), ("Remove", 0, "destructive-action")],
+                     kind=Gtk.MessageType.WARNING, default=1)
+        if r == 0:
+            self.run_task("Removing %s…" % app["name"], [[KS, "remove", app["pkg"]]],
+                          "%s is removed." % app["name"],
+                          "Removing %s failed. See the details for why." % app["name"])
+        return False
+
+    def setup_disk(self):
+        if not self.idle_check():
+            return
+        parts = find_partitions()
+        if not parts:
+            self.message("No external USB or SD-card partition found.",
+                         "Plug the disk in and try again.")
+            return
+        part = self.choose_partition(parts)
+        if not part:
+            return
+        dev = esc(part["name"])
+        if part["fstype"] in LINUX_FS:
+            r = self.ask("<b>%s already has a Linux file system.</b>\n\n"
+                         "Use it as it is (keeps your files)?" % dev,
+                         [("Erase and format", 2, "destructive-action"), ("Cancel", 1, None),
+                          ("Use as is", 0, "suggested-action")])
+            if r not in (0, 2):
+                return
+            fmt = ["--format"] if r == 2 else []
+        else:
+            r = self.ask("<b>%s must be formatted as ext4 to hold apps.</b>\n\n"
+                         "EVERYTHING on it will be erased. Continue?" % dev,
+                         [("Cancel", 1, None), ("Erase and format", 0, "destructive-action")],
+                         kind=Gtk.MessageType.WARNING, default=1)
+            if r != 0:
+                return
+            fmt = ["--format"]
+        self.run_task("Setting up %s…" % part["name"], [[KS, "setup", part["name"]] + fmt],
+                      "The external disk is ready.",
+                      "Setting up the disk failed. See the details for why.")
+
+    def move_folder(self):
+        if not self.idle_check():
+            return
+        if not self.ext_ready():
+            self.message("Set up and connect an external disk first.")
+            return
+        d = Gtk.FileChooserDialog(title="Choose a folder to keep on the external disk",
+                                  transient_for=self.win, action=Gtk.FileChooserAction.SELECT_FOLDER)
+        d.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        d.add_button("Move", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+        d.set_current_folder(os.path.expanduser("~"))
+        r = d.run()
+        folder = d.get_filename()
+        d.destroy()
+        if r != Gtk.ResponseType.OK or not folder:
+            return
+        self.run_task("Moving “%s” to the external disk…" % folder,
+                      [[KS, "move-dir", folder, "--user", self.user]],
+                      "“%s” now lives on the external disk." % folder,
+                      "Moving the folder failed. See the details for why.")
+
+    def restore_folder(self, path):
+        if not self.idle_check():
+            return
+        self.run_task("Bringing “%s” back…" % path, [[KS, "restore-dir", path]],
+                      "“%s” is back on the internal disk." % path,
+                      "Bringing the folder back failed. See the details for why.")
+
+    def update_system(self):
+        if not self.idle_check():
+            return
+        self.run_task("Updating apps and system…", [[KS, "update"]],
+                      "Everything is up to date.",
+                      "The update failed. See the details for why.",
+                      after=lambda ok: (self.refresh(), self.refresh_updates()))
+
+    def update_kiteos(self):
+        if not self.idle_check():
+            return
+        self.run_task("Updating KiteOS…", [[KITE_UPDATE]],
+                      "KiteOS is updated. Log out and in again to see desktop changes.",
+                      "Updating KiteOS failed. See the details for why.",
+                      ping=False, after=lambda ok: self.refresh_updates())
+
+    # ------------------------------------------------- root operations --
+    def run_task(self, title, steps, done_text, fail_text, ping=True, after=None):
+        """Run each argv in STEPS as root (pkexec, or sudo -A without a polkit
+        agent), one after another, with the output shown live."""
+        if not steps:
+            return
+        self.busy = title.rstrip("…")
+        threading.Thread(target=self.task_thread, daemon=True,
+                         args=(title, steps, done_text, fail_text, ping, after)).start()
+
+    def task_thread(self, title, steps, done_text, fail_text, ping, after):
+        if ping:
+            # Ask for the password first, before the progress area appears
+            # (polkit remembers it for a few minutes, so the steps below do
+            # not ask again).
+            rc, _, _ = run(["pkexec", KS, "ping"], timeout=None)
+            if rc == 126:                       # dismissed
+                GLib.idle_add(self.task_cancelled)
+                return
+        GLib.idle_add(self.progress_start, title)
+        rc = 0
+        for argv in steps:
+            rc = self.stream(["pkexec"] + argv)
+            if rc == 127 or (rc == 126 and ping):
+                # No polkit agent (or it went away): sudo with our password box.
+                env = dict(os.environ, SUDO_ASKPASS=self.self_path, KITE_ASKPASS="1")
+                self.log("No polkit agent answered; asking for the password with sudo.\n")
+                rc = self.stream(["sudo", "-A", "-E"] + argv, env)
+            if rc != 0:
+                break
+        GLib.idle_add(self.progress_finish, rc == 0, done_text if rc == 0 else fail_text, after,
+                      rc == 126 and not ping)
+
+    def stream(self, argv, env=None):
+        self.log("$ %s\n" % " ".join(shlex.quote(a) for a in argv))
+        try:
+            p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, env=env)
+        except OSError as e:
+            self.log("%s\n" % e)
+            return 127
+        for line in iter(p.stdout.readline, b""):
+            self.log(line.decode("utf-8", "replace"))
+        return p.wait()
+
+    def log(self, text):
+        GLib.idle_add(self.append_log, text)
+
+    def append_log(self, text):
+        buf = self.prog_view.get_buffer()
+        buf.insert(buf.get_end_iter(), text)
+        buf.move_mark(self.prog_end, buf.get_end_iter())
+        self.prog_view.scroll_mark_onscreen(self.prog_end)
+        return False
+
+    def progress_start(self, title):
+        self.prog_view.get_buffer().set_text("")
+        self.prog_label.set_text(title)
+        self.prog_icon.hide()
+        self.prog_spin.show()
+        self.prog_spin.start()
+        self.prog_close.hide()
+        self.prog_exp.set_expanded(False)
+        self.prog.set_reveal_child(True)
+        return False
+
+    def progress_finish(self, ok, text, after, cancelled):
+        self.busy = None
+        self.prog_spin.stop()
+        self.prog_spin.hide()
+        if cancelled:
+            text = "Cancelled; nothing was changed."
+        self.prog_icon.set_from_icon_name("emblem-ok-symbolic" if ok else "dialog-error-symbolic",
+                                          Gtk.IconSize.BUTTON)
+        self.prog_icon.show()
+        self.prog_label.set_text(text)
+        self.prog_close.show()
+        if not ok and not cancelled:
+            self.prog_exp.set_expanded(True)
+        if after:
+            after(ok)
+        else:
+            self.refresh()
+        return False
+
+    def task_cancelled(self):
+        self.busy = None
+        return False
+
+    def hide_progress(self):
+        self.prog.set_reveal_child(False)
+
+    def on_delete(self, *_a):
+        if self.busy:
+            self.message("Please wait until “%s” has finished." % self.busy,
+                         "Closing App Centre now could leave it half done.", kind="info")
+            return True
+        return False
+
+
+# ------------------------------------------------------------------ entry --
+
+def askpass(prompt):
+    """Password box for sudo -A; prints the password, exit 1 on Cancel."""
+    if Gtk is None or not Gtk.init_check(sys.argv)[0]:
+        print("kite-app-centre: no display for the password box", file=sys.stderr)
+        return 1
+    d = Gtk.Dialog(title=TITLE)
+    d.set_icon_name("dialog-password")
+    d.set_keep_above(True)
+    d.set_position(Gtk.WindowPosition.CENTER)
+    d.add_button("Cancel", Gtk.ResponseType.CANCEL)
+    d.add_button("OK", Gtk.ResponseType.OK).get_style_context().add_class("suggested-action")
+    d.set_default_response(Gtk.ResponseType.OK)
+    box = d.get_content_area()
+    box.set_spacing(8)
+    for s in ("top", "bottom", "start", "end"):
+        getattr(box, "set_margin_" + s)(16)
+    row = Gtk.Box(spacing=12)
+    img = Gtk.Image.new_from_icon_name("dialog-password", Gtk.IconSize.DIALOG)
+    row.pack_start(img, False, False, 0)
+    text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+    text.pack_start(label("Enter your password to make changes:"), False, False, 0)
+    if prompt and prompt.strip():
+        text.pack_start(label(prompt.strip(), dim=True), False, False, 0)
+    entry = Gtk.Entry(visibility=False, activates_default=True)
+    text.pack_start(entry, False, False, 0)
+    row.pack_start(text, True, True, 0)
+    box.pack_start(row, False, False, 0)
+    d.show_all()
+    r = d.run()
+    password = entry.get_text()
+    d.destroy()
+    if r != Gtk.ResponseType.OK:
+        return 1
+    sys.stdout.write(password + "\n")
+    return 0
+
+
+def main(argv):
+    args = argv[1:]
+    # sudo runs SUDO_ASKPASS with its prompt as the only argument, so the
+    # environment marks that call (set by run_task); --askpass is for people.
+    if os.environ.get("KITE_ASKPASS") == "1" or args[:1] == ["--askpass"]:
+        rest = args[1:] if args[:1] == ["--askpass"] else args
+        return askpass(" ".join(rest))
+    page = "installed"
+    if args[:1] in (["-h"], ["--help"]):
+        print(__doc__.split("\n\n")[1])
+        return 0
+    if args[:1] == ["--page"] and len(args) == 2 and args[1] in ("installed", "discover",
+                                                                    "storage", "updates"):
+        page = args[1]
+    elif args:
+        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        return 2
+    if Gtk is None:
+        print("App Centre needs GTK 3 for Python (python3-gi, gir1.2-gtk-3.0).", file=sys.stderr)
+        return 1
+    # The taskbar pins and kite-apps.desktop (StartupWMClass) group by WM_CLASS.
+    GLib.set_prgname(WM_CLASS)
+    Gdk.set_program_class(WM_CLASS)
+    GLib.set_application_name(TITLE)
+    Gtk.Window.set_default_icon_name(ICON)
+
+    app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
+    state = {}
+
+    def activate(application):
+        if "ui" in state:
+            state["ui"].win.present()
+            return
+        provider = Gtk.CssProvider()
+        try:
+            provider.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        except GLib.Error as e:                  # a theme without a colour: plain look
+            print("kite-app-centre: style not loaded: %s" % e, file=sys.stderr)
+        state["ui"] = AppCentre(application, page)
+
+    app.connect("activate", activate)
+    return app.run([argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

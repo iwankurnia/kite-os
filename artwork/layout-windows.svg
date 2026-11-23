@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <!-- Installer picture for the "windows" layout (Calamares packagechooser). -->
+  <image width="960" height="600" href="LAYOUT_WALLPAPER" preserveAspectRatio="xMidYMid slice"/>
+  <g transform="translate(150 90)"><rect width="560" height="330" rx="8" fill="#FFFFFF" opacity=".97"/>
+      <rect width="560" height="34" rx="8" fill="#F3F4F6"/><rect y="24" width="560" height="10" fill="#F3F4F6"/><g fill="#6B7280"><rect x="450" y="16" width="12" height="2"/><rect x="488" y="11" width="11" height="11" fill="none" stroke="#6B7280" stroke-width="1.6"/><path d="M526 11 L537 22 M537 11 L526 22" stroke="#6B7280" stroke-width="1.8"/></g>
+      <rect x="20" y="56" width="156.8" height="254" rx="6" fill="#F3F4F6"/>
+      <g fill="#93C5FD"><rect x="184.8" y="60" width="54" height="44" rx="6"/><rect x="254.8" y="60" width="54" height="44" rx="6"/><rect x="324.8" y="60" width="54" height="44" rx="6"/></g></g>
+  <rect y="552" width="960" height="48" fill="#F3F3F3" opacity=".96"/>
+  <g fill="#1F2937"><rect x="18" y="566" width="8" height="8" rx="1.5"/><rect x="29" y="566" width="8" height="8" rx="1.5"/><rect x="18" y="577" width="8" height="8" rx="1.5"/><rect x="29" y="577" width="8" height="8" rx="1.5"/></g>
+  <circle cx="66" cy="574" r="8" fill="none" stroke="#1F2937" stroke-width="2.2"/><path d="M72 580 L77 585" stroke="#1F2937" stroke-width="2.2" stroke-linecap="round"/>
+  <rect x="100" y="562" width="26" height="26" rx="6" fill="#FB542B"/><rect x="140" y="562" width="26" height="26" rx="6" fill="#FF6F3D"/><rect x="180" y="562" width="26" height="26" rx="6" fill="#3B82F6"/><rect x="220" y="562" width="26" height="26" rx="6" fill="#374151"/><rect x="260" y="562" width="26" height="26" rx="6" fill="#8B5CF6"/><rect x="300" y="562" width="26" height="26" rx="6" fill="#6B7280"/>
+  <rect x="101" y="594" width="24" height="3" rx="1.5" fill="#0067C0"/>
+  <text x="940" y="572" text-anchor="end" font-family="Inter, Helvetica, Arial" font-size="13" fill="#1F2937">21:30</text><text x="940" y="589" text-anchor="end" font-family="Inter, Helvetica, Arial" font-size="12" fill="#4B5563">23/11/2026</text>
+  <g fill="#1F2937" transform="translate(800 566)"><rect width="14" height="9" rx="2" y="4" fill="none" stroke="#1F2937" stroke-width="1.8"/><rect x="2" y="6" width="8" height="5" rx="1"/><path d="M28 13 L28 5 L34 2 L34 16 L28 13" /></g>
+</svg>

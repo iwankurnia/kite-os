@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Login "Frosted": soft colour blobs behind frosted glass, light and calm -->
+  <defs><linearGradient id="top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E1B4B" stop-opacity=".42"/><stop offset="1" stop-color="#1E1B4B" stop-opacity="0"/></linearGradient><radialGradient id="corner" cx="0" cy="1" r="1"><stop offset="0" stop-color="#1E1B4B" stop-opacity=".45"/><stop offset="1" stop-color="#1E1B4B" stop-opacity="0"/></radialGradient><filter id="b" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="140"/></filter></defs>
+  <rect width="1920" height="1080" fill="#EEF2FF"/>
+  <g filter="url(#b)">
+    <circle cx="300" cy="200" r="380" fill="#7DD3FC" opacity=".8"/>
+    <circle cx="1500" cy="250" r="420" fill="#C4B5FD" opacity=".85"/>
+    <circle cx="1300" cy="900" r="420" fill="#FDBA74" opacity=".55"/>
+    <circle cx="500" cy="950" r="380" fill="#818CF8" opacity=".6"/>
+    <circle cx="980" cy="520" r="260" fill="#F9A8D4" opacity=".35"/>
+  </g>
+  <!-- Shade for slick-greeter's white clock (top) and logo text (bottom left). -->
+  <rect width="1920" height="170" fill="url(#top)"/>
+  <rect x="0" y="700" width="760" height="380" fill="url(#corner)"/>
+</svg>

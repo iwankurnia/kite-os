@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="600" viewBox="0 0 960 600">
+  <!-- Installer picture for the "mac" layout (Calamares packagechooser). -->
+  <image width="960" height="600" href="LAYOUT_WALLPAPER" preserveAspectRatio="xMidYMid slice"/>
+  <rect width="960" height="28" fill="#F6F6F8" opacity=".9"/>
+  <g transform="translate(12 3) scale(0.04296875)">
+  <!-- KiteOS logo "Facets": a four-facet kite, each facet its own gradient, with a curved tail -->
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7DD3FC"/><stop offset="1" stop-color="#38BDF8"/></linearGradient>
+    <linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366F1"/><stop offset="1" stop-color="#4338CA"/></linearGradient>
+    <linearGradient id="b" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#6D28D9"/></linearGradient>
+    <linearGradient id="l" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0EA5E9"/><stop offset="1" stop-color="#3B82F6"/></linearGradient>
+    <linearGradient id="tail" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#EC4899"/></linearGradient>
+  </defs>
+  <g stroke-linejoin="round" stroke-width="10">
+    <path d="M256 36 L404 186 L256 186 Z" fill="url(#t)" stroke="url(#t)"/>
+    <path d="M404 186 L256 420 L256 186 Z" fill="url(#r)" stroke="url(#r)"/>
+    <path d="M256 420 L108 186 L256 186 Z" fill="url(#b)" stroke="url(#b)"/>
+    <path d="M108 186 L256 36 L256 186 Z" fill="url(#l)" stroke="url(#l)"/>
+  </g>
+  <path d="M256 424 C 226 450, 292 462, 258 490" fill="none" stroke="url(#tail)" stroke-width="12" stroke-linecap="round"/>
+</g>
+  <text x="44" y="19" font-family="Inter, Helvetica, Arial" font-size="13" font-weight="700" fill="#1D1D1F">Files</text>
+  <text x="944" y="19" text-anchor="end" font-family="Inter, Helvetica, Arial" font-size="13" font-weight="600" fill="#1D1D1F">Mon 23 Nov  21:30</text>
+  <g transform="translate(180 80)"><rect width="560" height="340" rx="10" fill="#FFFFFF" opacity=".97"/>
+      <rect width="560" height="34" rx="10" fill="#F3F4F6"/><rect y="24" width="560" height="10" fill="#F3F4F6"/><circle cx="22" cy="17" r="6" fill="#FF5F57"/><circle cx="40" cy="17" r="6" fill="#FEBC2E"/><circle cx="58" cy="17" r="6" fill="#28C840"/>
+      <rect x="20" y="56" width="156.8" height="264" rx="6" fill="#F3F4F6"/>
+      <g fill="#93C5FD"><rect x="184.8" y="60" width="54" height="44" rx="6"/><rect x="254.8" y="60" width="54" height="44" rx="6"/><rect x="324.8" y="60" width="54" height="44" rx="6"/></g></g>
+  <rect x="300" y="514" width="360" height="68" rx="18" fill="#FFFFFF" opacity=".7" stroke="#000000" stroke-opacity=".1"/>
+  <rect x="318" y="526" width="44" height="44" rx="11" fill="#FB542B"/><rect x="374" y="526" width="44" height="44" rx="11" fill="#FF6F3D"/><rect x="430" y="526" width="44" height="44" rx="11" fill="#3B82F6"/><rect x="486" y="526" width="44" height="44" rx="11" fill="#374151"/><rect x="542" y="526" width="44" height="44" rx="11" fill="#8B5CF6"/><rect x="598" y="526" width="44" height="44" rx="11" fill="#6B7280"/>
+  <circle cx="340" cy="576" r="2.2" fill="#3C3C43"/>
+</svg>

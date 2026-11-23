@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- Login "Dusk kite": evening sky with one small kite high on the right -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1E1B4B"/><stop offset=".55" stop-color="#5B21B6"/><stop offset=".85" stop-color="#DB2777"/><stop offset="1" stop-color="#FB923C"/></linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FDE68A" stop-opacity=".9"/><stop offset="1" stop-color="#FDBA74" stop-opacity="0"/></radialGradient>
+    <linearGradient id="hill" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1E1B4B"/><stop offset="1" stop-color="#312E81"/></linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1350" cy="1010" r="300" fill="url(#sun)"/>
+  <path d="M0 980 C 400 930, 800 1010, 1200 960 S 1700 920, 1920 950 V1080 H0 Z" fill="url(#hill)" opacity=".9"/>
+  <g transform="translate(1500 300) rotate(12) scale(.32)" opacity=".95">
+    <path d="M256 36 L404 186 L256 186 Z" fill="#7DD3FC"/><path d="M404 186 L256 420 L256 186 Z" fill="#6366F1"/>
+    <path d="M256 420 L108 186 L256 186 Z" fill="#8B5CF6"/><path d="M108 186 L256 36 L256 186 Z" fill="#38BDF8"/>
+  </g>
+  <path d="M1540 432 C 1500 600, 1420 760, 1300 960" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="2" fill="none"/>
+</svg>

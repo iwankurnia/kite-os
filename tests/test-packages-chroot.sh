@@ -72,11 +72,12 @@ check "earlyoom options quoted (one variable, not split)" grep -q '^Environment=
 echo "== kite-desktop"
 check "login screen settings valid (strict schema compile)" in_ch glib-compile-schemas --strict --dry-run /usr/share/glib-2.0/schemas
 check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$CH/etc/lightdm/lightdm.conf.d/50-kite.conf"
-check "new users get the shelf layout" test -f "$CH/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
-check "launcher theme installed" test -f "$CH/usr/share/rofi/themes/kite-launcher.rasi"
+check "both desktop layouts installed" bash -c "[ -f '$CH/usr/share/kite/layouts/windows/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ] && [ -f '$CH/usr/share/kite/layouts/mac/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ]"
+check "Start menu and app search installed" test -x "$CH/usr/bin/xfce4-popup-whiskermenu" -a -x "$CH/usr/bin/xfce4-appfinder"
+check "layout tray icon packs installed" test -f "$CH/usr/share/icons/KiteOS-Tray-Windows/index.theme" -a -f "$CH/usr/share/icons/KiteOS-Tray-Mac/index.theme"
+check "kite-layout sets up a new account" in_ch env HOME=/tmp/lh python3 /usr/bin/kite-layout --first-login
+check "new account got the default (windows) layout" grep -qx windows "$CH/tmp/lh/.config/kite/layout"
 check "Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/45kite-user-init
-check "compositor Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/46kite-compositor
-check "picom installed for animations" test -x "$CH/usr/bin/picom"
 check "KiteOS drive icons resolve to Papirus" test -s "$CH/usr/share/icons/KiteOS/scalable/devices/drive-harddisk-solidstate-sdio.svg"
 # A stand-in Brave package installed after kite-desktop. (The ISO build
 # unpacks Brave first; dpkg-divert --rename handles that order too.)
@@ -94,6 +95,8 @@ check "wrapper starts Brave with the KiteOS flags" grep -qx -- '--enable-feature
 echo "== kite-storage"
 check "kite-storage runs" in_ch kite-storage status
 check "polkit policy installed" test -f "$CH/usr/share/polkit-1/actions/org.kiteos.storage.policy"
+check "App Centre's GTK 3 bindings installed" in_ch python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk'
+check "App Centre starts its command line" in_ch kite-app-centre --help
 if in_ch apt-get install -y -q --no-install-recommends hello > "$W/apt.log" 2>&1; then
     ok "apt still installs packages with the KiteOS APT hooks active"
 else

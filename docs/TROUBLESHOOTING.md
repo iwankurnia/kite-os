@@ -30,11 +30,12 @@ To switch it off: `sudo systemctl disable --now keyd`.
 **Black screen / login loop after the splash.** Switch to a text console with
 Ctrl+Alt+(top-row key 2), log in, and check `journalctl -b -u lightdm` and
 `~/.xsession-errors`. Resetting your desktop settings:
-`mv ~/.config/xfce4 ~/.config/xfce4.bak` then log in again (defaults come back from `/etc/skel`).
+`mv ~/.config/xfce4 ~/.config/xfce4.bak ~/.config/kite/layout` then log in again
+(your default layout is set up afresh).
 
-**Launcher does not open with the Search key.** Check that
-`~/.config/xfce4/xfconf/xfce4-keyboard-shortcuts.xml` has `kite-launcher`. If not,
-delete that file and log in again.
+**Menu does not open with the Search key.** Check that
+`~/.config/xfce4/xfconf/xfce4-keyboard-shortcuts.xml` has `xfce4-popup-whiskermenu`.
+If not, run `kite-layout windows` (or `mac`) to reset the layout's shortcuts.
 
 **External disk app won't start.** `kite-storage status` shows each moved
 folder's state; `sudo kite-storage verify --repair` fixes links. To bring

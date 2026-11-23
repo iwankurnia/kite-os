@@ -1,0 +1,61 @@
+/* Windows 11-style chrome for the XFCE taskbar. Edit freely; the panel reloads
+   on the next session. The taskbar colour itself is set in xfce4-panel.xml
+   (background-style 1 + background-rgba); this file styles the widgets. */
+
+.xfce4-panel.background,
+.xfce4-panel.background button,
+.xfce4-panel.background label { color: #1b1b1b; }
+/* Symbolic tray icons take the text colour rather than the theme's pale grey */
+.xfce4-panel.background image,
+.xfce4-panel.background button image { color: #1b1b1b; opacity: 1; -gtk-icon-effect: none; }
+.xfce4-panel button,
+.xfce4-panel button.flat {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  margin: 4px 1px;
+  padding: 0 9px;
+  color: inherit;
+  box-shadow: none;
+  transition: background-color 120ms ease-in-out;
+}
+.xfce4-panel button:hover { background-color: rgba(0, 0, 0, 0.05); }
+.xfce4-panel button:active,
+.xfce4-panel button:checked { background-color: rgba(0, 0, 0, 0.08); }
+
+/* Taskbar apps (docklike plugin): rounded tiles; docklike draws the
+   indicator bar itself along the bottom edge (blue for the focused app, grey
+   for other running apps). Keep the vertical margin at 0: a margin clips the
+   bar away. Running apps that are not focused get no tile, as on Windows 11. */
+#docklike-plugin .group {
+  background-color: transparent;
+  border: none;
+  border-radius: 6px;
+  margin: 0 1px;
+  padding: 0 10px;
+  box-shadow: none;
+  transition: background-color 120ms ease-in-out;
+}
+#docklike-plugin .group:hover,
+#docklike-plugin .group.hover_group { background-color: rgba(0, 0, 0, 0.05); }
+#docklike-plugin .group.active_group { background-color: rgba(255, 255, 255, 0.85); }
+#docklike-plugin .group.open_group   { background-color: transparent; }
+.xfce4-panel .separator { color: rgba(0, 0, 0, 0.12); }
+
+/* Pop-ups: Windows 11-style rounded corners. The Start menu window itself
+   stays square: it has no alpha channel, so rounded corners show black. */
+#whiskermenu-window .view,
+.xfce4-panel menu,
+tooltip, tooltip.background {
+  border-radius: 8px;
+}
+tooltip { background-color: rgba(243, 243, 243, 0.98); color: #1b1b1b; border: 1px solid rgba(0,0,0,0.12); }
+tooltip * { color: #1b1b1b; }
+
+/* Desktop icon labels: dark text without the glow, readable on the light
+   wallpaper (white text is the default and vanishes on the pale corner) */
+XfdesktopIconView.view,
+XfdesktopIconView.view label,
+.xfdesktop-icon-view.view { color: #1b1b1b; text-shadow: none; }
+XfdesktopIconView.view:selected,
+.xfdesktop-icon-view.view:selected { color: #ffffff; }

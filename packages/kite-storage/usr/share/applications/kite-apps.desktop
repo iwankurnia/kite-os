@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Apps & Storage
-Comment=Install apps, keep apps or folders on an external disk, update the system
-Exec=kite-apps
+Name=App Centre
+Comment=Install and remove apps, keep apps or folders on an external disk, update KiteOS and the system
+Exec=kite-app-centre
 Icon=system-software-install
 Categories=System;Settings;PackageManager;
-Keywords=install;software;store;external;usb;disk;update;
+Keywords=install;software;store;apps;storage;external;usb;disk;update;
 Terminal=false
+StartupNotify=true
 StartupWMClass=kite-apps

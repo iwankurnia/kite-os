@@ -1,0 +1,42 @@
+#!/bin/sh
+# Choose the login screen background (slick-greeter).
+#   kite-login-theme                    show the current one and the choices
+#   sudo kite-login-theme frosted|aurora|dusk
+# KiteOS's default (frosted) comes from the greeter's GSettings override;
+# /etc/lightdm/slick-greeter.conf, written here, takes precedence over it.
+set -eu
+conf=${KITE_GREETER_CONF:-/etc/lightdm/slick-greeter.conf}
+dir=/usr/share/backgrounds/kite
+
+case "${1:-}" in
+    "")
+        cur=$(sed -n 's#^background=.*/login-\([a-z]*\)\.jpg$#\1#p' "$conf" 2>/dev/null | tail -n1 || true)
+        echo "login screen: ${cur:-frosted (default)}"
+        echo "choices: frosted (light), aurora (dark), dusk (evening)"
+        ;;
+    frosted|aurora|dusk)
+        if [ "$(id -u)" != 0 ] && [ -z "${KITE_GREETER_CONF:-}" ]; then
+            echo "Run it with sudo: sudo kite-login-theme $1" >&2
+            exit 1
+        fi
+        line="background=$dir/login-$1.jpg"
+        mkdir -p "$(dirname "$conf")"
+        touch "$conf"
+        tmp="$conf.kite-tmp"
+        # Replace the background in [Greeter], add it there, or add the section.
+        awk -v line="$line" '
+            /^\[/ { if (insec && !done) { print line; done = 1 } insec = ($0 == "[Greeter]") }
+            insec && /^background=/ { if (!done) { print line; done = 1 } next }
+            { print }
+            END {
+                if (insec && !done) { print line; done = 1 }
+                if (!done) { print "[Greeter]"; print line }
+            }' "$conf" > "$tmp"
+        mv "$tmp" "$conf"
+        echo "The login screen now uses '$1' (from the next time it appears)."
+        ;;
+    *)
+        echo "usage: kite-login-theme [frosted|aurora|dusk]" >&2
+        exit 2
+        ;;
+esac
