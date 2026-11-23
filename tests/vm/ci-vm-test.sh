@@ -200,7 +200,9 @@ next keyboard 8
 k clicktext "$VM" 'Erase disk' 60 >/dev/null || row FAIL "installer: Erase disk option" "not found by OCR"
 sleep 3; shot 33-inst-partitions
 next partitions 8; shot 34-inst-users-empty
-k clicktext "$VM" 'Your Full Name|Full Name' 60 >/dev/null || die "users page: no full-name field"
+# The fields' placeholder text is too pale for OCR: click under the question
+# (the first field also has the focus already).
+k clicktext "$VM" 'What is your name' 60 --dy 26 >/dev/null || die "users page not found"
 k type "$VM" "$FULL"
 k keys "$VM" tab; k keys "$VM" ctrl-a; k type "$VM" "$LOGIN"
 k keys "$VM" tab; k keys "$VM" ctrl-a; k type "$VM" "$HOST"
