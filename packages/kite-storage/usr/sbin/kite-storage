@@ -663,7 +663,7 @@ cmd_update() {
 # kept; anything stored on the external disk for the app is cleaned up.
 cmd_remove() {
     need_root
-    local p pkgs=() removed kite
+    local p pkgs=() removed kite_pkgs
     for p in "$@"; do
         case "$p" in
             -*) die "unknown option: $p" ;;
@@ -675,8 +675,8 @@ cmd_remove() {
     (( ${#pkgs[@]} > 0 )) || die "which package(s)?"
     # Refuse if apt would take part of KiteOS away with them.
     removed=$(LC_ALL=C apt-get -s remove "${pkgs[@]}" 2>/dev/null | awk '$1 == "Remv" { print $2 }' || true)
-    kite=$(grep '^kite-' <<< "$removed" | tr '\n' ' ' || true)
-    [ -z "$kite" ] || die "removing ${pkgs[*]} would also remove part of KiteOS (${kite% }) — nothing was changed"
+    kite_pkgs=$(grep '^kite-' <<< "$removed" | tr '\n' ' ' || true)
+    [ -z "$kite_pkgs" ] || die "removing ${pkgs[*]} would also remove part of KiteOS (${kite_pkgs% }) — nothing was changed"
     DEBIAN_FRONTEND=noninteractive apt-get -y remove "${pkgs[@]}"
     DEBIAN_FRONTEND=noninteractive apt-get -y autoremove || warn "could not remove packages that are no longer needed"
     ( cmd_verify --repair --quiet ) || true
