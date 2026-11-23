@@ -277,8 +277,15 @@ def _log():
         return subprocess.DEVNULL
 
 
+def _note(kind, cmd, out):
+    if out is not subprocess.DEVNULL:
+        out.write("%s %s: %s\n" % (time.strftime("%H:%M:%S"), kind, " ".join(cmd)))
+        out.flush()
+
+
 def run(*cmd):
     out = _log()
+    _note("run", cmd, out)
     try:
         subprocess.run(cmd, stdout=out, stderr=out, timeout=20)
     except (OSError, subprocess.SubprocessError):
@@ -287,6 +294,7 @@ def run(*cmd):
 
 def spawn(*cmd):
     out = _log()
+    _note("start", cmd, out)
     try:
         subprocess.Popen(cmd, stdout=out, stderr=out, start_new_session=True)
     except OSError:
@@ -327,12 +335,23 @@ def apply_shortcuts_live():
             run(*ch, "-p", f"/{section}/custom/{p.get('name')}", "-n", "-t", typ, "-s", p.get("value", ""))
 
 
-def xfwm4_settings():
-    """(name, type, value) of the window manager's settings in the new files."""
+def xfwm4_settings(layout):
+    """(name, type, value) of the window manager's settings in LAYOUT's files,
+    placeholders filled in and the theme checked like write_layout does."""
+    subs, theme = placeholders(layout)
     try:
-        root = ET.parse(os.path.join(CHANNELS, "xfwm4.xml")).getroot()
+        with open(os.path.join(DATA, layout, ".config", "xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml"),
+                  encoding="utf-8") as f:
+            text = f.read()
+        for k, v in subs.items():
+            text = text.replace(k, v)
+        root = ET.fromstring(text)
     except (OSError, ET.ParseError):
         return []
+    if not os.path.isdir(os.path.join(THEMES, theme, "xfwm4")):
+        for p in root.iter("property"):
+            if p.get("name") == "theme":
+                p.set("value", "Default")
     general = root.find("./property[@name='general']")
     if general is None:
         return []
@@ -345,8 +364,13 @@ def switch_live(layout):
     files, so the panel is stopped, xfconfd restarted on the new files and the
     panel started again. The window manager is NOT restarted: xfce4-session
     owns it (a second "xfwm4 --replace" fights the session's respawns and can
-    leave no window manager at all). Its settings are set again through
-    xfconf instead, which xfwm4 applies live, like its own settings dialog."""
+    leave no window manager at all). Its settings go through xfconf instead,
+    which xfwm4 applies live, like its own settings dialog: FIRST, while the
+    running xfconfd still has the old values. xfconf only announces a value
+    that changes, so setting them after xfconfd has loaded the new files
+    would tell xfwm4 nothing (1.3.1: the mac window buttons never appeared)."""
+    for name, typ, value in xfwm4_settings(layout):
+        run("xfconf-query", "-c", "xfwm4", "-p", "/general/" + name, "-n", "-t", typ, "-s", value)
     # The panel saves its settings while it exits, starting xfconfd again if
     # needed; so wait for it, then stop xfconfd and wait for that too, before
     # the new files go in (otherwise the old layout can come back).
@@ -355,8 +379,6 @@ def switch_live(layout):
     run("pkill", "-u", str(os.getuid()), "-x", "xfconfd")
     wait_gone("xfconfd")
     write_layout(layout)
-    for name, typ, value in xfwm4_settings():
-        run("xfconf-query", "-c", "xfwm4", "-p", "/general/" + name, "-n", "-t", typ, "-s", value)
     apply_shortcuts_live()
     spawn("xfsettingsd", "--replace")      # theme, icons, fonts, keyboard shortcuts
     time.sleep(1)

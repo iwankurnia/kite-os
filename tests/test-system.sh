@@ -141,6 +141,7 @@ env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" XDG_CACHE_HOME="$LH/cache
 check "live switch: never starts a window manager" bash -c "! grep -q '^xfwm4' '$LH/calls'"
 check "live switch: window theme set through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default' "$LH/calls"
 check "live switch: mac buttons on the left through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s CHM|' "$LH/calls"
+check "live switch: window settings sent before xfconfd reloads (else xfwm4 is not told)" bash -c "a=\$(grep -n '^xfconf-query -c xfwm4' '$LH/calls' | head -n1 | cut -d: -f1); b=\$(grep -n '^xfce4-panel --quit' '$LH/calls' | head -n1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$b\" ] && [ \"\$a\" -lt \"\$b\" ]"
 check "live switch: panel quit, then started again" bash -c "grep -n '^xfce4-panel' '$LH/calls' | tr '\n' ' ' | grep -q 'xfce4-panel --quit.*xfce4-panel *\$\|xfce4-panel --quit .*:xfce4-panel '"
 check "live switch: settings daemon reloads (shortcuts, theme)" grep -q '^xfsettingsd --replace' "$LH/calls"
 # A switch keeps the user's own Files/Terminal settings and fonts.
