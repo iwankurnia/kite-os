@@ -10,6 +10,10 @@
   kitevm.py move NAME X Y
   kitevm.py ocr NAME                   screenshot + print recognised text
   kitevm.py wait NAME "text" [TIMEOUT] wait until text is on screen (OCR)
+  kitevm.py find NAME "regex"          print X Y of the text on screen (OCR), or exit 1
+  kitevm.py clicktext NAME "regex" [TIMEOUT] [--last] [--dx N] [--dy N]
+                                       wait for the text, then click its middle
+                                       (--last: the lowest match; --dx/--dy: offset)
   kitevm.py sh NAME "command" [TIMEOUT] run a command on the serial console (logged in)
   kitevm.py login NAME USER PASSWORD   log in on the serial console
   kitevm.py usb NAME add|del [IMG]     plug / unplug the virtual USB disk
@@ -126,6 +130,56 @@ def ocr(name):
     subprocess.run(["convert", out, "-resize", "200%", "-colorspace", "Gray", big], check=True)
     r = subprocess.run(["tesseract", big, "-", "--psm", "11"], capture_output=True, text=True)
     return r.stdout
+
+
+def find_text(name, text, last=False):
+    """Screen position (x, y) of the middle of the first (or lowest) OCR line
+    part matching the regex TEXT, or None. tesseract reads a 2x grey copy."""
+    out = p(name, "find.png")
+    shot(name, out)
+    big = p(name, "find-big.png")
+    subprocess.run(["convert", out, "-resize", "200%", "-colorspace", "Gray", big], check=True)
+    r = subprocess.run(["tesseract", big, "-", "--psm", "11", "tsv"], capture_output=True, text=True)
+    lines = {}
+    for row in r.stdout.splitlines()[1:]:
+        f = row.split("\t")
+        if len(f) < 12 or f[0] != "5" or not f[11].strip():
+            continue
+        key = (f[1], f[2], f[3], f[4])            # page, block, paragraph, line
+        lines.setdefault(key, []).append((int(f[6]), int(f[7]), int(f[8]), int(f[9]), f[11]))
+    rx = re.compile(text, re.I)
+    hits = []
+    for words in lines.values():
+        words.sort()
+        joined, spans = "", []
+        for w in words:
+            if joined:
+                joined += " "
+            spans.append((len(joined), len(joined) + len(w[4]), w))
+            joined += w[4]
+        m = rx.search(joined)
+        if not m:
+            continue
+        sel = [w for a, b, w in spans if a < m.end() and b > m.start()]
+        x0 = min(w[0] for w in sel); y0 = min(w[1] for w in sel)
+        x1 = max(w[0] + w[2] for w in sel); y1 = max(w[1] + w[3] for w in sel)
+        hits.append(((x0 + x1) // 4, (y0 + y1) // 4))
+    if not hits:
+        return None
+    hits.sort(key=lambda h: (h[1], h[0]))
+    return hits[-1] if last else hits[0]
+
+
+def click_text(name, text, timeout=60, last=False, dx=0, dy=0):
+    end = time.time() + float(timeout)
+    while True:
+        pos = find_text(name, text, last)
+        if pos:
+            click(name, pos[0] + dx, pos[1] + dy)
+            return pos
+        if time.time() > end:
+            return None
+        time.sleep(3)
 
 
 def wait(name, text, timeout=600):
@@ -287,6 +341,24 @@ def main():
         ok = wait(name, rest[0], rest[1] if len(rest) > 1 else 600)
         print("found" if ok else "TIMEOUT")
         return 0 if ok else 1
+    elif cmd == "find":
+        pos = find_text(name, rest[0], "--last" in rest)
+        if not pos:
+            return 1
+        print(*pos)
+    elif cmd == "clicktext":
+        args = [r for r in rest if r != "--last"]
+        dx = dy = 0
+        for flag in ("--dx", "--dy"):
+            if flag in args:
+                i = args.index(flag)
+                val = int(args[i + 1]); del args[i:i + 2]
+                dx, dy = (val, dy) if flag == "--dx" else (dx, val)
+        pos = click_text(name, args[0], args[1] if len(args) > 1 else 60, "--last" in rest, dx, dy)
+        if not pos:
+            print("NOT FOUND: %s" % args[0], file=sys.stderr)
+            return 1
+        print("clicked", *pos)
     elif cmd == "login":
         login(name, rest[0], rest[1])
     elif cmd == "sh":

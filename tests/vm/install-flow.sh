@@ -14,8 +14,8 @@ k() { ./kitevm.py "$@"; }
 NEXT_X=1050 NEXT_Y=659
 LAYOUT=${KITE_LAYOUT:-windows}
 case $LAYOUT in
-    windows) LAYOUT_NAME='Windows style' LAYOUT_Y=${KITE_WINDOWS_Y:-160} ;;
-    mac)     LAYOUT_NAME='Mac style'     LAYOUT_Y=${KITE_MAC_Y:-190} ;;
+    windows) LAYOUT_Y=${KITE_WINDOWS_Y:-146} ;;
+    mac)     LAYOUT_Y=${KITE_MAC_Y:-193} ;;
     *) echo "KITE_LAYOUT must be windows or mac, not '$LAYOUT'" >&2; exit 2 ;;
 esac
 
@@ -38,12 +38,12 @@ sleep 5
 k click "$VM" $NEXT_X $NEXT_Y                         # -> Desktop
 k wait "$VM" 'Windows style|Mac style' 120 >/dev/null
 sleep 3
-k click "$VM" "${KITE_LAYOUT_X:-330}" "$LAYOUT_Y"     # pick the layout in the list
+k click "$VM" "${KITE_LAYOUT_X:-420}" "$LAYOUT_Y"     # pick the layout in the list
 sleep 3
 k click "$VM" $NEXT_X $NEXT_Y                         # -> Summary
 sleep 20
-k ocr "$VM" | grep -i "$LAYOUT_NAME" >/dev/null ||
-    echo "warning: Summary does not mention '$LAYOUT_NAME'; check the Desktop page click" >&2
+# (The Summary page cannot show the Desktop choice: Calamares' packagechooser
+# has no summary line. Check the pick on the Desktop page screenshot instead.)
 k click "$VM" $NEXT_X $NEXT_Y                         # Install
 sleep 8
 k click "$VM" 873 387                                 # "Install Now"
