@@ -195,7 +195,6 @@ if [ -n "$CLOCK1" ] && [ -n "$CLOCK2" ]; then
     else row FAIL "installer: live clock unchanged" "$CLOCK1 → $CLOCK2"; fi
 fi
 next location; shot 32-inst-keyboard
-ocr_has "installer: keyboard stays English (US)" 'English \(US\)'
 next keyboard 8
 k clicktext "$VM" 'Erase disk' 60 >/dev/null || row FAIL "installer: Erase disk option" "not found by OCR"
 sleep 3; shot 33-inst-partitions
@@ -214,7 +213,12 @@ PICK=$([ "$LAYOUT" = mac ] && echo 'Mac style' || echo 'Windows style')
 k clicktext "$VM" "$PICK" 60 >/dev/null || die "Desktop page: no '$PICK'"
 sleep 3; shot 37-inst-desktop-picked
 next desktop 8; shot 38-inst-summary
-k clicktext "$VM" '^Install$' 60 --last >/dev/null || die "no Install button on the Summary page"
+SUMMARY=$(k ocr "$VM")
+if grep -q 'English (UK)' <<< "$SUMMARY"; then row FAIL "installer: keyboard stays English (US)" "Summary says English (UK)"
+elif grep -q 'English (US)' <<< "$SUMMARY"; then row PASS "installer: keyboard stays English (US)" "on the Summary page"
+else row FAIL "installer: keyboard stays English (US)" "keyboard layout not read on the Summary page"; fi
+# The sidebar also says "Install": take the button right of "Back".
+k clicktext "$VM" '^Back$' 60 --last --dx 86 >/dev/null || die "no Back/Install buttons on the Summary page"
 sleep 4; shot 39-inst-confirm
 k clicktext "$VM" 'Install Now' 60 >/dev/null || die "no Install Now in the confirm dialog"
 TI=$(date +%s)
