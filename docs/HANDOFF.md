@@ -63,6 +63,13 @@ kite-system 1.2.2), not yet released:
   taskbar and around menus and pop-overs, `show_popup_shadow` false. The mac
   menu bar gets no line (xfce4-panel has no per-panel CSS name, so the Dock
   panel would get one too). No border on the Whisker menu (owner's call).
+- Clock calendar pop-up restyled in `gtk.css` (both layouts): more padding, a
+  rounded accent tile for today, quiet day names and arrows. GtkCalendar draws
+  its parts on child CSS nodes, so the rules are `window.background > calendar
+  > calendar.header` etc. (`window > calendar.header` never matches). Font
+  size and weight there are ignored, and the window cannot have round corners
+  (no alpha channel). Its shadow stays: it follows `show_frame_shadow`.
+- `border-spacing` is not a GTK 3 CSS property (the tray rule had it; removed).
 
 Layout files reach an account only at first login or on `kite-layout <name>`, so
 `kite-update` alone does not change an existing desktop.

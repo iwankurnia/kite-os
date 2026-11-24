@@ -74,7 +74,6 @@ XfdesktopIconView.view:selected,
   margin: 4px 0;
   min-width: 0;
 }
-#systray-10 box { border-spacing: 0; }
 
 /* Borders, not shadows: a thin line along the top of the taskbar and around
    menus and pop-overs separates them from the window behind. Pop-up shadows
@@ -85,3 +84,32 @@ menu, .menu, window.popup menu { border: 1px solid rgba(0, 0, 0, 0.22); }
 popover, popover.background { border: 1px solid rgba(0, 0, 0, 0.22); }
 .csd.popup decoration, window.popup decoration, menu, .menu, popover,
 #whiskermenu-window, #whiskermenu-window decoration { box-shadow: none; }
+
+/* Clock calendar pop-up: roomier, a rounded accent tile for today, quiet day
+   names and arrows, no heading frame. It is a bare window holding a
+   GtkCalendar; GTK draws the calendar's parts on child nodes, hence the
+   "> calendar > calendar" selectors. */
+window.background > calendar {
+  padding: 12px 16px 16px;
+  background-color: #fbfbfb;
+  color: #1b1b1b;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+}
+window.background > calendar > calendar.header {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+window.background > calendar > calendar.button { color: rgba(0, 0, 0, 0.55); }
+window.background > calendar > calendar.button:hover { color: #0067c0; }
+window.background > calendar > calendar.highlight {
+  color: rgba(0, 0, 0, 0.55);
+  border: none;
+  box-shadow: none;
+}
+window.background > calendar > calendar:indeterminate { color: rgba(0, 0, 0, 0.28); }
+window.background > calendar > calendar:selected {
+  background-color: #0067c0;
+  color: #ffffff;
+  border-radius: 6px;
+}
