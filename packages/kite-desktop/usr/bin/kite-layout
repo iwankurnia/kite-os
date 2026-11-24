@@ -79,7 +79,7 @@ SHORTCUTS = {
             "<Super>e": "thunar",
             "<Super>r": "xfce4-appfinder --collapsed",
             "<Primary><Alt>t": "exo-open --launch TerminalEmulator",
-            "<Primary><Shift>Escape": "xfce4-taskmanager",
+            "<Primary><Shift>Escape": "kite-tasks",
         },
     },
     "windows": {"commands": {}},

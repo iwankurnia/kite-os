@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Task Manager
+Comment=See and end running apps, watch CPU, memory, disk and Wi-Fi, choose startup apps
+Exec=kite-tasks
+Icon=utilities-system-monitor
+Categories=System;Monitor;
+Keywords=task;process;kill;end;cpu;memory;performance;startup;monitor;
+Terminal=false
+StartupNotify=true

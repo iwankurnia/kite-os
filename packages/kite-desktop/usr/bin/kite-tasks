@@ -1,0 +1,1315 @@
+#!/usr/bin/python3
+"""KiteOS Task Manager: apps and processes, performance, startup apps.
+
+  kite-tasks                  open it (Ctrl+Shift+Esc)
+  kite-tasks --dump           print the app groups once, for tests and bug reports
+
+Processes are grouped the way Windows does it: an app with everything it
+started (Brave's or VS Code's many processes are one row), found by walking
+up each process's parents until a desktop process (the panel, the session,
+the settings daemon) that launched it. A group is an app when one of its
+processes has a window; the rest are background processes. Memory is each
+process's private memory (RssAnon, like Windows' "private working set": a
+shared library is not counted again for every process), readable for every
+process without root. CPU is the share of the whole machine, as on Windows.
+
+"Run as administrator" starts it again through pkexec (polkit action
+org.kiteos.tasks): then it can end other users' and system processes too.
+
+The data code below needs no GTK or display (the tests use a fake /proc via
+KITE_PROC and KITE_SYS); the window is built only when it runs.
+"""
+import configparser
+import glob
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+from collections import deque
+
+PROC = os.environ.get("KITE_PROC", "/proc")
+SYS = os.environ.get("KITE_SYS", "/sys")
+APP_DIRS = [d for d in os.environ.get("KITE_APP_DIRS", "").split(":") if d] or [
+    os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "applications"),
+    "/usr/local/share/applications", "/usr/share/applications"]
+AUTOSTART_SYSTEM = os.environ.get("KITE_AUTOSTART_SYSTEM", "/etc/xdg/autostart")
+AUTOSTART_USER = os.environ.get("KITE_AUTOSTART_USER") or os.path.join(
+    os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart")
+
+# Desktop processes: they launch apps, so a walk up the parents stops at them;
+# ending them would break the session, so they cannot be ended here.
+DESKTOP_SHELL = {"systemd", "(sd-pam)", "xfce4-session", "xfce4-panel", "wrapper-2.0", "xfsettingsd",
+                 "xfdesktop", "xfwm4", "xfconfd", "lightdm", "Xorg", "X", "dbus-daemon", "dbus-broker",
+                 "at-spi-bus-laun", "at-spi2-registr", "gnome-keyring-d", "Xsession", "startxfce4"}
+INTERPRETERS = ("python", "perl", "ruby", "node", "sh", "bash", "dash")
+# Startup entries KiteOS needs: settings and keyboard shortcuts, password
+# prompts, the lock screen, lid and battery handling. Shown, not switchable.
+ESSENTIAL_STARTUP = {"xfsettingsd.desktop", "polkit-mate-authentication-agent-1.desktop",
+                     "xfce4-screensaver.desktop", "xfce4-power-manager.desktop"}
+
+
+def read(path, default=""):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return default
+
+
+# ------------------------------------------------------------- the machine --
+def meminfo():
+    """/proc/meminfo in bytes."""
+    out = {}
+    for line in read(os.path.join(PROC, "meminfo")).splitlines():
+        k, _, v = line.partition(":")
+        parts = v.split()
+        if parts and parts[0].isdigit():
+            out[k] = int(parts[0]) * (1024 if len(parts) > 1 else 1)
+    return out
+
+
+def cpu_ticks():
+    """(busy, total) clock ticks of all CPUs together, from /proc/stat."""
+    for line in read(os.path.join(PROC, "stat")).splitlines():
+        if line.startswith("cpu "):
+            v = [int(x) for x in line.split()[1:]]
+            idle = v[3] + (v[4] if len(v) > 4 else 0)            # idle + iowait
+            total = sum(v[:8])                                    # without guest time
+            return total - idle, total
+    return 0, 0
+
+
+def cpu_info():
+    model, cores = "", 0
+    for line in read(os.path.join(PROC, "cpuinfo")).splitlines():
+        if line.startswith("model name") and not model:
+            model = line.split(":", 1)[1].strip()
+        if line.startswith("processor"):
+            cores += 1
+    return model, max(cores, 1)
+
+
+def cpu_speed_ghz():
+    """Mean current frequency, and the maximum, in GHz (None if unknown)."""
+    cur = [int(read(f, "0") or 0) for f in glob.glob(os.path.join(SYS, "devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq"))]
+    mx = read(os.path.join(SYS, "devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq")).strip()
+    cur = [c for c in cur if c > 0]
+    return (sum(cur) / len(cur) / 1e6 if cur else None), (int(mx) / 1e6 if mx.isdigit() else None)
+
+
+def task_counts():
+    """(processes, threads) on the system."""
+    la = read(os.path.join(PROC, "loadavg")).split()
+    threads = int(la[3].split("/")[1]) if len(la) > 3 and "/" in la[3] else 0
+    procs = sum(1 for d in os.listdir(PROC) if d.isdigit()) if os.path.isdir(PROC) else 0
+    return procs, threads
+
+
+def uptime_s():
+    v = read(os.path.join(PROC, "uptime")).split()
+    return float(v[0]) if v else 0.0
+
+
+def root_disk():
+    """(device name, e.g. mmcblk0) of the disk that holds /."""
+    for line in read(os.path.join(PROC, "self/mounts")).splitlines():
+        f = line.split()
+        if len(f) > 1 and f[1] == "/" and f[0].startswith("/dev/"):
+            dev = os.path.basename(os.path.realpath(f[0]))
+            parent = os.path.join(SYS, "class/block", dev, "..")
+            if os.path.isfile(os.path.join(SYS, "class/block", dev, "partition")):
+                return os.path.basename(os.path.realpath(parent))
+            return dev
+    return None
+
+
+def disk_stats(dev):
+    """(sectors read, sectors written, ms busy) for DEV from /proc/diskstats."""
+    for line in read(os.path.join(PROC, "diskstats")).splitlines():
+        f = line.split()
+        if len(f) > 12 and f[2] == dev:
+            return int(f[5]), int(f[9]), int(f[12])
+    return None
+
+
+def net_iface():
+    """The wireless interface, else the first non-loopback one."""
+    names = []
+    for line in read(os.path.join(PROC, "net/dev")).splitlines()[2:]:
+        name = line.split(":", 1)[0].strip()
+        if name and name != "lo":
+            names.append(name)
+    for n in names:
+        if os.path.isdir(os.path.join(SYS, "class/net", n, "wireless")) or n.startswith("wl"):
+            return n
+    return names[0] if names else None
+
+
+def net_bytes(iface):
+    """(received, sent) bytes on IFACE."""
+    for line in read(os.path.join(PROC, "net/dev")).splitlines()[2:]:
+        name, _, rest = line.partition(":")
+        if name.strip() == iface:
+            f = rest.split()
+            return int(f[0]), int(f[8])
+    return None
+
+
+def io_bytes(pid):
+    """Bytes a process has read from and written to storage, or None when the
+    kernel does not let us see it (another user's process)."""
+    r = w = None
+    for line in read(os.path.join(PROC, str(pid), "io")).splitlines():
+        if line.startswith("read_bytes:"):
+            r = int(line.split()[1])
+        elif line.startswith("write_bytes:"):
+            w = int(line.split()[1])
+    return r + w if r is not None and w is not None else None
+
+
+def parse_ss(text):
+    """`ss -tinpH state established` -> {(local, peer): (pid, sent, received)}.
+    Linux keeps byte counts per TCP connection only: UDP (QUIC, which Brave
+    uses for YouTube and Google) has none, so it is not counted per app."""
+    out, cur, pid = {}, None, None
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        if not line[0].isspace():
+            f = line.split()
+            m = re.search(r"pid=(\d+)", line)
+            cur = (f[2], f[3]) if len(f) >= 4 and m else None
+            pid = int(m.group(1)) if m else None
+        elif cur:
+            s = re.search(r"bytes_sent:(\d+)", line)
+            r = re.search(r"bytes_received:(\d+)", line)
+            out[cur] = (pid, int(s.group(1)) if s else 0, int(r.group(1)) if r else 0)
+            cur = None
+    return out
+
+
+def battery():
+    """{'capacity': %, 'status': text} of the first battery, or None."""
+    for b in sorted(glob.glob(os.path.join(SYS, "class/power_supply/BAT*"))):
+        cap = read(os.path.join(b, "capacity")).strip()
+        if cap.isdigit():
+            return {"capacity": int(cap), "status": read(os.path.join(b, "status")).strip() or "Unknown"}
+    return None
+
+
+# --------------------------------------------------------------- processes --
+class Proc:
+    __slots__ = ("pid", "ppid", "uid", "comm", "exe", "argv", "ticks", "start", "mem", "threads")
+
+
+def read_proc(pid):
+    base = os.path.join(PROC, str(pid))
+    stat = read(os.path.join(base, "stat"))
+    if not stat:
+        return None
+    p = Proc()
+    p.pid = pid
+    lp, rp = stat.find("("), stat.rfind(")")
+    p.comm = stat[lp + 1:rp]
+    f = stat[rp + 2:].split()
+    p.ppid = int(f[1])
+    p.ticks = int(f[11]) + int(f[12])          # utime + stime
+    p.threads = int(f[17])
+    p.start = int(f[19])
+    p.uid = None
+    p.mem = 0
+    for line in read(os.path.join(base, "status")).splitlines():
+        if line.startswith("Uid:"):
+            p.uid = int(line.split()[1])
+        elif line.startswith("RssAnon:"):
+            p.mem = int(line.split()[1]) * 1024
+    p.argv = [a for a in read(os.path.join(base, "cmdline")).split("\0") if a]
+    try:
+        p.exe = os.readlink(os.path.join(base, "exe"))
+    except OSError:
+        p.exe = ""
+    return p
+
+
+def list_procs():
+    out = {}
+    try:
+        names = os.listdir(PROC)
+    except OSError:
+        return out
+    for d in names:
+        if d.isdigit():
+            p = read_proc(int(d))
+            if p and p.ppid != 2 and p.pid != 2:            # no kernel threads
+                out[p.pid] = p
+    return out
+
+
+def program_name(p):
+    """What the process runs: the script for an interpreter, else the program."""
+    exe = os.path.basename(p.exe.replace(" (deleted)", "")) if p.exe else ""
+    if exe.startswith(INTERPRETERS) and len(p.argv) > 1:
+        for a in p.argv[1:]:
+            if not a.startswith("-"):
+                return os.path.basename(a)
+    return exe or (os.path.basename(p.argv[0]) if p.argv else "") or p.comm
+
+
+def display_name(p):
+    """A name for a process row: panel plugins by their own name."""
+    if p.comm == "wrapper-2.0" and len(p.argv) > 5:
+        return "Panel: " + p.argv[5]
+    return program_name(p)
+
+
+def bare(name):
+    """A program name without launcher suffixes (brave-browser-stable.distrib)."""
+    name = name.lower()
+    for suffix in (".distrib", ".real", ".bin", ".sh", ".py", ".wrapper"):
+        if name.endswith(suffix):
+            name = name[:-len(suffix)]
+    return name
+
+
+# ------------------------------------------------------------- app index --
+def desktop_entry(path):
+    cp = configparser.ConfigParser(interpolation=None, strict=False)
+    cp.optionxform = str
+    try:
+        cp.read(path, encoding="utf-8")
+    except (configparser.Error, UnicodeDecodeError):
+        return None
+    if not cp.has_section("Desktop Entry"):
+        return None
+    return dict(cp.items("Desktop Entry"))
+
+
+class AppIndex:
+    """Matches a program to its .desktop file (name and icon)."""
+
+    def __init__(self, dirs=None):
+        self.by_key = {}
+        self.ids = []
+        ids = {}
+        seen = set()
+        for d in dirs or APP_DIRS:
+            for path in sorted(glob.glob(os.path.join(d, "*.desktop"))):
+                did = os.path.basename(path)[:-8]
+                if did in seen:
+                    continue
+                seen.add(did)
+                e = desktop_entry(path)
+                if not e or e.get("Type") != "Application" or e.get("NoDisplay") == "true" or not e.get("Name"):
+                    continue
+                app = {"id": did, "name": e["Name"], "icon": e.get("Icon") or "application-x-executable"}
+                self.ids.append((did.lower(), app))
+                keys = {(e.get("StartupWMClass") or "").lower()}
+                exe = (e.get("Exec") or "").split()
+                if exe:
+                    keys.add(os.path.basename(exe[0]).lower())
+                    if exe[0].startswith("/") and os.path.exists(exe[0]):
+                        keys.add(os.path.basename(os.path.realpath(exe[0])).lower())
+                for k in keys - {""}:
+                    self.by_key.setdefault(k, app)
+                ids[did.lower()] = app
+        # A desktop file named after the program beats one that only runs it
+        # (thunar.desktop, not thunar-bulk-rename.desktop, for "thunar").
+        self.by_key.update(ids)
+
+    def find(self, prog, comm):
+        keys = (bare(prog), comm.lower())
+        for k in keys:
+            if k in self.by_key:
+                return self.by_key[k]
+        # "desktopeditors" in onlyoffice-desktopeditors; brave-browser-stable
+        # starts with brave-browser
+        for k in keys:
+            if len(k) >= 4:
+                for did, app in self.ids:
+                    stem = did.split(".")[-1]
+                    if k in stem or (len(stem) >= 5 and k.startswith(stem)):
+                        return app
+        return None
+
+
+def group_processes(procs, uid, index, window_pids=None, admin=False):
+    """Group processes into apps. Returns a list of dicts:
+    key, kind ('app', 'background' or 'system'), name, icon, pids, endable.
+    WINDOW_PIDS: processes that have a window (None: not known, then a
+    matching .desktop file makes an app). ADMIN: any process but the desktop's
+    own and init can be ended."""
+    root_of = {}
+
+    def root(pid):
+        chain = []
+        while pid in procs and pid not in root_of:
+            p = procs[pid]
+            parent = procs.get(p.ppid)
+            chain.append(pid)
+            if (p.comm in DESKTOP_SHELL or parent is None or parent.comm in DESKTOP_SHELL
+                    or parent.uid != p.uid or parent.pid <= 1):
+                root_of[pid] = pid
+                break
+            pid = p.ppid
+        r = root_of.get(pid, pid)
+        for c in chain:
+            root_of[c] = r
+        return r
+
+    groups = {}
+    for pid in procs:
+        r = root(pid)
+        groups.setdefault(r, []).append(pid)
+    out = []
+    for r, pids in groups.items():
+        p = procs[r]
+        prog = program_name(p)
+        mine = p.uid == uid
+        shell = p.comm in DESKTOP_SHELL
+        app = index.find(prog, p.comm) if mine and not shell else None
+        if window_pids is None:
+            is_app = bool(app)
+        else:
+            is_app = mine and not shell and bool(window_pids.intersection(pids))
+        out.append({
+            "key": "%d:%d" % (r, p.start),
+            "kind": "app" if is_app else ("background" if mine else "system"),
+            "name": app["name"] if app else display_name(p),
+            "icon": app["icon"] if app else None,
+            "pids": sorted(pids),
+            "endable": not shell and r > 1 and (mine or admin),
+        })
+    return out
+
+
+def window_pids():
+    """PIDs that own a top-level window (_NET_CLIENT_LIST + _NET_WM_PID), from
+    libX11 directly; None without an X display."""
+    import ctypes
+    import ctypes.util
+    lib = ctypes.util.find_library("X11")
+    if not lib or not os.environ.get("DISPLAY"):
+        return None
+    x = ctypes.CDLL(lib)
+    x.XOpenDisplay.restype = ctypes.c_void_p
+    x.XDefaultRootWindow.restype = ctypes.c_ulong
+    x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+    x.XInternAtom.restype = ctypes.c_ulong
+    x.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+    x.XGetWindowProperty.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_long, ctypes.c_long,
+                                     ctypes.c_int, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong),
+                                     ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_ulong),
+                                     ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_void_p)]
+    x.XFree.argtypes = [ctypes.c_void_p]
+    x.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    d = x.XOpenDisplay(None)
+    if not d:
+        return None
+
+    def prop(win, name):
+        atype, afmt = ctypes.c_ulong(), ctypes.c_int()
+        n, after, data = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_void_p()
+        if x.XGetWindowProperty(d, win, x.XInternAtom(d, name, 0), 0, 65536, 0, 0, ctypes.byref(atype),
+                                ctypes.byref(afmt), ctypes.byref(n), ctypes.byref(after), ctypes.byref(data)) != 0:
+            return []
+        if not data.value:
+            return []
+        vals = list(ctypes.cast(data, ctypes.POINTER(ctypes.c_ulong))[:n.value]) if afmt.value == 32 else []
+        x.XFree(data)
+        return vals
+
+    try:
+        out = set()
+        for win in prop(x.XDefaultRootWindow(d), b"_NET_CLIENT_LIST"):
+            out.update(prop(win, b"_NET_WM_PID"))
+        return out
+    finally:
+        x.XCloseDisplay(d)
+
+
+# ------------------------------------------------------------ startup apps --
+def startup_entries():
+    """Autostart entries for XFCE: [{file, name, comment, icon, enabled}]."""
+    files = {}
+    for d in (AUTOSTART_SYSTEM, AUTOSTART_USER):
+        for path in glob.glob(os.path.join(d, "*.desktop")):
+            files[os.path.basename(path)] = path            # the user's copy wins
+    out = []
+    for name, path in sorted(files.items()):
+        e = desktop_entry(path)
+        sysfile = os.path.join(AUTOSTART_SYSTEM, name)
+        base = desktop_entry(sysfile) if path != sysfile and os.path.exists(sysfile) else None
+        if not e:
+            continue
+        info = dict(base or {}, **e)
+        only = info.get("OnlyShowIn", "")
+        if (only and "XFCE" not in only.split(";")) or "XFCE" in info.get("NotShowIn", "").split(";"):
+            continue
+        if not info.get("Name"):
+            continue
+        enabled = e.get("Hidden", "false") != "true" and info.get("X-GNOME-Autostart-enabled", "true") != "false"
+        out.append({"file": name, "name": info["Name"], "comment": info.get("Comment", ""),
+                    "icon": info.get("Icon") or "application-x-executable", "enabled": enabled,
+                    "essential": name in ESSENTIAL_STARTUP})
+    return out
+
+
+def set_startup(file, enabled):
+    """Switch an autostart entry on or off for this user (a copy in
+    ~/.config/autostart with Hidden=, as XFCE's own Session settings do)."""
+    os.makedirs(AUTOSTART_USER, exist_ok=True)
+    user = os.path.join(AUTOSTART_USER, file)
+    src = user if os.path.exists(user) else os.path.join(AUTOSTART_SYSTEM, file)
+    lines = read(src).splitlines()
+    out, in_entry, done = [], False, False
+    for line in lines:
+        if line.startswith("["):
+            if in_entry and not done:
+                out.append("Hidden=%s" % ("false" if enabled else "true"))
+                done = True
+            in_entry = line.strip() == "[Desktop Entry]"
+        if in_entry and line.startswith("Hidden="):
+            if not done:
+                out.append("Hidden=%s" % ("false" if enabled else "true"))
+                done = True
+            continue
+        out.append(line)
+    if not done:
+        out.append("Hidden=%s" % ("false" if enabled else "true"))
+    tmp = user + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+    os.replace(tmp, user)
+
+
+# ----------------------------------------------------------------- format --
+def fmt_bytes(n, rate=False):
+    units = ("B", "KB", "MB", "GB", "TB")
+    v = float(n)
+    i = 0
+    while v >= 1000 and i < len(units) - 1:
+        v /= 1024
+        i += 1
+    s = ("%.0f" if v >= 100 or i == 0 else "%.1f") % v
+    return "%s %s%s" % (s, units[i], "/s" if rate else "")
+
+
+def fmt_uptime(s):
+    s = int(s)
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    return ("%d:" % d if d else "") + "%02d:%02d:%02d" % (h, m, s)
+
+
+def dump():
+    procs = list_procs()
+    groups = group_processes(procs, os.getuid(), AppIndex(), window_pids())
+    for g in sorted(groups, key=lambda g: ("app", "background", "system").index(g["kind"])):
+        mem = sum(procs[p].mem for p in g["pids"])
+        print("%-10s %-32s %3d proc %9s" % (g["kind"], g["name"][:32], len(g["pids"]), fmt_bytes(mem)))
+
+
+# ===================================================================== UI ==
+CSS = b"""
+/* Toolbar, macOS style: a segmented control for the tabs */
+.kite-tasks .toolbar-row {
+  padding: 8px 12px; background-color: #f6f6f6; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+.kite-tasks .tabs {
+  background-color: rgba(0, 0, 0, 0.07); border-radius: 8px; padding: 2px;
+}
+.kite-tasks .tabs button {
+  background: transparent; border: none; box-shadow: none; border-radius: 6px;
+  min-height: 0; padding: 4px 22px; color: #1b1b1b; font-weight: 500;
+}
+.kite-tasks .tabs button:hover { background-color: rgba(255, 255, 255, 0.45); }
+.kite-tasks .tabs button:checked {
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+.kite-tasks .tool {
+  background: transparent; border: 1px solid transparent; box-shadow: none;
+  border-radius: 6px; padding: 4px 8px; min-height: 0;
+}
+.kite-tasks .tool:hover { background-color: rgba(0, 0, 0, 0.06); }
+.kite-tasks .tool image { color: #1b1b1b; -gtk-icon-effect: none; }
+.kite-tasks .badge {
+  color: #8a5a00; background-color: #fff4ce; border-radius: 6px; padding: 2px 8px; font-size: 9pt;
+}
+.kite-tasks .search { border-radius: 7px; min-height: 28px; }
+.kite-tasks .subtitle { color: rgba(0, 0, 0, 0.6); }
+.kite-tasks .content { background-color: #fafafa; }
+.kite-tasks treeview.view { background-color: #ffffff; }
+.kite-tasks treeview.view header button {
+  background: #ffffff; border: none; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 6px 8px; font-weight: 600; color: rgba(0, 0, 0, 0.7);
+}
+.kite-tasks .tiles row { border-radius: 8px; margin: 3px 8px; padding: 8px 10px; }
+.kite-tasks .tiles row:selected { background-color: rgba(0, 0, 0, 0.06); color: #1b1b1b; }
+.kite-tasks .tiles row:selected label { color: #1b1b1b; }
+.kite-tasks .tile-name { font-weight: 600; }
+.kite-tasks .tile-value { color: rgba(0, 0, 0, 0.6); font-size: 9pt; }
+.kite-tasks .stat-label { color: rgba(0, 0, 0, 0.6); font-size: 9pt; }
+.kite-tasks .stat-value { font-size: 13pt; }
+.kite-tasks .card {
+  background-color: #ffffff; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 8px;
+}
+.kite-tasks .startup row { padding: 8px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
+"""
+
+# Resource colours (Windows 11 Task Manager's hues)
+COLOURS = {"cpu": (0.0, 0.40, 0.75), "memory": (0.55, 0.22, 0.65), "swap": (0.80, 0.30, 0.55),
+           "disk": (0.18, 0.55, 0.32),
+           "network": (0.80, 0.40, 0.10), "battery": (0.10, 0.55, 0.55)}
+HISTORY = 60
+
+
+def main_ui():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    from gi.repository import Gdk, GLib, Gtk, Pango
+
+    def heat(frac):
+        """Cell shading like Windows: pale yellow, deeper with the load."""
+        frac = max(0.0, min(1.0, frac))
+        if frac < 0.005:
+            return None
+        r, g, b = 1.0, 0.96 - 0.30 * frac, 0.80 - 0.55 * frac
+        return "#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255))
+
+    class Graph(Gtk.DrawingArea):
+        """A history graph: a line over a light fill, on a grid."""
+
+        def __init__(self, colour, small=False):
+            super().__init__()
+            self.colour = colour
+            self.small = small
+            self.values = deque(maxlen=HISTORY)     # only real samples: the line grows in from the right
+            self.scale = 100.0
+            self.connect("draw", self.on_draw)
+
+        def push(self, v, scale=100.0):
+            self.values.append(v)
+            self.scale = scale
+            self.queue_draw()
+
+        def on_draw(self, _w, cr):
+            w, h = self.get_allocated_width(), self.get_allocated_height()
+            r, g, b = self.colour
+            cr.set_source_rgb(1, 1, 1)
+            cr.rectangle(0, 0, w, h)
+            cr.fill()
+            if not self.small:
+                cr.set_source_rgba(r, g, b, 0.12)
+                cr.set_line_width(1)
+                for i in range(1, 10):
+                    x = round(w * i / 10) + 0.5
+                    cr.move_to(x, 0)
+                    cr.line_to(x, h)
+                for i in range(1, 5):
+                    y = round(h * i / 5) + 0.5
+                    cr.move_to(0, y)
+                    cr.line_to(w, y)
+                cr.stroke()
+            n = len(self.values)
+            step = w / (HISTORY - 1)
+            pts = [(w - (n - 1 - i) * step, h - 1 - (h - 2) * min(v / self.scale, 1.0) if self.scale else h)
+                   for i, v in enumerate(self.values)]
+            if n < 2:
+                pts = []
+            if pts:
+                cr.move_to(pts[0][0], h)
+                for x, y in pts:
+                    cr.line_to(x, y)
+                cr.line_to(w, h)
+                cr.close_path()
+                cr.set_source_rgba(r, g, b, 0.14)
+                cr.fill()
+                cr.move_to(*pts[0])
+                for x, y in pts[1:]:
+                    cr.line_to(x, y)
+                cr.set_source_rgb(r, g, b)
+                cr.set_line_width(1.2 if self.small else 1.6)
+                cr.stroke()
+            cr.set_source_rgba(r, g, b, 0.55)
+            cr.set_line_width(1)
+            cr.rectangle(0.5, 0.5, w - 1, h - 1)
+            cr.stroke()
+            return False
+
+    # Tree columns
+    (C_KEY, C_ICON, C_NAME, C_CPU, C_CPU_T, C_CPU_BG, C_MEM, C_MEM_T, C_MEM_BG, C_WEIGHT, C_HEADER, C_ORDER,
+     C_DISK, C_DISK_T, C_DISK_BG, C_NET, C_NET_T, C_NET_BG) = range(18)
+    SECTIONS = (("app", "Apps"), ("background", "Background processes"), ("system", "System processes"))
+
+    class TaskManager(Gtk.Window):
+        def __init__(self):
+            super().__init__(title="Task Manager")
+            self.set_default_size(980, 640)
+            self.set_icon_name("utilities-system-monitor")
+            self.get_style_context().add_class("kite-tasks")
+            prov = Gtk.CssProvider()
+            prov.load_from_data(CSS)
+            Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), prov,
+                                                     Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            self.index = AppIndex()
+            # As administrator (through pkexec) the desktop user's processes
+            # are still "yours": PKEXEC_UID says who asked.
+            self.admin = os.geteuid() == 0
+            self.uid = int(os.environ.get("PKEXEC_UID", os.getuid())) if self.admin else os.getuid()
+            if self.admin:
+                self.set_title("Task Manager (Administrator)")
+            self.prev_ticks = {}
+            self.prev_cpu = cpu_ticks()
+            self.prev_proc_cpu = self.prev_cpu
+            self.ncpu = cpu_info()[1]
+            self.rows = {}
+            self.groups = {}
+            self.procs = {}
+            self.filter_text = ""
+
+            content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            content.get_style_context().add_class("content")
+            self.add(content)
+            self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=120)
+
+            # Toolbar, macOS style: actions on the left, the tabs as a segmented
+            # control in the middle, search on the right.
+            top = Gtk.Box(spacing=6)
+            top.get_style_context().add_class("toolbar-row")
+            self.end_btn = Gtk.Button(sensitive=False, tooltip_text="End task: quit the selected app or process")
+            self.end_btn.add(Gtk.Image.new_from_icon_name("window-close-symbolic", Gtk.IconSize.BUTTON))
+            self.end_btn.get_style_context().add_class("tool")
+            self.end_btn.connect("clicked", self.on_end_task)
+            top.pack_start(self.end_btn, False, False, 0)
+            if self.admin:
+                badge = Gtk.Label(label="Administrator", margin_start=6)
+                badge.get_style_context().add_class("badge")
+                top.pack_start(badge, False, False, 0)
+            else:
+                self.admin_btn = Gtk.Button(tooltip_text="Run as administrator: see and end system processes too")
+                self.admin_btn.add(Gtk.Image.new_from_icon_name("security-high-symbolic", Gtk.IconSize.BUTTON))
+                self.admin_btn.get_style_context().add_class("tool")
+                self.admin_btn.connect("clicked", self.on_run_as_admin)
+                top.pack_start(self.admin_btn, False, False, 0)
+            self.tabs = Gtk.StackSwitcher(stack=self.stack, halign=Gtk.Align.CENTER)
+            self.tabs.get_style_context().add_class("tabs")
+            top.set_center_widget(self.tabs)
+            self.search = Gtk.SearchEntry(placeholder_text="Search", width_chars=22)
+            self.search.get_style_context().add_class("search")
+            self.search.connect("search-changed", self.on_search)
+            top.pack_end(self.search, False, False, 0)
+            content.pack_start(top, False, False, 0)
+            content.pack_start(self.stack, True, True, 0)
+
+            for name, label, widget in (("processes", "Processes", self.build_processes()),
+                                        ("performance", "Performance", self.build_performance()),
+                                        ("startup", "Startup apps", self.build_startup())):
+                self.stack.add_titled(widget, name, label)
+            self.stack.connect("notify::visible-child-name", lambda *_: self.on_page())
+            self.stack.set_visible_child_name("processes")
+
+            self.tick()
+            self.refresh_processes()
+            GLib.timeout_add(1000, self.tick)
+            GLib.timeout_add(2000, self.refresh_processes)
+
+        def on_run_as_admin(self, _btn):
+            """Start again through pkexec; come back if that is cancelled."""
+            from gi.repository import Gio
+            try:
+                proc = Gio.Subprocess.new(["pkexec", os.path.realpath(sys.argv[0])], Gio.SubprocessFlags.NONE)
+            except GLib.Error as e:
+                self.set_title("Task Manager: could not start pkexec (%s)" % e.message)
+                return
+            self.hide()
+
+            def done(pr, res):
+                pr.wait_finish(res)
+                # 126/127: password dialog cancelled or refused; else the
+                # administrator window was closed, and this one is done too
+                if pr.get_if_exited() and pr.get_exit_status() in (126, 127):
+                    self.show()
+                else:
+                    self.destroy()
+            proc.wait_async(None, done)
+
+        # --------------------------------------------------------- tabs --
+        def on_page(self):
+            name = self.stack.get_visible_child_name()
+            on_proc = name == "processes"
+            # keep their space, so the tabs never move
+            for w in (self.search, self.end_btn, getattr(self, "admin_btn", None)):
+                if w is not None:
+                    w.set_opacity(1.0 if on_proc else 0.0)
+                    w.set_sensitive(on_proc and (w is not self.end_btn or bool(self.target(self.selected_key()))))
+            if on_proc:
+                self.on_select(None)
+            if name == "startup":
+                self.load_startup()
+
+        # --------------------------------------------------- processes --
+        def build_processes(self):
+            self.store = Gtk.TreeStore(str, str, str, float, str, str, float, str, str, int, bool, int,
+                                       float, str, str, float, str, str)
+            self.filter = self.store.filter_new()
+            self.filter.set_visible_func(self.visible)
+            self.sorted = Gtk.TreeModelSort(model=self.filter)
+            for col in (C_NAME, C_CPU, C_MEM, C_DISK, C_NET):
+                self.sorted.set_sort_func(col, self.sort_func, col)
+            self.sorted.set_sort_column_id(C_NAME, Gtk.SortType.ASCENDING)
+            tv = Gtk.TreeView(model=self.sorted, enable_search=False, activate_on_single_click=False)
+            self.tree = tv
+            name_col = Gtk.TreeViewColumn("Name")
+            pix = Gtk.CellRendererPixbuf(stock_size=Gtk.IconSize.LARGE_TOOLBAR, xpad=4)
+            name_col.pack_start(pix, False)
+            name_col.add_attribute(pix, "icon-name", C_ICON)
+            txt = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=5)
+            name_col.pack_start(txt, True)
+            name_col.add_attribute(txt, "text", C_NAME)
+            name_col.add_attribute(txt, "weight", C_WEIGHT)
+            name_col.set_expand(True)
+            name_col.set_sort_column_id(C_NAME)
+            tv.append_column(name_col)
+            for title, tcol, bgcol, scol, tip in (
+                    ("CPU", C_CPU_T, C_CPU_BG, C_CPU, "Share of the whole processor"),
+                    ("Memory", C_MEM_T, C_MEM_BG, C_MEM, "Private memory (what the app itself uses)"),
+                    ("Disk", C_DISK_T, C_DISK_BG, C_DISK,
+                     "Reading and writing storage. Other users' processes only as administrator"),
+                    ("Network", C_NET_T, C_NET_BG, C_NET,
+                     "TCP traffic. QUIC (UDP) traffic, which Brave uses for YouTube and Google, cannot be "
+                     "counted per app on Linux: Performance > Wi-Fi shows all traffic")):
+                r = Gtk.CellRendererText(xalign=1.0, xpad=10)
+                c = Gtk.TreeViewColumn(title, r, text=tcol, cell_background=bgcol, weight=C_WEIGHT)
+                c.set_min_width(100)
+                c.set_alignment(1.0)
+                c.set_sort_column_id(scol)
+                tv.append_column(c)
+                c.get_button().set_tooltip_text(tip)
+            tv.get_selection().connect("changed", self.on_select)
+            tv.connect("button-press-event", self.on_tree_click)
+            sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, margin_start=16, margin_end=16,
+                                    margin_bottom=16, margin_top=12)
+            sw.get_style_context().add_class("card")
+            sw.add(tv)
+            self.sections = {}
+            for i, (kind, label) in enumerate(SECTIONS):
+                it = self.store.append(None, ["section:" + kind, None, label, 0.0, "", None, 0.0, "", None,
+                                              Pango.Weight.BOLD, True, i, 0.0, "", None, 0.0, "", None])
+                self.sections[kind] = (Gtk.TreeRowReference.new(self.store, self.store.get_path(it)), label)
+            return sw
+
+        def sort_func(self, model, a, b, col):
+            ha, hb = model[a][C_HEADER], model[b][C_HEADER]
+            if ha and hb:                       # sections keep their order
+                order = model[a][C_ORDER] - model[b][C_ORDER]
+                _, direction = self.sorted.get_sort_column_id()
+                return order if direction == Gtk.SortType.ASCENDING else -order
+            va, vb = model[a][col], model[b][col]
+            if col == C_NAME:
+                va, vb = (va or "").lower(), (vb or "").lower()
+            return (va > vb) - (va < vb)
+
+        def visible(self, model, it, _data):
+            if not self.filter_text or model[it][C_HEADER]:
+                return True
+            if self.filter_text in (model[it][C_NAME] or "").lower():
+                return True
+            parent = model.iter_parent(it)
+            if parent is not None and not model[parent][C_HEADER] and \
+                    self.filter_text in (model[parent][C_NAME] or "").lower():
+                return True
+            child = model.iter_children(it)
+            while child is not None:
+                if self.filter_text in (model[child][C_NAME] or "").lower():
+                    return True
+                child = model.iter_next(child)
+            return False
+
+        def on_search(self, entry):
+            self.filter_text = entry.get_text().strip().lower()
+            self.filter.refilter()
+            if self.filter_text:
+                self.tree.expand_all()
+
+        def selected_key(self):
+            model, it = self.tree.get_selection().get_selected()
+            return model[it][C_KEY] if it is not None else None
+
+        def on_select(self, _sel):
+            key = self.selected_key()
+            g = self.target(key)
+            self.end_btn.set_sensitive(bool(g and g["endable"]))
+
+        def target(self, key):
+            """The group (or the single process) a row stands for."""
+            if not key or key.startswith("section:"):
+                return None
+            if key in self.groups:
+                return self.groups[key]
+            if key.startswith("pid:"):
+                pid = int(key.split(":")[1])
+                p = self.procs.get(pid)
+                if p:
+                    return {"pids": [pid], "name": program_name(p),
+                            "endable": p.comm not in DESKTOP_SHELL and pid > 1 and (p.uid == self.uid or self.admin)}
+            return None
+
+        def on_tree_click(self, tv, ev):
+            if ev.type == Gdk.EventType.BUTTON_PRESS and ev.button == 3:
+                hit = tv.get_path_at_pos(int(ev.x), int(ev.y))
+                if hit:
+                    tv.get_selection().select_path(hit[0])
+                    g = self.target(self.selected_key())
+                    menu = Gtk.Menu()
+                    item = Gtk.MenuItem(label="End task")
+                    item.set_sensitive(bool(g and g["endable"]))
+                    item.connect("activate", self.on_end_task)
+                    menu.append(item)
+                    menu.show_all()
+                    menu.popup_at_pointer(ev)
+                    return True
+            return False
+
+        def on_end_task(self, *_):
+            g = self.target(self.selected_key())
+            if not g or not g["endable"]:
+                return
+            starts = {}
+            for pid in g["pids"]:
+                p = self.procs.get(pid)
+                if p:
+                    starts[pid] = p.start
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except OSError:
+                        pass
+
+            def force():
+                # Still there after 3 s (and the same process): end it for good.
+                for pid, start in starts.items():
+                    p = read_proc(pid)
+                    if p and p.start == start:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except OSError:
+                            pass
+                return False
+            GLib.timeout_add(3000, force)
+            GLib.timeout_add(400, self.refresh_processes)
+
+        def refresh_processes(self):
+            if not self.get_visible():
+                return True
+            procs = list_procs()
+            busy, total = cpu_ticks()
+            dt = max(total - self.prev_proc_cpu[1], 1)
+            self.prev_proc_cpu = (busy, total)
+            cpu = {}
+            ticks = {}
+            for pid, p in procs.items():
+                prev = self.prev_ticks.get(pid)
+                ticks[pid] = (p.ticks, p.start)
+                cpu[pid] = 100.0 * (p.ticks - prev[0]) / dt if prev and prev[1] == p.start else 0.0
+            self.prev_ticks = ticks
+            self.procs = procs
+            if self.stack.get_visible_child_name() != "processes":
+                return True
+            # Disk and network: per second since the last look at this page
+            now = time.monotonic()
+            el = max(now - getattr(self, "prev_io_t", now - 2), 0.5)
+            self.prev_io_t = now
+            disk, io_now = {}, {}
+            for pid, p in procs.items():
+                b = io_bytes(pid)
+                if b is None:
+                    continue
+                io_now[pid] = (b, p.start)
+                prev = getattr(self, "prev_io", {}).get(pid)
+                disk[pid] = (b - prev[0]) / el if prev and prev[1] == p.start else 0.0
+            self.prev_io = io_now
+            net = getattr(self, "net_rate", {})
+            self.sample_network()
+            groups = group_processes(procs, self.uid, self.index, window_pids(), self.admin)
+            self.groups = {g["key"]: g for g in groups}
+            total_mem = meminfo().get("MemTotal", 1)
+            seen = set()
+            counts = {k: 0 for k, _ in SECTIONS}
+            for g in groups:
+                counts[g["kind"]] += 1
+                gcpu = sum(cpu.get(p, 0.0) for p in g["pids"])
+                gmem = sum(procs[p].mem for p in g["pids"])
+                known = [disk[p] for p in g["pids"] if p in disk]
+                gdisk = sum(known) if known else None
+                gnet = sum(net.get(p, 0.0) for p in g["pids"])
+                name = g["name"] + (" (%d)" % len(g["pids"]) if len(g["pids"]) > 1 else "")
+                icon = g["icon"] or ("application-x-executable" if g["kind"] != "system" else "system-run")
+                parent = self.store.get_iter(self.sections[g["kind"]][0].get_path())
+                git = self.upsert(g["key"], parent, icon, name, gcpu, gmem, total_mem, gdisk, gnet)
+                seen.add(g["key"])
+                if len(g["pids"]) > 1:
+                    for pid in g["pids"]:
+                        p = procs[pid]
+                        k = "pid:%d" % pid
+                        self.upsert(k, git, None, display_name(p) + "  ·  %d" % pid, cpu.get(pid, 0.0), p.mem,
+                                    total_mem, disk.get(pid), net.get(pid, 0.0))
+                        seen.add(k)
+            for k in list(self.rows):
+                if k not in seen:
+                    ref = self.rows.pop(k)
+                    if ref.valid():
+                        self.store.remove(self.store.get_iter(ref.get_path()))
+            for kind, (ref, label) in self.sections.items():
+                self.store[ref.get_path()][C_NAME] = "%s (%d)" % (label, counts[kind])
+            if not getattr(self, "expanded", False):
+                for kind in ("app", "background"):
+                    path = self.sorted.convert_child_path_to_path(
+                        self.filter.convert_child_path_to_path(self.sections[kind][0].get_path()))
+                    if path:
+                        self.tree.expand_row(path, False)
+                self.expanded = True
+            self.on_select(None)
+            return True
+
+        def sample_network(self):
+            """Run ss in the background (55-130 ms on the N4020); its result
+            gives the Network column at the next refresh."""
+            from gi.repository import Gio
+            if getattr(self, "ss_running", False):
+                return
+            try:
+                proc = Gio.Subprocess.new(["ss", "-tinpH", "state", "established"],
+                                          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+            except GLib.Error:
+                return
+            self.ss_running = True
+
+            def done(pr, res):
+                self.ss_running = False
+                try:
+                    _ok, out, _err = pr.communicate_utf8_finish(res)
+                except GLib.Error:
+                    return
+                now = time.monotonic()
+                el = max(now - getattr(self, "prev_ss_t", now - 2), 0.5)
+                self.prev_ss_t = now
+                socks = parse_ss(out or "")
+                rate = {}
+                for key, (pid, sent, recv) in socks.items():
+                    prev = getattr(self, "prev_socks", {}).get(key)
+                    if prev and prev[0] == pid:
+                        rate[pid] = rate.get(pid, 0.0) + max(0, sent - prev[1] + recv - prev[2]) / el
+                self.prev_socks = socks
+                self.net_rate = rate
+            proc.communicate_utf8_async(None, None, done)
+
+        def upsert(self, key, parent, icon, name, cpu, mem, total_mem, disk=None, net=0.0):
+            vals = {C_ICON: icon, C_NAME: name, C_CPU: cpu, C_CPU_T: "%.1f%%" % cpu,
+                    C_CPU_BG: heat(cpu / 100.0), C_MEM: float(mem), C_MEM_T: fmt_bytes(mem),
+                    C_MEM_BG: heat(mem / total_mem * 4),
+                    C_DISK: disk if disk is not None else -1.0,
+                    C_DISK_T: "—" if disk is None else ("0 MB/s" if disk < 50e3 else "%.1f MB/s" % (disk / 1e6)),
+                    C_DISK_BG: heat(disk / 10e6) if disk else None,
+                    C_NET: net, C_NET_T: "0 Mbps" if net < 1250 else "%.1f Mbps" % (net * 8 / 1e6),
+                    C_NET_BG: heat(net / 2e6) if net else None}
+            ref = self.rows.get(key)
+            if ref and ref.valid():
+                it = self.store.get_iter(ref.get_path())
+                cur = self.store.iter_parent(it)
+                if cur is not None and self.store.get_path(cur) == self.store.get_path(parent):
+                    for col, v in vals.items():
+                        if self.store[it][col] != v:
+                            self.store.set_value(it, col, v)
+                    return it
+                self.store.remove(it)
+            it = self.store.append(parent, [key, icon, name, cpu, vals[C_CPU_T], vals[C_CPU_BG], float(mem),
+                                            vals[C_MEM_T], vals[C_MEM_BG], Pango.Weight.NORMAL, False, 0,
+                                            vals[C_DISK], vals[C_DISK_T], vals[C_DISK_BG], net,
+                                            vals[C_NET_T], vals[C_NET_BG]])
+            self.rows[key] = Gtk.TreeRowReference.new(self.store, self.store.get_path(it))
+            return it
+
+        # ------------------------------------------------- performance --
+        def build_performance(self):
+            box = Gtk.Box(spacing=0, margin_start=8, margin_end=16, margin_bottom=16, margin_top=12)
+            self.tiles = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE, width_request=230)
+            self.tiles.get_style_context().add_class("tiles")
+            box.pack_start(self.tiles, False, False, 0)
+            self.detail = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=120)
+            card = Gtk.Box()
+            card.get_style_context().add_class("card")
+            card.pack_start(self.detail, True, True, 0)
+            box.pack_start(card, True, True, 0)
+
+            model, self.ncpu = cpu_info()
+            self.disk = root_disk()
+            self.iface = net_iface()
+            self.prev_disk = disk_stats(self.disk) if self.disk else None
+            self.prev_net = net_bytes(self.iface) if self.iface else None
+            self.prev_t = time.monotonic()
+            self.res = {}
+            mx = cpu_speed_ghz()[1]
+            subtitle = {"cpu": model, "memory": fmt_bytes(meminfo().get("MemTotal", 0)) + " RAM",
+                        "disk": "%s (system disk)" % self.disk if self.disk else "",
+                        "network": self.iface or "", "battery": ""}
+            names = [("cpu", "CPU"), ("memory", "Memory")]
+            if self.disk:
+                names.append(("disk", "Disk"))
+            if self.iface:
+                names.append(("network", "Wi-Fi" if self.iface.startswith("wl") else "Ethernet"))
+            if battery():
+                names.append(("battery", "Battery"))
+            for key, label in names:
+                colour = COLOURS[key]
+                row = Gtk.ListBoxRow()
+                h = Gtk.Box(spacing=10)
+                spark = Graph(colour, small=True)
+                spark.set_size_request(64, 40)
+                h.pack_start(spark, False, False, 0)
+                v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+                n = Gtk.Label(label=label, xalign=0)
+                n.get_style_context().add_class("tile-name")
+                # a fixed width: changing text must not resize the list (that
+                # moved the edge of the graph card every second)
+                val = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, width_chars=22, max_width_chars=22)
+                val.get_style_context().add_class("tile-value")
+                v.pack_start(n, False, False, 0)
+                v.pack_start(val, False, False, 0)
+                h.pack_start(v, True, True, 0)
+                row.add(h)
+                row.key = key
+                self.tiles.add(row)
+                # detail page
+                page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=18)
+                head = Gtk.Box()
+                t = Gtk.Label(xalign=0)
+                t.set_markup("<span size='x-large' weight='600'>%s</span>" % GLib.markup_escape_text(label))
+                head.pack_start(t, False, False, 0)
+                st = Gtk.Label(label=mx and key == "cpu" and "%s   (up to %.2f GHz)" % (subtitle[key], mx)
+                               or subtitle[key], xalign=1, ellipsize=Pango.EllipsizeMode.END)
+                st.get_style_context().add_class("subtitle")
+                head.pack_end(st, True, True, 0)
+                page.pack_start(head, False, False, 0)
+                cap = Gtk.Box()
+                left = Gtk.Label(xalign=0)
+                left.get_style_context().add_class("stat-label")
+                right = Gtk.Label(xalign=1)
+                right.get_style_context().add_class("stat-label")
+                cap.pack_start(left, True, True, 0)
+                cap.pack_end(right, False, False, 0)
+                page.pack_start(cap, False, False, 0)
+                graph = Graph(colour)
+                graph.set_size_request(-1, 200 if key == "memory" else 260)
+                page.pack_start(graph, True, True, 0)
+                swap = None
+                if key == "memory":
+                    scap = Gtk.Box(margin_top=6)
+                    sl = Gtk.Label(label="Swap in use (also holds the hibernation image)", xalign=0)
+                    sl.get_style_context().add_class("stat-label")
+                    sr = Gtk.Label(xalign=1)
+                    sr.get_style_context().add_class("stat-label")
+                    scap.pack_start(sl, True, True, 0)
+                    scap.pack_end(sr, False, False, 0)
+                    page.pack_start(scap, False, False, 0)
+                    swap = Graph(COLOURS["swap"])
+                    swap.set_size_request(-1, 70)
+                    page.pack_start(swap, False, False, 0)
+                foot = Gtk.Box()
+                fl = Gtk.Label(label="60 seconds", xalign=0)
+                fl.get_style_context().add_class("stat-label")
+                fr = Gtk.Label(label="0", xalign=1)
+                fr.get_style_context().add_class("stat-label")
+                foot.pack_start(fl, True, True, 0)
+                foot.pack_end(fr, False, False, 0)
+                page.pack_start(foot, False, False, 0)
+                grid = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
+                                   min_children_per_line=2, column_spacing=28, row_spacing=12, margin_top=10)
+                page.pack_start(grid, False, False, 0)
+                self.detail.add_named(page, key)
+                self.res[key] = {"spark": spark, "value": val, "graph": graph, "grid": grid, "stats": {},
+                                 "cap_left": left, "cap_right": right, "swap": swap,
+                                 "swap_cap": sr if swap else None}
+            self.tiles.connect("row-selected", lambda _l, r: r and self.detail.set_visible_child_name(r.key))
+            self.tiles.select_row(self.tiles.get_row_at_index(0))
+            return box
+
+        def stats(self, key, pairs):
+            """Show (label, value) pairs under the graph, updating in place."""
+            r = self.res[key]
+            for label, value in pairs:
+                lab = r["stats"].get(label)
+                if lab is None:
+                    b = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+                    l1 = Gtk.Label(label=label, xalign=0)
+                    l1.get_style_context().add_class("stat-label")
+                    lab = Gtk.Label(xalign=0, width_chars=16, max_width_chars=16,
+                                    ellipsize=Pango.EllipsizeMode.END)
+                    lab.get_style_context().add_class("stat-value")
+                    b.pack_start(l1, False, False, 0)
+                    b.pack_start(lab, False, False, 0)
+                    b.show_all()
+                    r["grid"].add(b)
+                    r["stats"][label] = lab
+                lab.set_text(value)
+
+        def tick(self):
+            now = time.monotonic()
+            dt = max(now - self.prev_t, 0.001)
+            self.prev_t = now
+            busy, total = cpu_ticks()
+            pb, pt = self.prev_cpu
+            cpu = 100.0 * (busy - pb) / max(total - pt, 1)
+            self.prev_cpu = (busy, total)
+            cur, _mx = cpu_speed_ghz()
+            nproc, nthreads = task_counts()
+            r = self.res["cpu"]
+            r["graph"].push(cpu)
+            r["spark"].push(cpu)
+            r["value"].set_text("%.0f%%" % cpu + ("  %.2f GHz" % cur if cur else ""))
+            r["cap_left"].set_text("% Utilisation over 60 seconds")
+            r["cap_right"].set_text("100%")
+            self.stats("cpu", [("Utilisation", "%.0f%%" % cpu), ("Speed", "%.2f GHz" % cur if cur else "—"),
+                               ("Processes", str(nproc)), ("Threads", str(nthreads)),
+                               ("Cores", str(self.ncpu)), ("Up time", fmt_uptime(uptime_s()))])
+
+            m = meminfo()
+            tot = m.get("MemTotal", 1)
+            used = tot - m.get("MemAvailable", 0)
+            r = self.res["memory"]
+            r["graph"].push(100.0 * used / tot)
+            r["spark"].push(100.0 * used / tot)
+            r["value"].set_text("%s / %s (%.0f%%)" % (fmt_bytes(used), fmt_bytes(tot), 100.0 * used / tot))
+            r["cap_left"].set_text("Memory in use")
+            r["cap_right"].set_text(fmt_bytes(tot))
+            swap_used = m.get("SwapTotal", 0) - m.get("SwapFree", 0)
+            if r["swap"] is not None:
+                r["swap"].push(100.0 * swap_used / m["SwapTotal"] if m.get("SwapTotal") else 0.0)
+                r["swap_cap"].set_text(fmt_bytes(m.get("SwapTotal", 0)))
+            zs, zd = m.get("Zswapped", 0), m.get("Zswap", 0)
+            self.stats("memory", [("In use", fmt_bytes(used)), ("Available", fmt_bytes(m.get("MemAvailable", 0))),
+                                  ("Cached", fmt_bytes(m.get("Cached", 0))),
+                                  ("Swap (for hibernation)", "%s of %s" % (fmt_bytes(swap_used), fmt_bytes(m.get("SwapTotal", 0)))),
+                                  ("Compressed in RAM (zswap)", "%s in %s" % (fmt_bytes(zs), fmt_bytes(zd)) if zs else "nothing")])
+
+            if self.disk and "disk" in self.res:
+                d = disk_stats(self.disk)
+                r = self.res["disk"]
+                if d and self.prev_disk:
+                    rd = (d[0] - self.prev_disk[0]) * 512 / dt
+                    wr = (d[1] - self.prev_disk[1]) * 512 / dt
+                    act = min(100.0, (d[2] - self.prev_disk[2]) / (dt * 10))
+                    r["graph"].push(act)
+                    r["spark"].push(act)
+                    r["value"].set_text("%.0f%% active" % act)
+                    r["cap_left"].set_text("Active time")
+                    r["cap_right"].set_text("100%")
+                    try:
+                        st = os.statvfs("/")
+                        cap, free = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+                    except OSError:
+                        cap = free = 0
+                    self.stats("disk", [("Active time", "%.0f%%" % act), ("Read", fmt_bytes(rd, True)),
+                                        ("Write", fmt_bytes(wr, True)), ("Used", "%s of %s" % (fmt_bytes(cap - free), fmt_bytes(cap))),
+                                        ("Free", fmt_bytes(free))])
+                self.prev_disk = d
+
+            if self.iface and "network" in self.res:
+                n = net_bytes(self.iface)
+                r = self.res["network"]
+                if n and self.prev_net:
+                    rx = (n[0] - self.prev_net[0]) / dt
+                    tx = (n[1] - self.prev_net[1]) / dt
+                    tput = (rx + tx) * 8
+                    peak = max(max(r["graph"].values, default=0), tput, 100e3)
+                    scale = 10 ** len(str(int(peak))) / 10
+                    while scale < peak:
+                        scale *= 2
+                    r["graph"].push(tput, scale)
+                    r["spark"].push(tput, scale)
+                    r["value"].set_text("↓ %s  ↑ %s" % (fmt_bytes(rx, True), fmt_bytes(tx, True)))
+                    r["cap_left"].set_text("Throughput")
+                    r["cap_right"].set_text("%s/s" % ("%.0f Mbit" % (scale / 1e6) if scale >= 1e6 else "%.0f kbit" % (scale / 1e3)))
+                    self.stats("network", [("Receive", fmt_bytes(rx, True)), ("Send", fmt_bytes(tx, True)),
+                                           ("Adapter", self.iface)])
+                self.prev_net = n
+
+            if "battery" in self.res:
+                b = battery()
+                if b:
+                    r = self.res["battery"]
+                    r["graph"].push(b["capacity"])
+                    r["spark"].push(b["capacity"])
+                    r["value"].set_text("%d%%  %s" % (b["capacity"], b["status"]))
+                    r["cap_left"].set_text("Charge")
+                    r["cap_right"].set_text("100%")
+                    self.stats("battery", [("Charge", "%d%%" % b["capacity"]), ("Status", b["status"])])
+            return True
+
+        # ------------------------------------------------------ startup --
+        def build_startup(self):
+            sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, margin_start=16, margin_end=16,
+                                    margin_bottom=16, margin_top=12)
+            sw.get_style_context().add_class("card")
+            v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            note = Gtk.Label(label="Apps that start when you log in. Fewer leaves more memory for your work."
+                             + ("  (Open Task Manager without administrator rights to change these: they are"
+                                " your own settings.)" if os.geteuid() == 0 else ""),
+                             xalign=0, margin=12, wrap=True)
+            note.get_style_context().add_class("subtitle")
+            v.pack_start(note, False, False, 0)
+            self.startup = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+            self.startup.get_style_context().add_class("startup")
+            v.pack_start(self.startup, False, False, 0)
+            sw.add(v)
+            return sw
+
+        def load_startup(self):
+            for child in self.startup.get_children():
+                self.startup.remove(child)
+            for e in startup_entries():
+                row = Gtk.ListBoxRow(activatable=False)
+                h = Gtk.Box(spacing=12)
+                h.pack_start(Gtk.Image.new_from_icon_name(e["icon"], Gtk.IconSize.DND), False, False, 0)
+                t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+                t.pack_start(Gtk.Label(label=e["name"], xalign=0), False, False, 0)
+                if e["comment"]:
+                    c = Gtk.Label(label=e["comment"], xalign=0, ellipsize=Pango.EllipsizeMode.END)
+                    c.get_style_context().add_class("subtitle")
+                    t.pack_start(c, False, False, 0)
+                h.pack_start(t, True, True, 0)
+                sw = Gtk.Switch(active=e["enabled"], valign=Gtk.Align.CENTER,
+                                sensitive=not self.admin and not e["essential"])
+                if e["essential"]:
+                    sw.set_tooltip_text("KiteOS needs this (settings, password prompts, the lock screen or the lid)")
+                sw.connect("notify::active", lambda s, _p, f=e["file"]: set_startup(f, s.get_active()))
+                h.pack_end(sw, False, False, 0)
+                row.add(h)
+                self.startup.add(row)
+            self.startup.show_all()
+
+    return TaskManager
+
+
+def main(argv):
+    if argv[:1] == ["--dump"]:
+        dump()
+        return 0
+    if argv:
+        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        return 2
+    TaskManager = main_ui()
+    from gi.repository import Gtk
+    win = TaskManager()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    win.on_page()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

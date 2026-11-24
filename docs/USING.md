@@ -33,6 +33,16 @@ Coast. Open
 **Settings → Desktop** and pick one from `/usr/share/backgrounds/kite` (the
 desktop itself has no right-click menu).
 
+**Task Manager** (Ctrl + Shift + Esc, or Task Manager in the menu): your apps
+with everything each one started on one row, background and system processes,
+CPU, memory, disk and network shaded by load, and **End task**. (Network per
+app counts TCP traffic: QUIC, which Brave uses for YouTube and Google, cannot
+be counted per app on Linux; Performance > Wi-Fi shows all of it.)
+**Performance** has live graphs for CPU, memory (with a swap graph and zswap's
+compressed memory), the disk, Wi-Fi and the battery; **Startup apps** switches login apps on and off.
+**Run as administrator** asks for your password and can then end system
+processes too.
+
 **Login and lock screen:** both show the same frosted card. Open
 **Settings → Login Screen** to pick your picture (one of eight KiteOS ones or
 your own photo) and the login screen background (Frosted, Aurora, Dusk or
@@ -52,7 +62,7 @@ changes it.
 | Search + ← / → / ↑ / ↓ | Home / End / Page Up / Page Down |
 | Search + L | Lock |
 | Ctrl + Alt + T | Terminal |
-| Ctrl + Shift + Esc | Task manager |
+| Ctrl + Shift + Esc | Task Manager |
 | Print key (models that have one) | Screenshot |
 
 The map is generated at every boot from the firmware's description of your top

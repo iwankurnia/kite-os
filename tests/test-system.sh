@@ -305,6 +305,90 @@ check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1.236
 check "leaves external screens alone" bash -c "! grep -q HDMI '$T/vivid/calls'"
 check "new level saved" grep -qx 'SATURATION=1.3' "$T/vivid/kite/vivid.conf"
 
+echo "== kite-tasks (Task Manager)"
+KT=$REPO/packages/kite-desktop/usr/bin/kite-tasks
+FP=$T/tasks/proc; FA=$T/tasks/apps; FS=$T/tasks/autostart-sys; FU=$T/tasks/autostart-user
+python3 - "$FP" "$FA" "$FS" <<'TASKS_FIXTURE'
+import os, sys
+proc, apps, sysauto = sys.argv[1:4]
+def mk(pid, comm, ppid, uid, exe, argv, ticks=0, anon=1000):
+    d = os.path.join(proc, str(pid)); os.makedirs(d)
+    open(d + "/stat", "w").write("%d (%s) S %d 0 0 0 0 0 0 0 0 0 %d 0 0 0 20 0 1 0 %d 0 0" % (pid, comm, ppid, ticks, 100 + pid))
+    open(d + "/status", "w").write("Name:\t%s\nUid:\t%d\t%d\t%d\t%d\nRssAnon:\t%d kB\n" % (comm, uid, uid, uid, uid, anon))
+    open(d + "/cmdline", "w").write("\0".join(argv) + "\0")
+    os.symlink(exe, d + "/exe")
+mk(1, "systemd", 0, 0, "/usr/lib/systemd/systemd", ["/sbin/init"])
+mk(50, "xfce4-session", 1, 1000, "/usr/bin/xfce4-session", ["xfce4-session"])
+mk(100, "xfce4-panel", 50, 1000, "/usr/bin/xfce4-panel", ["xfce4-panel"])
+mk(101, "wrapper-2.0", 100, 1000, "/usr/lib/x/wrapper-2.0", ["wrapper-2.0", "/x/libdocklike.so", "20", "1", "docklike", "Docklike Taskbar"])
+mk(200, "code", 101, 1000, "/usr/share/code/code", ["/usr/share/code/code"], anon=200000)
+mk(201, "code", 200, 1000, "/usr/share/code/code", ["/usr/share/code/code", "--type=renderer"], anon=300000)
+mk(300, "brave-browser-s", 50, 1000, "/usr/bin/bash", ["/bin/bash", "/usr/bin/brave-browser-stable.distrib"])
+mk(301, "brave", 300, 1000, "/opt/brave.com/brave/brave", ["/opt/brave.com/brave/brave"])
+mk(400, "nm-applet", 50, 1000, "/usr/bin/nm-applet", ["nm-applet"])
+mk(450, "Thunar", 50, 1000, "/usr/bin/thunar", ["thunar", "--daemon"])
+mk(500, "NetworkManager", 1, 0, "/usr/sbin/NetworkManager", ["/usr/sbin/NetworkManager"])
+open(proc + "/meminfo", "w").write("MemTotal: 4000 kB\nMemAvailable: 1000 kB\nZswap: 10 kB\nZswapped: 40 kB\n")
+open(proc + "/200/io", "w").write("rchar: 9\nwchar: 9\nread_bytes: 4096\nwrite_bytes: 8192\n")
+open(proc + "/stat", "w").write("cpu  100 0 100 700 100 0 0 0 0 0\n")
+os.makedirs(apps); os.makedirs(sysauto)
+for name, body in (("code", "Name=Visual Studio Code\nExec=/usr/share/code/code %F\nIcon=vscode"),
+                   ("brave-browser", "Name=Brave Web Browser\nExec=/usr/bin/brave-browser-stable %U\nIcon=brave-browser"),
+                   ("thunar-bulk-rename", "Name=Bulk Rename\nExec=thunar --bulk-rename %F"),
+                   ("thunar", "Name=Thunar File Manager\nExec=thunar %F"),
+                   ("nm-applet", "Name=Network\nExec=nm-applet\nNoDisplay=true")):
+    open("%s/%s.desktop" % (apps, name), "w").write("[Desktop Entry]\nType=Application\n" + body + "\n")
+for name, body in (("blueman", "Name=Blueman Applet\nExec=blueman-applet"),
+                   ("xfsettingsd", "Name=Xfce Settings Daemon\nExec=xfsettingsd\nOnlyShowIn=XFCE;"),
+                   ("gnome-only", "Name=GNOME thing\nExec=x\nOnlyShowIn=GNOME;")):
+    open("%s/%s.desktop" % (sysauto, name), "w").write("[Desktop Entry]\nType=Application\n" + body + "\n")
+TASKS_FIXTURE
+kt_py() { KITE_PROC=$FP KITE_SYS=$T/tasks/sys KITE_APP_DIRS=$FA KITE_AUTOSTART_SYSTEM=$FS KITE_AUTOSTART_USER=$FU python3 - "$KT" <<TASKS_PY
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("kt", sys.argv[1])
+spec = importlib.util.spec_from_loader("kt", loader); kt = importlib.util.module_from_spec(spec); loader.exec_module(kt)
+procs = kt.list_procs(); idx = kt.AppIndex()
+def groups(windows=None, admin=False):
+    return {g["name"]: g for g in kt.group_processes(procs, 1000, idx, windows, admin)}
+$1
+TASKS_PY
+}
+check "an app with everything it started is one row (VS Code, 2 processes)" kt_py \
+    'g = groups({201})["Visual Studio Code"]; assert g["kind"] == "app" and g["pids"] == [200, 201], g'
+check "app memory is the private memory of all its processes" kt_py \
+    'assert sum(procs[p].mem for p in groups({201})["Visual Studio Code"]["pids"]) == 500000 * 1024'
+check "Brave through its launcher script is still Brave" kt_py \
+    'g = groups({301})["Brave Web Browser"]; assert g["kind"] == "app" and g["pids"] == [300, 301], g'
+check "no window: a background process, even with a .desktop file" kt_py \
+    'assert groups(set())["Visual Studio Code"]["kind"] == "background"'
+check "Thunar is Thunar, not Bulk Rename (same program)" kt_py \
+    'assert "Thunar File Manager" in groups({450}) and "Bulk Rename" not in groups({450})'
+check "panel plugins by their own name, not ended from here" kt_py \
+    'g = groups(set())["Panel: Docklike Taskbar"]; assert g["kind"] == "background" and not g["endable"]'
+check "the desktop itself and system processes cannot be ended" kt_py \
+    'gs = groups(set()); assert not gs["xfce4-session"]["endable"] and not gs["NetworkManager"]["endable"] and gs["NetworkManager"]["kind"] == "system"'
+check "as administrator, system processes can be ended (never init)" kt_py \
+    'gs = groups(set(), admin=True); assert gs["NetworkManager"]["endable"] and not gs["systemd"]["endable"]'
+check "memory figures in bytes, zswap included" kt_py \
+    'm = kt.meminfo(); assert m["MemTotal"] == 4096000 and m["Zswapped"] == 40960 and kt.cpu_ticks() == (200, 1000)'
+check "disk counters: read + written, unknown when not readable" kt_py \
+    'assert kt.io_bytes(200) == 12288 and kt.io_bytes(201) is None'
+check "TCP traffic per process from ss (QUIC/UDP has no counters)" kt_py \
+    's = "0  0  10.0.0.2:5000  1.2.3.4:443 users:((\"brave\",pid=301,fd=68))\n\t cubic bytes_sent:500 bytes_acked:400 bytes_received:7000 segs_out:9\n0  0  10.0.0.2:5001  5.6.7.8:443 users:((\"code\",pid=200,fd=3))\n\t cubic bytes_received:10\n"; assert kt.parse_ss(s) == {("10.0.0.2:5000", "1.2.3.4:443"): (301, 500, 7000), ("10.0.0.2:5001", "5.6.7.8:443"): (200, 0, 10)}, kt.parse_ss(s)'
+check "sizes read well" kt_py \
+    'assert (kt.fmt_bytes(500), kt.fmt_bytes(1536 * 1024), kt.fmt_bytes(3 * 1024 ** 3)) == ("500 B", "1.5 MB", "3.0 GB")'
+check "startup apps: XFCE ones only, essentials marked" kt_py \
+    'e = {x["file"]: x for x in kt.startup_entries()}; assert set(e) == {"blueman.desktop", "xfsettingsd.desktop"} and e["xfsettingsd.desktop"]["essential"] and not e["blueman.desktop"]["essential"]'
+kt_py 'kt.set_startup("blueman.desktop", False)' >/dev/null
+check "switching one off writes Hidden=true to your own autostart" bash -c "grep -qx 'Hidden=true' '$FU/blueman.desktop' && grep -qx 'Name=Blueman Applet' '$FU/blueman.desktop'"
+check "and the list shows it off" kt_py \
+    'assert not {x["file"]: x for x in kt.startup_entries()}["blueman.desktop"]["enabled"]'
+kt_py 'kt.set_startup("blueman.desktop", True)' >/dev/null
+check "on again: Hidden=false, written once" bash -c "[ \"\$(grep -c '^Hidden=' '$FU/blueman.desktop')\" = 1 ] && grep -qx 'Hidden=false' '$FU/blueman.desktop'"
+check "Ctrl+Shift+Esc opens it" grep -q '"<Primary><Shift>Escape": "kite-tasks"' "$REPO/packages/kite-desktop/usr/bin/kite-layout"
+check "administrator mode through pkexec, with a window" bash -c "grep -q 'exec.allow_gui\">true' '$REPO/packages/kite-desktop/usr/share/polkit-1/actions/org.kiteos.tasks.policy' && grep -q '/usr/bin/kite-tasks' '$REPO/packages/kite-desktop/usr/share/polkit-1/actions/org.kiteos.tasks.policy'"
+check "xfce4-taskmanager replaced" bash -c "! grep -q xfce4-taskmanager '$REPO/packages/kite-desktop/DEBIAN/control' '$REPO/live/config/package-lists/kite-desktop.list.chroot'"
+
 echo "== kite-update (KiteOS packages from GitHub releases)"
 KU=$REPO/packages/kite-system/usr/bin/kite-update
 ku_py() { python3 - "$KU" <<PYEOF

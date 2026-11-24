@@ -143,6 +143,28 @@ kite-system 1.2.2, branch `laptop-fixes`), not yet released:
   `artwork/render-wallpapers.py` renders the 1920 x 1080 SVGs 1200 high and
   crops the sides around each subject (`FOCUS`). 53-143 KB each, 1.1 MB in
   all. It uses GdkPixbuf's SVG loader, so it runs without rsvg-convert.
+- **Task Manager** (`kite-tasks`, Python GTK, replaces xfce4-taskmanager and
+  its Ctrl+Shift+Esc): Processes grouped like Windows (walk up the parents to
+  a launcher in `DESKTOP_SHELL`: panel `wrapper-2.0`, `xfce4-session`,
+  `xfsettingsd`...; apps launched from the taskbar are children of the panel
+  plugin wrapper), a group is an app when a process has a window
+  (`_NET_CLIENT_LIST` + `_NET_WM_PID` via ctypes libX11), named and iconed
+  from its .desktop file (exact desktop id wins: thunar.desktop over
+  thunar-bulk-rename; launcher suffixes like `.distrib` dropped). Memory =
+  `RssAnon` from `/proc/PID/status` (cheap, readable for everyone; PSS from
+  `smaps_rollup` took 0.2 s a refresh on the N4020). Performance (CPU, memory
+  + swap + zswap from `/proc/meminfo`, eMMC from diskstats, Wi-Fi, battery),
+  Startup apps (Hidden= in ~/.config/autostart; KiteOS essentials locked).
+  Disk per process: `/proc/PID/io` read_bytes + write_bytes (others' only as
+  root: "—"). Network per process: TCP byte counters from `ss -tinpH state
+  established` (55-130 ms, run asynchronously, only while Processes is
+  shown); UDP/QUIC has no counters on Linux without packet capture (nethogs
+  needs root and libpcap), so Brave's YouTube/Google traffic is missing there,
+  as the column's tooltip says. Labels in Performance have fixed widths: a
+  changing width resized the tile list and moved the graph card each second.
+  Run as administrator: pkexec with `exec.allow_gui` (polkit
+  `org.kiteos.tasks`), `PKEXEC_UID` says whose apps are "yours". The data code
+  runs without GTK (`kite-tasks --dump`; tests on a fake /proc).
 - Keyring: `gnome-keyring` + `libpam-gnome-keyring` in kite-desktop's Depends
   (10 small packages, nothing always-on: the daemon is socket/D-Bus
   activated). VS Code found no Secret Service at all. Debian's LightDM PAM file
