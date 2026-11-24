@@ -27,46 +27,45 @@ export PATH=$PKG/usr/bin:$PATH
 export KITE_LAYOUT_DATA=$PKG/usr/share/kite/layouts
 
 DISP=:57
-for layout in windows; do
-    export HOME=$WORK/home-$layout
-    mkdir -p "$HOME"
-    cp -a "$PKG/etc/skel/." "$HOME/"
+layout=windows
+export HOME=$WORK/home-$layout
+mkdir -p "$HOME"
+cp -a "$PKG/etc/skel/." "$HOME/"
 
-    Xvfb $DISP -screen 0 "${RES}x24" -nolisten tcp >"$WORK/xvfb-$layout.log" 2>&1 &
-    XVFB=$!
-    export DISPLAY=$DISP
-    sleep 1
-    # kite-user-init runs before XFCE, as it would from Xsession.d; it sets up
-    # the layout (kite-layout --first-login) and the wallpaper.
-    "$PKG/usr/lib/kite/desktop/kite-user-init"
-    sed -i "s#/usr/share/backgrounds/kite#$PKG/usr/share/backgrounds/kite#g" \
-        "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml"
+Xvfb $DISP -screen 0 "${RES}x24" -nolisten tcp >"$WORK/xvfb-$layout.log" 2>&1 &
+XVFB=$!
+export DISPLAY=$DISP
+sleep 1
+# kite-user-init runs before XFCE, as it would from Xsession.d; it sets up
+# the layout (kite-layout --first-login) and the wallpaper.
+"$PKG/usr/lib/kite/desktop/kite-user-init"
+sed -i "s#/usr/share/backgrounds/kite#$PKG/usr/share/backgrounds/kite#g" \
+    "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml"
 
-    eval "$(dbus-launch --sh-syntax)"
-    pids=""
-    xfsettingsd --replace >"$WORK/xfsettingsd-$layout.log" 2>&1 & pids="$pids $!"
-    sleep 1
-    xfwm4 --replace >"$WORK/xfwm4-$layout.log" 2>&1 & pids="$pids $!"
-    sleep 1
-    xfdesktop >"$WORK/xfdesktop-$layout.log" 2>&1 & pids="$pids $!"
-    xfce4-panel >"$WORK/panel-$layout.log" 2>&1 & pids="$pids $!"
-    sleep 5
-    # A window so the taskbar has something running.
-    xfce4-terminal --disable-server --geometry=90x24+180+120 >/dev/null 2>&1 & pids="$pids $!"
-    sleep 3
-    import -window root "$OUT/desktop-$layout.png"
-    echo "saved $OUT/desktop-$layout.png"
-    xfce4-popup-whiskermenu >/dev/null 2>&1 || true
-    sleep 2
-    import -window root "$OUT/menu-$layout.png"
-    echo "saved $OUT/menu-$layout.png"
+eval "$(dbus-launch --sh-syntax)"
+pids=""
+xfsettingsd --replace >"$WORK/xfsettingsd-$layout.log" 2>&1 & pids="$pids $!"
+sleep 1
+xfwm4 --replace >"$WORK/xfwm4-$layout.log" 2>&1 & pids="$pids $!"
+sleep 1
+xfdesktop >"$WORK/xfdesktop-$layout.log" 2>&1 & pids="$pids $!"
+xfce4-panel >"$WORK/panel-$layout.log" 2>&1 & pids="$pids $!"
+sleep 5
+# A window so the taskbar has something running.
+xfce4-terminal --disable-server --geometry=90x24+180+120 >/dev/null 2>&1 & pids="$pids $!"
+sleep 3
+import -window root "$OUT/desktop-$layout.png"
+echo "saved $OUT/desktop-$layout.png"
+xfce4-popup-whiskermenu >/dev/null 2>&1 || true
+sleep 2
+import -window root "$OUT/menu-$layout.png"
+echo "saved $OUT/menu-$layout.png"
 
-    # Only what this script started (never the user's own session).
-    # shellcheck disable=SC2086
-    kill $pids "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
-    kill $XVFB 2>/dev/null || true
-    sleep 1
-done
+# Only what this script started (never the user's own session).
+# shellcheck disable=SC2086
+kill $pids "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
+kill $XVFB 2>/dev/null || true
+sleep 1
 
 for f in "$WORK"/*.log; do
     if grep -qiE 'critical|error' "$f"; then
