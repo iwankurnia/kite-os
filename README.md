@@ -6,7 +6,7 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
 
 | | |
 |---|---|
-| **Desktop** | XFCE in two layouts, picked at install and switchable with `kite-layout`: **windows** (Fluent theme, Papirus icons, a taskbar with the Start menu, search and apps on the left) and **mac** (Qogir theme and icons, a menu bar at the top and a Dock). The **Search** key opens the menu in both. KiteOS tray icons, Inter font, three KiteOS wallpapers and three login screens. |
+| **Desktop** | XFCE in a Windows-style layout: Fluent theme, Papirus-Light icons, a taskbar with the Start menu, search and apps on the left. The **Search** key opens the menu; `kite-layout windows` puts the desktop back to the KiteOS defaults. Inter font, three KiteOS wallpapers and three login screens. |
 | **Boot and login** | Hidden GRUB menu, KiteOS splash screen (Plymouth, early Intel KMS), LightDM with Slick Greeter on a matching background. |
 | **Hibernation** | A swap file of RAM + half of RAM (at most RAM + 4 GB) is created at install time, and `resume=` / `resume_offset=` are set up automatically. Closing the lid suspends; after 60 min the machine hibernates. It also hibernates on critical battery and after 30 min idle on battery. Hibernate is also in the power menu. |
 | **Low memory** | zswap (zstd-compressed RAM cache in front of the swap file; unlike zram, it works with hibernation), earlyoom to end the biggest browser tab rather than freeze, a small journal, no Recommends and no docs. |
@@ -41,7 +41,7 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
 
 | Constraint | Decision |
 |---|---|
-| 4 GB RAM, of which Brave needs most | XFCE (X11) instead of GNOME or Plasma, with XFCE's own compositor. Whisker menu and docklike taskbar/Dock plugins inside the panel process. Session saving is off. |
+| 4 GB RAM, of which Brave needs most | XFCE (X11) instead of GNOME or Plasma, with XFCE's own compositor. Session saving is off. |
 | Hibernation must work | ext4 root and a swap file (not zram), resume configured by `kite-hibernate-setup`. zswap supplies the compression that zram would have. Suspend-then-hibernate only switches on once resume is verified, so a broken setup can't leave the lid doing nothing. |
 | 32 GB eMMC | `--no-install-recommends` throughout, no package docs, only the firmware this machine needs, weekly `fstrim` instead of continuous discard, journal capped at 64 MB, and the installer removes itself after installing. |
 | Slow eMMC | `noatime`, earlier dirty-page writeback, and `vm.swappiness=100` (swapping into zswap is cheaper than re-reading files from eMMC). |
@@ -54,7 +54,7 @@ build.sh                    ISO build entry point (runs live-build in a Debian 1
 packages/
   kite-system/              hibernation setup, zswap, memory/OOM tuning, boot splash, GRUB defaults
   kite-chromebook/          keyd keyboard map generator, Chromebook audio UCM, libinput quirk
-  kite-desktop/             XFCE layouts (windows, mac), kite-layout, login screens, artwork, defaults
+  kite-desktop/             XFCE layout (windows), kite-layout, login screens, artwork, defaults
   kite-storage/             kite-storage CLI + App Centre (GTK 3), APT safety hooks
 live/                       live-build config, Calamares installer config and branding
 scripts/                    package build, vendor repository keys
@@ -93,6 +93,6 @@ gotchas and to-do list. `CLAUDE.md` gives Claude Code the same pointers.
 - Audio UCM profiles from [WeirdTreeThing/alsa-ucm-conf-cros](https://github.com/WeirdTreeThing/alsa-ucm-conf-cros) (BSD-3-Clause, vendored at a pinned commit).
 - Keyboard mapping logic adapted from [WeirdTreeThing/cros-keyboard-map](https://github.com/WeirdTreeThing/cros-keyboard-map) (BSD-3-Clause).
 - Debian, XFCE, keyd, Calamares and Plymouth.
-- Desktop layouts from [docker-crd-vstunnel](https://github.com/iwankurnia/docker-crd-vstunnel); themes by [vinceliuice](https://github.com/vinceliuice) (Fluent, Qogir, WhiteSur; GPL-3.0) and Papirus icons.
+- Desktop layouts from [docker-crd-vstunnel](https://github.com/iwankurnia/docker-crd-vstunnel); Fluent theme by [vinceliuice](https://github.com/vinceliuice) (GPL-3.0) and Papirus icons.
 
 KiteOS is an unofficial personal build. It is not affiliated with Google, HP, Debian, Brave or ONLYOFFICE.

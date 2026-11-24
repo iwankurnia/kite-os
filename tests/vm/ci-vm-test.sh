@@ -6,8 +6,8 @@
 #   tests/vm/ci-vm-test.sh kiteos-X.Y.Z-amd64.iso OUTDIR
 #
 # Boots the live ISO, runs live-session checks over a serial console, installs
-# with the chosen layout (KITE_LAYOUT, default mac) by clicking through the
-# installer (OCR), boots the installed system, logs in and checks it.
+# by clicking through the installer (OCR), boots the installed system, logs in
+# and checks it.
 # Screenshots, logs and report.md (a pass/fail table) go to OUTDIR. Exit
 # status: the number of failed checks (0 = all passed), or 100 when the run
 # itself broke.
@@ -23,7 +23,6 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 export KITEVM_DIR=${KITEVM_DIR:-$OUT/run} KITEVM_RES=1360x768 KITEVM_CPU=${KITEVM_CPU:-host}
 mkdir -p "$KITEVM_DIR"
 VM=kite
-LAYOUT=${KITE_LAYOUT:-mac}
 FULL="Kite Tester" LOGIN=tester HOST=kiteos-test PASS=kitepass1
 REPORT=$OUT/report.md
 FAILS=0
@@ -84,7 +83,7 @@ wait_desktop() {  # until the window manager and the panel run
 {
     echo "# KiteOS VM test: $(basename "$ISO")"
     echo
-    echo "SHA-256 \`$(sha256sum "$ISO" | cut -d' ' -f1)\`, layout picked in the installer: **$LAYOUT**,"
+    echo "SHA-256 \`$(sha256sum "$ISO" | cut -d' ' -f1)\`,"
     echo "QEMU $(qemu-system-x86_64 --version | head -n1 | awk '{print $4}'), KVM: $([ -w /dev/kvm ] && echo yes || echo no)."
     echo
     echo "| Check | Result | Detail |"
@@ -134,30 +133,28 @@ PY' 'duplicates: none'
 # Whisker menu moves its settings from whiskermenu-1.rc into xfconf on start.
 has   "live: menu favourites set" "$GUI"' xfconf-query -c xfce4-panel -lv | grep -i favorites; grep -h ^favorites= ~/.config/xfce4/panel/whiskermenu-*.rc 2>/dev/null' 'brave-browser'
 
-# Layout switching: each switch must keep a window manager, one panel
-# process, and actually change the window theme.
-for i in 1 2 3 4; do
-    L=$([ $((i % 2)) = 1 ] && echo mac || echo windows)
+# Putting the desktop back (kite-layout windows) in a running session: each
+# time there must still be a window manager, one panel process and the theme.
+for i in 1 2; do
     t=$(date +%s)
-    vm "$GUI kite-layout $L" 120 >/dev/null
+    vm "$GUI kite-layout windows" 120 >/dev/null
     took=$(( $(date +%s) - t ))
     sleep 6
     st=$(vm "$GUI"' echo "wm=$(pgrep -cx xfwm4) panels=$(pgrep -cx xfce4-panel) theme=$(xfconf-query -c xfwm4 -p /general/theme) buttons=$(xfconf-query -c xfwm4 -p /general/button_layout)"' 30)
-    shot "1$((i + 1))-switch-$i-$L"
-    want_theme=$([ "$L" = mac ] && echo Qogir || echo Fluent)
-    if grep -q 'wm=1 panels=1' <<< "$st" && grep -q "theme=$want_theme" <<< "$st"; then
-        row PASS "live: switch $i to $L" "${took}s, $(short "$st")"
+    shot "1$((i + 1))-reapply-$i"
+    if grep -q 'wm=1 panels=1' <<< "$st" && grep -q "theme=Fluent" <<< "$st"; then
+        row PASS "live: kite-layout windows, run $i" "${took}s, $(short "$st")"
     else
-        row FAIL "live: switch $i to $L" "${took}s, $(short "$st") (1$((i + 1))-switch-$i-$L.png)"
+        row FAIL "live: kite-layout windows, run $i" "${took}s, $(short "$st") (1$((i + 1))-reapply-$i.png)"
     fi
 done
 vm 'tail -n 30 ~/.cache/kite-layout.log' 30 > "$OUT/kite-layout-log.txt"
 
-# Your own settings stay over a switch (the layout is windows again here).
+# Your own settings stay when the desktop is put back.
 vm "$GUI"' xfconf-query -c xfce4-terminal -p /font-name -n -t string -s "DejaVu Sans Mono 13"; xfconf-query -c xsettings -p /Gtk/FontName -s "DejaVu Sans 11"' 30 >/dev/null
-vm "$GUI kite-layout mac; sleep 4; kite-layout windows" 200 >/dev/null; sleep 6
-has "live: Terminal font kept over two switches" "$GUI"' xfconf-query -c xfce4-terminal -p /font-name' 'DejaVu Sans Mono 13'
-has "live: desktop font kept over two switches" "$GUI"' xfconf-query -c xsettings -p /Gtk/FontName' 'DejaVu Sans 11'
+vm "$GUI kite-layout windows" 200 >/dev/null; sleep 6
+has "live: Terminal font kept by kite-layout windows" "$GUI"' xfconf-query -c xfce4-terminal -p /font-name' 'DejaVu Sans Mono 13'
+has "live: desktop font kept by kite-layout windows" "$GUI"' xfconf-query -c xsettings -p /Gtk/FontName' 'DejaVu Sans 11'
 
 # Command-line safety (kite-storage) with a throw-away USB disk.
 qemu-img create -q -f raw "$KITEVM_DIR/usb.img" 2G
@@ -210,11 +207,7 @@ k keys "$VM" tab; k keys "$VM" ctrl-a; k type "$VM" "$HOST"
 k keys "$VM" tab; k type "$VM" "$PASS"
 k keys "$VM" tab; k type "$VM" "$PASS"
 sleep 3; shot 35-inst-users-filled
-next users 6; shot 36-inst-desktop-page
-PICK=$([ "$LAYOUT" = mac ] && echo 'Mac style' || echo 'Windows style')
-k clicktext "$VM" "$PICK" 60 >/dev/null || die "Desktop page: no '$PICK'"
-sleep 3; shot 37-inst-desktop-picked
-next desktop 8; shot 38-inst-summary
+next users 8; shot 38-inst-summary
 SUMMARY=$(k ocr "$VM")
 if grep -q 'English (UK)' <<< "$SUMMARY"; then row FAIL "installer: keyboard stays English (US)" "Summary says English (UK)"
 elif grep -q 'English (US)' <<< "$SUMMARY"; then row PASS "installer: keyboard stays English (US)" "on the Summary page"
@@ -231,15 +224,12 @@ if k wait "$VM" 'All done|has been installed|Installation Failed' 3600 >/dev/nul
     row PASS "installer: install finished" "$(( $(date +%s) - TI ))s"
 else shot 40-inst-finished; die "install did not finish within an hour"; fi
 vm 'sudo cat "$(sudo ls -t /root/.cache/Calamares/session.log /root/.cache/calamares/session.log 2>/dev/null | head -n1)"' 120 > "$OUT/calamares-session.log"
-if grep -q 'unknown variable' "$OUT/calamares-session.log"; then row FAIL "installer: Desktop choice reached its job" "$(grep -m1 'unknown variable' "$OUT/calamares-session.log" | cut -c1-200)"
-else row PASS "installer: Desktop choice reached its job" "no unknown-variable warning"; fi
 if grep -qiE 'hwclock failed|failed to run command .hwclock' "$OUT/calamares-session.log"; then row FAIL "installer: hwclock" "$(grep -m1 -iE 'hwclock' "$OUT/calamares-session.log" | cut -c1-200)"
 else row PASS "installer: hwclock" "no hwclock error"; fi
 
 # Give the installed system a serial console (test plumbing), check its files.
 ROOTP=$(vm 'lsblk -pnlo NAME,FSTYPE /dev/nvme0n1 | awk '"'"'$2 == "ext4" { print $1 }'"'"' | head -n1' 30 | grep '^/dev/' | head -n1)
 vm "sudo mkdir -p /mnt/t && sudo mount $ROOTP /mnt/t && echo MOUNTED" 60 | grep -q MOUNTED || die "could not mount the installed system ($ROOTP)"
-has "installed: /etc/kite/layout = $LAYOUT" 'cat /mnt/t/etc/kite/layout' "^$LAYOUT\$"
 has "installed: hwclock present" 'test -x /mnt/t/usr/sbin/hwclock && echo yes' '^yes$'
 vm 'sudo ln -sf /lib/systemd/system/serial-getty@.service /mnt/t/etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service
 sudo sed -i "s/^GRUB_CMDLINE_LINUX=\"/GRUB_CMDLINE_LINUX=\"console=tty0 console=ttyS0,115200 /" /mnt/t/etc/default/grub
@@ -258,8 +248,7 @@ k type "$VM" "$PASS"; k keys "$VM" ret
 k login "$VM" "$LOGIN" "$PASS" >/dev/null || die "no serial login on the installed system"
 wait_desktop || row FAIL "installed: desktop came up" "no window manager / panel"
 sleep 8; shot 51-desktop
-has   "installed: account layout = $LAYOUT" 'cat ~/.config/kite/layout' "^$LAYOUT\$"
-[ "$LAYOUT" = mac ] && has "installed: mac layout has the menu bar and the Dock" "$GUI"' xfconf-query -c xfce4-panel -p /panels | tr "\n" " "' '1 2|2 1'
+has   "installed: account layout = windows" 'cat ~/.config/kite/layout' '^windows$'
 has   "installed: window manager running" 'pgrep -x xfwm4 && echo WM' '^WM$'
 has   "installed: no failed services" 'n=$(systemctl --failed --no-legend --plain | grep -vc serial-getty); echo failed=$n; systemctl --failed --no-legend --plain' 'failed=0'
 lacks "installed: picom not running" 'pgrep -a picom' 'picom'

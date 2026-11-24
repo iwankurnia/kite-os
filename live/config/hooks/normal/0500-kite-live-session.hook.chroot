@@ -2,7 +2,7 @@
 # Live-session-only tweaks. Undone in the installed system by
 # /usr/lib/kite/installer/finish-install.
 set -e
-# "Install KiteOS" is pinned first on the taskbar/Dock by kite-layout whenever
+# "Install KiteOS" is pinned first on the taskbar by kite-layout whenever
 # its launcher exists, i.e. only in the live session.
 # Debian's own installer entry would duplicate "Install KiteOS".
 rm -f /usr/share/applications/calamares-install-debian.desktop

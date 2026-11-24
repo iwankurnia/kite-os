@@ -31,11 +31,11 @@ To switch it off: `sudo systemctl disable --now keyd`.
 Ctrl+Alt+(top-row key 2), log in, and check `journalctl -b -u lightdm` and
 `~/.xsession-errors`. Resetting your desktop settings:
 `mv ~/.config/xfce4 ~/.config/xfce4.bak && rm -f ~/.config/kite/layout`, then log in again
-(your default layout is set up afresh).
+(the KiteOS desktop is set up afresh).
 
 **Menu does not open with the Search key.** Check that
 `~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml` has `xfce4-popup-whiskermenu`.
-If not, run `kite-layout windows` (or `mac`) to reset the layout's shortcuts.
+If not, run `kite-layout windows` to reset the desktop's shortcuts.
 
 **External disk app won't start.** `kite-storage status` shows each moved
 folder's state; `sudo kite-storage verify --repair` fixes links. To bring

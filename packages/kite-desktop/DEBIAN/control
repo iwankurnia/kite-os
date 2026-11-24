@@ -1,16 +1,16 @@
 Package: kite-desktop
-Version: 1.2.4
+Version: 1.3.0
 Section: x11
 Priority: optional
 Architecture: all
 Maintainer: KiteOS builder <root@localhost>
-Depends: xfce4-session, xfwm4, wmctrl, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, thunar, xfce4-terminal,
+Depends: xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, thunar, xfce4-terminal,
  xfce4-power-manager, xfce4-power-manager-plugins, xfce4-pulseaudio-plugin, xfce4-docklike-plugin,
  xfce4-notifyd, xfce4-screensaver, exo-utils, xfce4-whiskermenu-plugin, xfce4-appfinder, lightdm, slick-greeter, orchis-gtk-theme,
  papirus-icon-theme, fonts-inter, fonts-jetbrains-mono, x11-xserver-utils, procps, python3, libspa-0.2-bluetooth, libxcb-shape0, kite-system
 Recommends: fonts-roboto | fonts-dejavu-core, xfce4-taskmanager, brave-browser, onlyoffice-desktopeditors
-Description: KiteOS desktop (windows and mac layouts)
- XFCE in two layouts, chosen at install and switchable with kite-layout:
- "windows" (Fluent theme, Papirus-Light icons, taskbar with a Start menu) and
- "mac" (Qogir theme, menu bar and Dock). The Search key opens the menu. KiteOS
- tray icons, wallpapers, LightDM slick-greeter login screen and artwork.
+Description: KiteOS desktop
+ XFCE in a Windows-style layout set up by kite-layout: Fluent theme,
+ Papirus-Light icons, a taskbar with the Start menu, search and apps on the
+ left. The Search key opens the menu. Wallpapers, LightDM slick-greeter login
+ screen and artwork.

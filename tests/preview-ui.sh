@@ -1,9 +1,8 @@
 #!/bin/bash
-# Render both KiteOS desktop layouts (windows, mac) in a virtual screen and
-# save screenshots of the desktop and of the open Start/KiteOS menu. Uses the
-# XFCE and themes installed on the host plus the files from
-# packages/kite-desktop (nothing is installed system-wide). For a true look,
-# the host needs the layout themes (Fluent, Qogir, WhiteSur); without them
+# Render the KiteOS desktop in a virtual screen and save screenshots of the
+# desktop and of the open Start menu. Uses the XFCE and themes installed on the
+# host plus the files from packages/kite-desktop (nothing is installed
+# system-wide). For a true look, the host needs the Fluent theme; without it
 # kite-layout falls back to Orchis.
 #
 #   tests/preview-ui.sh [output-dir]
@@ -26,14 +25,12 @@ export XDG_CONFIG_DIRS=$PKG/etc/xdg:/etc/xdg
 export XDG_DATA_DIRS=$PKG/usr/share:/usr/local/share:/usr/share
 export PATH=$PKG/usr/bin:$PATH
 export KITE_LAYOUT_DATA=$PKG/usr/share/kite/layouts
-export KITE_LAYOUT_SYSTEM=$WORK/layout
 
 DISP=:57
-for layout in windows mac; do
+for layout in windows; do
     export HOME=$WORK/home-$layout
     mkdir -p "$HOME"
     cp -a "$PKG/etc/skel/." "$HOME/"
-    echo "$layout" > "$KITE_LAYOUT_SYSTEM"
 
     Xvfb $DISP -screen 0 "${RES}x24" -nolisten tcp >"$WORK/xvfb-$layout.log" 2>&1 &
     XVFB=$!
@@ -54,7 +51,7 @@ for layout in windows mac; do
     xfdesktop >"$WORK/xfdesktop-$layout.log" 2>&1 & pids="$pids $!"
     xfce4-panel >"$WORK/panel-$layout.log" 2>&1 & pids="$pids $!"
     sleep 5
-    # A window so the taskbar/Dock has something running.
+    # A window so the taskbar has something running.
     xfce4-terminal --disable-server --geometry=90x24+180+120 >/dev/null 2>&1 & pids="$pids $!"
     sleep 3
     import -window root "$OUT/desktop-$layout.png"

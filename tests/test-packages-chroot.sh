@@ -72,13 +72,12 @@ check "earlyoom options quoted (one variable, not split)" grep -q '^Environment=
 echo "== kite-desktop"
 check "login screen settings valid (strict schema compile)" in_ch glib-compile-schemas --strict --dry-run /usr/share/glib-2.0/schemas
 check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$CH/etc/lightdm/lightdm.conf.d/50-kite.conf"
-check "both desktop layouts installed" bash -c "[ -f '$CH/usr/share/kite/layouts/windows/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ] && [ -f '$CH/usr/share/kite/layouts/mac/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ]"
+check "desktop layout installed (windows only)" bash -c "[ -f '$CH/usr/share/kite/layouts/windows/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ] && [ ! -e '$CH/usr/share/kite/layouts/mac' ]"
 check "Start menu and app search installed" test -x "$CH/usr/bin/xfce4-popup-whiskermenu" -a -x "$CH/usr/bin/xfce4-appfinder"
-check "layout tray icon packs installed" test -f "$CH/usr/share/icons/KiteOS-Tray-Windows/index.theme" -a -f "$CH/usr/share/icons/KiteOS-Tray-Mac/index.theme"
+check "Start and Search button icons installed" test -f "$CH/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg" -a -f "$CH/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg"
 check "kite-layout sets up a new account" in_ch env HOME=/tmp/lh python3 /usr/bin/kite-layout --first-login
 check "new account got the default (windows) layout" grep -qx windows "$CH/tmp/lh/.config/kite/layout"
 check "Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/45kite-user-init
-check "KiteOS drive icons resolve to Papirus" test -s "$CH/usr/share/icons/KiteOS/scalable/devices/drive-harddisk-solidstate-sdio.svg"
 # A stand-in Brave package installed after kite-desktop. (The ISO build
 # unpacks Brave first; dpkg-divert --rename handles that order too.)
 d=$W/stub-brave; mkdir -p "$d/DEBIAN" "$d/opt/brave.com/brave" "$d/usr/bin"

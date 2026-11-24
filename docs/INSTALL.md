@@ -16,11 +16,9 @@
      partition is needed: the installer creates a swap file of RAM + half of RAM (at most
      RAM + 4 GB).
    - Encryption is offered but **not tested** with hibernation on this device.
-   - **Desktop** (after Users, before Summary): pick the **Windows style** or
-     **Mac style** layout (you can switch later with `kite-layout`).
 
-   The pages run Welcome, Location, Keyboard, Partitions, Users, Desktop,
-   Summary, Install, Finish.
+   The pages run Welcome, Location, Keyboard, Partitions, Users, Summary,
+   Install, Finish.
 5. Reboot when asked and remove the USB stick.
 
 ## After installing: check-list
@@ -34,7 +32,7 @@
 | Audio | Speakers and headphone jack (`pavucontrol` to pick outputs) |
 | Video decode | Brave: `brave://gpu` → "Video Decode: Hardware accelerated"; play a video, then `brave://media-internals` → `kVideoDecoderName` is `VaapiVideoDecoder`. Compare CPU in `top` with the line in `/etc/kite/brave-flags.conf` commented out |
 | Memory | `free -h`, `cat /sys/module/zswap/parameters/enabled` → `Y` |
-| Desktop layout | The layout picked at install is the one you get; `kite-layout mac` / `kite-layout windows` switch without logging out; the menu opens from the Search key in both |
+| Desktop | Taskbar at the bottom with Start, search and pinned apps; the menu opens from the Search key; `kite-layout windows` puts the desktop back without logging out |
 | Vivid colours | `kite-vivid status` → "supported on eDP-1"; `kite-vivid off` / `kite-vivid on` shows the difference; still vivid after sleep and after hibernate |
 
 If something fails, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

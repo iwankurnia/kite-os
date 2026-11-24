@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 """Per-user KiteOS setup. Runs from /etc/X11/Xsession.d before XFCE starts.
 
-* Desktop layout: a new account gets the system default layout (windows or
-  mac, /etc/kite/layout) with its panels, theme and keyboard shortcuts, via
-  kite-layout --first-login. Never touched again after that.
+* Desktop layout: a new account gets the KiteOS desktop (taskbar, theme and
+  keyboard shortcuts) via kite-layout --first-login. Never touched again after
+  that (an account still on the dropped mac layout gets it once more).
 * Wallpaper: every connected monitor that has no wallpaper yet gets the
   KiteOS one (xfdesktop stores it per connector name, e.g. eDP-1, HDMI-1).
 """

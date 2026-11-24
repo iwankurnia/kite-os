@@ -68,8 +68,8 @@
       <!-- One row, icons only as wide as they are, close together -->
       <property name="square-icons" type="bool" value="false"/>
       <property name="single-row" type="bool" value="true"/>
-      <!-- Symbolic tray icons take the panel's text colour (as in the mac
-           layout); without it the network icon came out faint. -->
+      <!-- Symbolic tray icons take the panel's text colour; without it the
+           network icon came out faint. -->
       <property name="symbolic-icons" type="bool" value="true"/>
       <property name="icon-size" type="int" value="20"/>
     </property>
@@ -78,7 +78,7 @@
     <!-- Time above date, like the Windows tray clock -->
     <property name="plugin-11" type="string" value="clock">
       <property name="mode" type="uint" value="2"/>
-      <!-- no week numbers in the calendar pop-up, as on Windows 11 and macOS -->
+      <!-- no week numbers in the calendar pop-up, as on Windows 11 -->
       <property name="show-week-numbers" type="bool" value="false"/>
       <property name="digital-layout" type="uint" value="1"/>
       <property name="digital-time-format" type="string" value="%H:%M"/>

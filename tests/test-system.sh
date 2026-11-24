@@ -90,29 +90,29 @@ else
     echo "  skip (plymouth-themes not installed here)"
 fi
 
-echo "== kite-layout (windows and mac desktops)"
+echo "== kite-layout (the KiteOS desktop)"
 KL=$REPO/packages/kite-desktop/usr/bin/kite-layout
 LH=$T/layout; mkdir -p "$LH/themes/Fluent-Light/gtk-3.0" "$LH/themes/Fluent-Light/xfwm4" "$LH/apps"
 for a in brave-browser thunar xfce4-terminal kite-apps; do touch "$LH/apps/$a.desktop"; done
-echo mac > "$LH/system-layout"
-kl() { env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" DISPLAY= KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
-       KITE_LAYOUT_SYSTEM="$LH/system-layout" KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" "$@"; }
+# KITE_DMI_DIR: no DMI data, so not a Chromebook (Windows keys) on any test machine
+kl() { env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" DISPLAY= KITE_DMI_DIR="$LH/no-dmi" KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
+       KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" "$@"; }
 X=$LH/home/.config/xfce4/xfconf/xfce-perchannel-xml
+# An account left on the dropped mac layout (a menu bar = panel-2, a launcher-4)
+mkdir -p "$LH/home/.config/kite" "$X" "$LH/home/.config/xfce4/panel/launcher-4"
+echo mac > "$LH/home/.config/kite/layout"
+echo '<channel name="xfce4-panel" version="1.0"><property name="panel-2" type="empty"/></channel>' > "$X/xfce4-panel.xml"
 kl --first-login
-check "first login: system default layout (mac)" grep -qx mac "$LH/home/.config/kite/layout"
-check "mac: menu bar + Dock (two panels)" grep -q '<property name="panel-2"' "$X/xfce4-panel.xml"
-check "mac: missing Qogir theme falls back to Orchis" grep -q 'value="Orchis-Light-Compact"' "$X/xsettings.xml"
-check "mac: window theme falls back to Default" grep -q 'name="theme" type="string" value="Default"' "$X/xfwm4.xml"
-check "mac: KiteOS kite as the menu button" grep -qx 'button-icon=kiteos' "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
-echo windows > "$LH/home/.config/kite/layout.keep"; kl --first-login
-check "first login runs only once" grep -qx mac "$LH/home/.config/kite/layout"
+check "first login: an account on the dropped mac layout gets windows" grep -qx windows "$LH/home/.config/kite/layout"
+check "nothing of the mac layout left (its launchers)" test ! -d "$LH/home/.config/xfce4/panel/launcher-4"
+echo changed > "$LH/home/.config/gtk-3.0/gtk.css"; kl --first-login
+check "first login runs only once" grep -qx changed "$LH/home/.config/gtk-3.0/gtk.css"
 kl windows >/dev/null
-check "switch: windows recorded" grep -qx windows "$LH/home/.config/kite/layout"
+check "kite-layout windows puts the desktop back" bash -c "! grep -qx changed '$LH/home/.config/gtk-3.0/gtk.css'"
 check "windows: one taskbar" bash -c "! grep -q '<property name=\"panel-2\"' '$X/xfce4-panel.xml'"
 check "windows: Fluent theme and Papirus-Light icons" bash -c "grep -q 'value=\"Fluent-Light\"' '$X/xsettings.xml' && grep -q 'value=\"Papirus-Light\"' '$X/xsettings.xml'"
 check "windows: buttons on the right" grep -q 'value="menu:minimize,maximize,close"' "$X/xsettings.xml"
 check "no placeholders left" bash -c "! grep -rq '@[A-Z_]*@' '$LH/home/.config'"
-check "nothing of the mac layout left (its launchers)" test ! -d "$LH/home/.config/xfce4/panel/launcher-4"
 check "panel plugins run in their own processes (battery + volume crash the panel together)" grep -q 'name="force-all-internal" type="bool" value="false"' "$X/xfce4-panel.xml"
 check "battery on the taskbar" grep -q 'value="power-manager-plugin"' "$X/xfce4-panel.xml"
 check "windows: 36 px taskbar, tray in one row" bash -c "grep -q 'name=\"size\" type=\"uint\" value=\"36\"' '$X/xfce4-panel.xml' && grep -q 'name=\"single-row\" type=\"bool\" value=\"true\"' '$X/xfce4-panel.xml'"
@@ -140,38 +140,28 @@ mkdir -p "$LH/fake"
 for c in xfce4-panel pkill xfconf-query xfsettingsd xfdesktop xfwm4; do
     printf '#!/bin/sh\necho "%s $*" >> "%s/calls"\n' "$c" "$LH" > "$LH/fake/$c"; chmod 755 "$LH/fake/$c"
 done
-# wmctrl: one window at the very top, one lower down, plus a sticky panel.
-cat > "$LH/fake/wmctrl" <<WM
-#!/bin/sh
-if [ "\$1" = -lG ]; then
-    printf '0x01 0 100 0 400 300 kiteos Terminal\n0x02 0 100 200 400 300 kiteos Files\n0x03 -1 0 0 1366 28 kiteos xfce4-panel\n'
-else
-    echo "wmctrl \$*" >> "$LH/calls"
-fi
-WM
-chmod 755 "$LH/fake/wmctrl"
 rm -f "$LH/calls"
+rm -rf "$LH/themes/Fluent-Light/xfwm4"          # window theme falls back to Default
 env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" XDG_CACHE_HOME="$LH/cache" DISPLAY=:99 PATH="$LH/fake:$PATH" \
-    KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" KITE_LAYOUT_SYSTEM="$LH/system-layout" \
-    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" mac >/dev/null
-check "live switch to mac: a window under the menu bar is moved below it, others left" bash -c "grep -qx 'wmctrl -i -r 0x01 -e 0,-1,28,-1,-1' '$LH/calls' && ! grep -q '0x02\\|0x03' '$LH/calls'"
-check "live switch: never starts a window manager" bash -c "! grep -q '^xfwm4' '$LH/calls'"
-check "live switch: window theme set through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default' "$LH/calls"
-check "live switch: mac buttons on the left through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s CHM|' "$LH/calls"
-check "live switch: window settings sent before xfconfd reloads (else xfwm4 is not told)" bash -c "a=\$(grep -n '^xfconf-query -c xfwm4' '$LH/calls' | head -n1 | cut -d: -f1); b=\$(grep -n '^xfce4-panel --quit' '$LH/calls' | head -n1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$b\" ] && [ \"\$a\" -lt \"\$b\" ]"
-check "live switch: panel quit, then started again" bash -c "grep -n '^xfce4-panel' '$LH/calls' | tr '\n' ' ' | grep -q 'xfce4-panel --quit.*xfce4-panel *\$\|xfce4-panel --quit .*:xfce4-panel '"
-check "live switch: settings daemon reloads (shortcuts, theme)" grep -q '^xfsettingsd --replace' "$LH/calls"
-# A switch keeps the user's own Files/Terminal settings and fonts.
+    KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
+    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" windows >/dev/null
+check "live apply: never starts a window manager" bash -c "! grep -q '^xfwm4' '$LH/calls'"
+check "live apply: window theme set through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default' "$LH/calls"
+check "live apply: window buttons on the right through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s O|HMC' "$LH/calls"
+check "live apply: window settings sent before xfconfd reloads (else xfwm4 is not told)" bash -c "a=\$(grep -n '^xfconf-query -c xfwm4' '$LH/calls' | head -n1 | cut -d: -f1); b=\$(grep -n '^xfce4-panel --quit' '$LH/calls' | head -n1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$b\" ] && [ \"\$a\" -lt \"\$b\" ]"
+check "live apply: panel quit, then started again" bash -c "grep -n '^xfce4-panel' '$LH/calls' | tr '\n' ' ' | grep -q 'xfce4-panel --quit.*xfce4-panel *\$\|xfce4-panel --quit .*:xfce4-panel '"
+check "live apply: settings daemon reloads (shortcuts, theme)" grep -q '^xfsettingsd --replace' "$LH/calls"
+# Applying the layout again keeps the user's own Files/Terminal settings and fonts.
 echo '<channel name="thunar" version="1.0"><property name="mine" type="bool" value="true"/></channel>' > "$X/thunar.xml"
 sed -i.bak 's/value="Inter 10"/value="Ubuntu 12"/' "$X/xsettings.xml" && rm -f "$X/xsettings.xml.bak"
-kl mac >/dev/null
-check "switch keeps the user's Files settings" grep -q 'name="mine"' "$X/thunar.xml"
-check "switch keeps the user's font" grep -q 'value="Ubuntu 12"' "$X/xsettings.xml"
+kl windows >/dev/null
+check "re-apply keeps the user's Files settings" grep -q 'name="mine"' "$X/thunar.xml"
+check "re-apply keeps the user's font" grep -q 'value="Ubuntu 12"' "$X/xsettings.xml"
 check "cursor size is an XSETTINGS key (Gtk/CursorThemeSize)" bash -c "python3 -c 'import sys, xml.etree.ElementTree as E; r = E.parse(sys.argv[1]).getroot(); sys.exit(0 if r.find(\"./property[@name=\x27Gtk\x27]/property[@name=\x27CursorThemeSize\x27]\") is not None and r.find(\"./property[@name=\x27Net\x27]/property[@name=\x27CursorThemeSize\x27]\") is None else 1)' '$X/xsettings.xml'"
 check "window theme follows the GTK theme (fallback: Default)" grep -q 'name="theme" type="string" value="Default"' "$X/xfwm4.xml"
-kl windows >/dev/null
+mkdir -p "$LH/themes/Fluent-Light/xfwm4"
 # Window keys: one key per action (xfwm4 ignores a second key for an action),
-# ChromeOS keys on a Chromebook, the layout's own keys elsewhere.
+# ChromeOS keys on a Chromebook, Windows keys elsewhere.
 SX=$LH/xdg/xfce4/xfconf/xfce-perchannel-xml; mkdir -p "$SX" "$LH/dmi"
 cat > "$SX/xfce4-keyboard-shortcuts.xml" <<'XML'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -190,34 +180,27 @@ cat > "$SX/xfce4-keyboard-shortcuts.xml" <<'XML'
 </channel>
 XML
 klk() { env XDG_CONFIG_DIRS="$LH/xdg" KITE_DMI_DIR="$LH/dmi" HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" DISPLAY= KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
-        KITE_LAYOUT_SYSTEM="$LH/system-layout" KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" "$@"; }
+        KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" "$@"; }
 wk() { python3 -c 'import sys, xml.etree.ElementTree as E; r = E.parse(sys.argv[1]).getroot(); print("\n".join(p.get("name") for p in r.findall("./property[@name=\x27xfwm4\x27]/property[@name=\x27custom\x27]/property") if p.get("value") == sys.argv[2]))' "$X/xfce4-keyboard-shortcuts.xml" "$1"; }
 echo "Generic" > "$LH/dmi/sys_vendor"; rm -f "$LH/home/.config/kite/keys"
-klk mac >/dev/null
-check "keys (not a Chromebook, mac): Super+Q closes, Alt+F4 no longer bound" test "$(wk close_window_key)" = "<Super>q"
-check "keys (mac): Super+Tab is the only switch key" test "$(wk cycle_windows_key)" = "<Super>Tab"
 klk windows >/dev/null
 check "keys (windows): Super+Left tiles, the keypad key is gone" test "$(wk tile_left_key)" = "<Super>Left"
 check "keys (windows): Alt+F4 still closes" test "$(wk close_window_key)" = "<Alt>F4"
 echo "Google" > "$LH/dmi/sys_vendor"
-klk mac >/dev/null
+klk windows >/dev/null
 check "keys (Chromebook detected): ChromeOS close key, one key only" test "$(wk close_window_key)" = "<Primary><Shift>w"
-check "keys (Chromebook): Alt+Tab switches in the mac layout too" test "$(wk cycle_windows_key)" = "<Alt>Tab"
+check "keys (Chromebook): Alt+Tab switches windows" test "$(wk cycle_windows_key)" = "<Alt>Tab"
 check "keys (Chromebook): Alt+[ docks left" test "$(wk tile_left_key)" = "<Alt>bracketleft"
 klk keys standard >/dev/null
 check "keys: choosing standard on a Chromebook is kept" bash -c "grep -qx standard '$LH/home/.config/kite/keys'"
-check "keys: standard on a Chromebook gives the mac keys" test "$(wk close_window_key)" = "<Super>q"
+check "keys: standard on a Chromebook gives the Windows keys" test "$(wk close_window_key)" = "<Alt>F4"
 klk keys auto >/dev/null
 check "keys: auto goes back to detection" bash -c "test ! -e '$LH/home/.config/kite/keys'"
 check "keys: auto on a Chromebook gives the ChromeOS keys again" test "$(wk close_window_key)" = "<Primary><Shift>w"
 check "keys: no action has two keys" bash -c "python3 -c 'import sys, xml.etree.ElementTree as E, collections; r = E.parse(sys.argv[1]).getroot(); v = [p.get(\"value\") for p in r.findall(\"./property[@name=\x27xfwm4\x27]/property[@name=\x27custom\x27]/property\") if p.get(\"type\") == \"string\"]; d = [k for k, n in collections.Counter(v).items() if n > 1]; sys.exit(1 if d else 0)' '$X/xfce4-keyboard-shortcuts.xml'"
-kl --system windows >/dev/null
-check "--system sets the default for new accounts" grep -qx windows "$LH/system-layout"
-check "rejects unknown layouts" bash -c "! python3 '$KL' gnome 2>/dev/null"
-check "default for the live USB is windows" grep -qx windows "$REPO/packages/kite-desktop/etc/kite/layout"
-check "installer: the Desktop choice reaches kite-layout (Calamares 3.3 key = packagechooser_<instance id>)" bash -c "id=\$(grep -oE 'packagechooser@[A-Za-z0-9_-]+' '$REPO/live/config/includes.chroot/etc/calamares/settings.conf' | head -n1 | cut -d@ -f2); grep -q \"^packagechooser_\$id:\" '$REPO/live/config/includes.chroot/etc/calamares/modules/contextualprocess-kite-layout.conf'"
+check "rejects unknown layouts, mac included" bash -c "! python3 '$KL' gnome 2>/dev/null && ! python3 '$KL' mac 2>/dev/null && ! python3 '$KL' --system windows 2>/dev/null"
+check "installer has no Desktop page (one layout)" bash -c "! grep -q packagechooser '$REPO/live/config/includes.chroot/etc/calamares/settings.conf'"
 check "login screen uses a light theme" bash -c "grep -q \"theme-name='Fluent-Light'\" '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override' && ! grep -qi dark '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override'"
-check "installer offers both layouts" bash -c "grep -q 'id: windows' '$REPO/live/config/includes.chroot/etc/calamares/modules/packagechooser-kite-layout.conf' && grep -q 'mac: \"/usr/bin/kite-layout --system mac\"' '$REPO/live/config/includes.chroot/etc/calamares/modules/contextualprocess-kite-layout.conf'"
 
 echo "== kite-login-theme (login screen background)"
 LT=$REPO/packages/kite-desktop/usr/bin/kite-login-theme; G=$T/greeter/slick-greeter.conf
@@ -303,13 +286,6 @@ env XDG_CONFIG_HOME="$T/vivid" PATH="$T/vivid/bin:$PATH" python3 "$V" 1.3 >/dev/
 check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1.236220,-0.214560,' "$T/vivid/calls"
 check "leaves external screens alone" bash -c "! grep -q HDMI '$T/vivid/calls'"
 check "new level saved" grep -qx 'SATURATION=1.3' "$T/vivid/kite/vivid.conf"
-
-echo "== KiteOS drive icons"
-D=$REPO/packages/kite-desktop/usr/share/icons/KiteOS/scalable/devices
-for n in drive-harddisk-solidstate-sdio drive-removable-media-flash-mmc media-removable drive-harddisk-system drive; do
-    check "$n (and -symbolic) -> Papirus 16 px drive" bash -c "[ \"\$(readlink '$D/$n.svg')\" = /usr/share/icons/Papirus/16x16/devices/drive-harddisk.svg ] && [ \"\$(readlink '$D/$n-symbolic.svg')\" = /usr/share/icons/Papirus/16x16/devices/drive-harddisk.svg ]"
-done
-check "devices folder declared in index.theme" grep -q '^Directories=.*scalable/devices' "$REPO/packages/kite-desktop/usr/share/icons/KiteOS/index.theme"
 
 echo "== kite-update (KiteOS packages from GitHub releases)"
 KU=$REPO/packages/kite-system/usr/bin/kite-update

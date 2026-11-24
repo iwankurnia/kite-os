@@ -2,30 +2,25 @@
 
 ## The desktop
 
-KiteOS has two desktop layouts. You pick one when installing (the live USB
-starts in **windows**) and can switch at any time, without logging out:
+A Windows-style taskbar at the bottom: the **Start** menu, search and your
+apps on the left; notifications, volume, tray icons, battery and the clock on
+the right. Fluent theme, Papirus-Light icons.
 
-```bash
-kite-layout mac        # or: kite-layout windows
-```
-
-- **windows:** a taskbar at the bottom: the **Start** menu, search and your
-  apps on the left; notifications, volume, tray icons, battery and the clock
-  on the right. Fluent theme, Papirus icons.
-- **mac:** a menu bar at the top (the KiteOS kite menu, the active app, search,
-  settings, tray icons, battery, clock) and a **Dock** at the bottom that
-  steps aside when a window needs the space. Qogir theme and icons.
-
-In both:
-- **Menu:** tap the **Search** key (or click Start / the kite). Type to search;
+- **Menu:** tap the **Search** key (or click Start). Type to search;
   Esc closes it. The menu also has lock, log out, restart and shut down.
 - **Window list:** the top-row "overview" key (□|| icon) lists all open windows.
 - **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
   Right-click an app to pin or unpin it.
 - Lock the screen with **Search + L**.
 
-Switching layouts replaces the panels, theme and keyboard shortcuts with that
-layout's; your files, apps and other settings stay as they are.
+To put the desktop back to the KiteOS defaults without logging out:
+
+```bash
+kite-layout windows
+```
+
+This replaces the panel, theme and keyboard shortcuts; your files, apps,
+fonts and other settings stay as they are.
 
 **Wallpaper:** KiteOS ships three (Bloom, the default; Aurora; Waves). Open
 **Settings → Desktop** and pick one from `/usr/share/backgrounds/kite` (the

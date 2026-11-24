@@ -28,16 +28,4 @@ r -w 300 watermark.svg          -o $P/kite-system/usr/share/kite/plymouth/waterm
 r -w 128 logo.svg               -o ../live/config/includes.chroot/etc/calamares/branding/kite/kite-logo.png
 r -w 800 -h 450 wallpaper-bloom.svg -o ../live/config/includes.chroot/etc/calamares/branding/kite/welcome.png
 r -w 800 -h 600 live-boot.svg -o ../live/config/bootloaders/grub-pc/splash.png
-rm -rf $P/kite-desktop/usr/share/icons/KiteOS/scalable/status
-python3 status-icons.py $P/kite-desktop/usr/share/icons/KiteOS/scalable/status
-# Installer pictures of the two desktop layouts (Calamares packagechooser),
-# drawn over the Bloom wallpaper.
-mkdir -p $P/kite-desktop/usr/share/kite/layouts
-r -w 1920 -h 1080 wallpaper-bloom.svg -o layout-wallpaper.png
-for l in windows mac; do
-    sed 's#LAYOUT_WALLPAPER#layout-wallpaper.png#' layout-$l.svg > layout-$l.tmp.svg
-    r -w 640 -h 400 layout-$l.tmp.svg -o $P/kite-desktop/usr/share/kite/layouts/$l.png
-    rm -f layout-$l.tmp.svg
-done
-rm -f layout-wallpaper.png
 echo "artwork rendered"

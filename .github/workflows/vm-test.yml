@@ -1,7 +1,7 @@
 name: VM test
 
 # Boots a released ISO in QEMU with KVM (GitHub's Linux runners have it),
-# installs it with the Mac layout, boots the installed system and checks it.
+# installs it, boots the installed system and checks it.
 # Screenshots, logs and report.md are attached to the run.
 on:
   workflow_dispatch:
@@ -9,20 +9,11 @@ on:
       tag:
         description: Release tag to test (e.g. v1.3.1)
         required: true
-      layout:
-        description: Layout to pick in the installer
-        default: mac
-        type: choice
-        options: [mac, windows]
   workflow_call:
     inputs:
       tag:
         required: true
         type: string
-      layout:
-        required: false
-        type: string
-        default: mac
 
 jobs:
   vm:
@@ -50,8 +41,6 @@ jobs:
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p 'kiteos-*-amd64.iso' -p 'kiteos-*-amd64.iso.sha256'
           sha256sum -c ./*.sha256
       - name: Run the VM test
-        env:
-          KITE_LAYOUT: ${{ inputs.layout }}
         run: |
           rc=0
           tests/vm/ci-vm-test.sh iso/kiteos-*-amd64.iso vm-out || rc=$?
@@ -61,7 +50,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: vm-test-${{ inputs.tag }}-${{ inputs.layout }}
+          name: vm-test-${{ inputs.tag }}
           path: |
             vm-out/*.png
             vm-out/*.md

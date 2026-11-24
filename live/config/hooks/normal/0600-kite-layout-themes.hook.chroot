@@ -1,8 +1,8 @@
 #!/bin/sh
-# Themes for the KiteOS desktop layouts that Debian does not package, from the
-# same pinned upstream releases as docker-crd-vstunnel:
-#   windows: Fluent GTK + xfwm4 theme (icons: Papirus-Light, from Debian)
-#   mac:     Qogir GTK + xfwm4 theme, Qogir icons over WhiteSur icons
+# The Fluent GTK + xfwm4 theme for the KiteOS desktop, which Debian does not
+# package, from the same pinned upstream release as docker-crd-vstunnel.
+# (Icons: Papirus-Light, from Debian.) Until KiteOS 1.3 this also installed
+# Qogir and WhiteSur for the mac layout, which is gone.
 # Theme updates come with a new ISO only (kite-update does not carry them).
 set -eu
 work=$(mktemp -d)
@@ -14,26 +14,11 @@ get() {  # get REPOSITORY TAG
 
 get Fluent-gtk-theme 2025-04-17
 bash Fluent-gtk-theme-*/install.sh -d /usr/share/themes -c light -s standard
-get Qogir-theme 2025-08-17
-bash Qogir-theme-*/install.sh -d /usr/share/themes -c light
-get WhiteSur-icon-theme 2026-09-10
-bash WhiteSur-icon-theme-*/install.sh -d /usr/share/icons
-get Qogir-icon-theme 2025-02-15
-bash Qogir-icon-theme-*/install.sh -d /usr/share/icons -t default -c standard
 
 cd /
 rm -rf "$work"
 
-for t in Fluent-Light Qogir-Light; do
-    test -f "/usr/share/themes/$t/gtk-3.0/gtk.css"
-    test -f "/usr/share/themes/$t/xfwm4/themerc"
-done
-test -f /usr/share/icons/Qogir/index.theme
-test -f /usr/share/icons/WhiteSur/index.theme
-# Qogir falls back to WhiteSur, then Papirus (KiteOS has no Breeze).
-sed -i 's/^Inherits=.*/Inherits=WhiteSur,Papirus,hicolor/' /usr/share/icons/Qogir/index.theme
+test -f /usr/share/themes/Fluent-Light/gtk-3.0/gtk.css
+test -f /usr/share/themes/Fluent-Light/xfwm4/themerc
 
-for t in Qogir WhiteSur KiteOS KiteOS-Tray-Windows KiteOS-Tray-Mac; do
-    [ -d "/usr/share/icons/$t" ] && gtk-update-icon-cache -f -q "/usr/share/icons/$t"
-done
-du -sh /usr/share/themes/Fluent-Light /usr/share/themes/Qogir-Light /usr/share/icons/Qogir /usr/share/icons/WhiteSur 2>/dev/null || true
+du -sh /usr/share/themes/Fluent-Light 2>/dev/null || true

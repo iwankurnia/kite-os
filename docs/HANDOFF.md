@@ -41,29 +41,42 @@ Follow-up requests, all done:
 ## Changes carried over from the installed laptop (2026-11-24)
 
 KiteOS v1.3.2 was installed on the HP Chromebook 11 G8 EE that morning. The fixes
-made on the device were brought into the repository (kite-desktop 1.2.4,
-kite-system 1.2.2), not yet released:
+made on the device were brought into the repository (kite-desktop 1.3.0,
+kite-system 1.2.2, branch `laptop-fixes`), not yet released:
 
-- Panel plugins in their own processes again (`force-all-internal` false, both
-  layouts): fixes the panel crash above. Costs RAM (six wrappers, ~200 MB).
+- **The mac layout is gone** (owner's call, 2026-11-24: focus on the windows
+  layout). Removed: `layouts/mac`, the `KiteOS-Tray-Mac` icons, the
+  installer's Desktop page (packagechooser + contextualprocess), `kite-layout
+  --system` and `/etc/kite/layout`, the move-windows-below-the-menu-bar code
+  (and the `wmctrl` dependency), Qogir and WhiteSur in the themes hook, the
+  installer layout pictures (`artwork/layout-*.svg`). `kite-layout` stays: it
+  sets up new accounts, `kite-layout keys`, and `kite-layout windows` puts the
+  desktop back. An account still on mac gets windows at its next login (its
+  state file says `mac`, which no longer counts as set up). The VM test has no
+  `layout` input any more.
+- Panel plugins in their own processes again (`force-all-internal` false):
+  fixes the panel crash above. Costs RAM (six wrappers, ~200 MB).
 - `libxcb-shape0` in kite-desktop's Depends and the ISO list, so ONLYOFFICE starts.
 - Hibernation swap: RAM + min(RAM/2, 4 GiB). Existing installs keep their
   swap file until `sudo kite-hibernate-setup` is run again (it grows it; swap
   in use must fit in RAM, or add a temporary swap file first).
-- Windows layout: Papirus-Light icons, tray included (`KiteOS-Tray-Windows` is
-  still installed but unused); Start and Search use `kite-start-symbolic` and
-  `kite-search-symbolic` from hicolor (the tray pack's glyphs, which fill the
-  button; Papirus' own look small). The mac layout keeps `KiteOS-Tray-Mac`
-  (owner's call: Papirus would replace its Qogir/WhiteSur app icons).
+- Papirus-Light icons, tray included. The `KiteOS-Tray-Windows` and `KiteOS`
+  icon themes (and `artwork/status-icons.py`) are gone too; kite-desktop's
+  postinst clears the icon caches the ISO build left in their folders. The
+  `KiteOS` pack's drive-icon links are not needed: Papirus resolves those names
+  through GTK's fallbacks (`drive-harddisk-solidstate-sdio` →
+  `drive-harddisk-solidstate`). Start and Search use
+  `kite-start-symbolic` and `kite-search-symbolic` from hicolor (the tray
+  pack's glyphs, which fill the button; Papirus' own look small).
 - Bluetooth tray applet starts at login again (the skel file hiding it is gone;
   ~106 MB of RAM measured on the device).
-- Windows taskbar 36 px (was 48), tray in one row with `square-icons` off and
-  narrow tray buttons in `gtk.css`; the mac tray gets the same, at 28 px.
-- Borders instead of pop-up shadows: 1 px line along the top of the Windows
-  taskbar and around menus and pop-overs, `show_popup_shadow` false. The mac
-  menu bar gets no line (xfce4-panel has no per-panel CSS name, so the Dock
-  panel would get one too). No border on the Whisker menu (owner's call).
-- Clock calendar pop-up restyled in `gtk.css` (both layouts): roomy rows,
+- Taskbar 36 px (was 48), tray in one row with `square-icons` off and narrow
+  tray buttons in `gtk.css`.
+- Borders instead of pop-up shadows: 1 px line along the top of the taskbar
+  and around menus and pop-overs, `show_popup_shadow` false. No border on the
+  Whisker menu (owner's call). xfce4-panel has no per-panel CSS name, so a
+  rule on `.xfce4-panel.background` hits every panel.
+- Clock calendar pop-up restyled in `gtk.css`: roomy rows,
   quiet day names and arrows, no week numbers (`show-week-numbers` false in
   `xfce4-panel.xml`), today as a blue number with a short bar under it.
   GtkCalendar (GTK 3.24 `gtkcalendar.c`) draws its parts on child CSS nodes,
@@ -77,18 +90,19 @@ kite-system 1.2.2), not yet released:
   follows `show_frame_shadow`.
 - `border-spacing` is not a GTK 3 CSS property (the tray rule had it; removed).
 
-Layout files reach an account only at first login or on `kite-layout <name>`, so
+Layout files reach an account only at first login or on `kite-layout windows`, so
 `kite-update` alone does not change an existing desktop.
 
 ## Open to-do list
 
-0. **Next session:** run the GitHub VM test on v1.3.2
-   (`gh workflow run vm-test.yml -f tag=v1.3.2 -f layout=mac`, ~10 min, report
-   on the run page), look at its screenshots, then flash the stick and do the
-   real-hardware run (3). Things only a person can see on 1.3.2: the mac window
-   buttons change on a live switch, new keys work right after `kite-layout keys
-   chromebook`, windows move below the mac menu bar, the second account's name
-   on the Frosted login screen.
+0. **Next session:** release the `laptop-fixes` branch (v1.3.3 or 1.4: it
+   drops the mac layout), then run the GitHub VM test on it
+   (`gh workflow run vm-test.yml -f tag=<tag>`, ~10 min, report on the run
+   page; its install flow has no Desktop page now, so check it still reaches
+   the Summary) and look at its screenshots. v1.3.2 is installed on the device
+   already. Things only a person can see: new keys work right after
+   `kite-layout keys chromebook`, the second account's name on the Frosted
+   login screen.
 
 1. ~~Push to GitHub and release v1.0~~: done 2026-11-23.
 2. ~~Commit email~~: the owner kept the history as it is; new commits in this
@@ -123,8 +137,7 @@ Layout files reach an account only at first login or on `kite-layout <name>`, so
    emulated cloud VM). Run by hand for now; chain it after the ISO build on
    tags once it has passed on a release. It checks settings, not pixels, so a
    look at its screenshots is still needed.
-9. Known and left: the installer Summary cannot show the Desktop choice
-   (Calamares' packagechooser has no summary line).
+9. ~~Installer Summary cannot show the Desktop choice~~: the Desktop page is gone.
 
 ## How it was built and tested (so you can repeat it)
 
@@ -145,7 +158,7 @@ emulation). Needs `qemu-system-x86 ovmf imagemagick tesseract-ocr`.
 qemu-img create -f qcow2 emmc.qcow2 32G
 KITEVM_RES=1360x768 tests/vm/kitevm.py start live --iso out/kiteos-*.iso --disk emmc.qcow2
 tests/vm/kitevm.py shot live screen.png
-KITE_LAYOUT=windows tests/vm/install-flow.sh live    # or mac; KITE_INSTALL_X/Y move the taskbar click
+tests/vm/install-flow.sh live                         # KITE_INSTALL_X/Y move the taskbar click
 tests/vm/kitevm.py start inst --disk emmc.qcow2       # boot the installed system
 tests/vm/kitevm.py usb inst add usb.img               # hot-plug a USB disk image
 ```
@@ -188,11 +201,10 @@ cores). On the device, use `sudo kite-resource-report`.
   windows (xfwm4 4.20 `compositor.c`). The owner chose to keep window shadows.
 - **nm-applet started before the tray** shows two icons. It starts through
   `/usr/lib/kite/desktop/after-tray`, which waits for `org.kde.StatusNotifierWatcher`.
-- **Tray icons:** GTK only recolours *fills* of symbolic SVGs, so
-  `artwork/status-icons.py` draws filled shapes, not strokes. The systray
-  requests `<name>-symbolic` at a forced size. Panel/tray icon sizes: windows
-  24/20, mac 18/18 (`xfce4-panel.xml` of each layout). The plain variants are
-  near black (`#1b1b1b`) for the light panels.
+- **Tray icons:** GTK only recolours *fills* of symbolic SVGs (why the old
+  KiteOS tray icons were drawn as filled shapes). The systray requests
+  `<name>-symbolic` at a forced size. Panel/tray icon sizes: 24/20
+  (`xfce4-panel.xml`).
 - **Brave's launcher reads no flags file** (`/opt/brave.com/brave/brave-browser`
   just runs `brave "$@"`); `~/.config/brave-flags.conf` is an Arch packaging
   convention. Hence the diversion and wrapper in kite-desktop. Chromium keeps
@@ -209,22 +221,20 @@ cores). On the device, use `sudo kite-resource-report`.
   - The screen stays black after DPMS blanking under QEMU VGA (`xrefresh` fixes it).
   - OVMF only boots devices that have a `bootindex`.
   - The installed system uses the UK layout, so typed `|` and `@` come out wrong unless you `setxkbmap us`.
-  - The mac Dock re-centres when windows open, so click coordinates shift.
 
 ## Key design decisions
 
 | Decision | Why |
 |---|---|
-| XFCE (not GNOME/Plasma), layouts from docker-crd-vstunnel | RAM: idle system 640 MiB total. 1.3 replaced the ChromeOS-style shelf + rofi launcher with the container's two layouts (owner's call, 2026-11-23) |
-| Two layouts, chosen at install (Calamares packagechooser → contextualprocess → `kite-layout --system`), switchable with `kite-layout` | Owner wanted both. Layout files live in `/usr/share/kite/layouts/{common,windows,mac}` and are applied to an account at first login (`kite-user-init` → `kite-layout --first-login`), not via `/etc/skel` |
-| KiteOS kite as the mac menu button, not WhiteSur's Apple logo | Shipping Apple's logo as an OS's main button would impersonate Apple's branding |
-| Tray packs `KiteOS-Tray-*` over `KiteOS` over the layout icon theme | The container packs (generated by `tools/make-tray-icons.py` in docker-crd-vstunnel, copied here) lack NetworkManager's `nm-*` glyphs and the drive-icon fix; the `KiteOS` pack fills those and no longer inherits Papirus itself (it would push Papirus ahead of Papirus-Light) |
-| Fluent/Qogir/WhiteSur via a live-build hook from pinned release tags | Not in Debian; same tags as the container. Only new ISOs update them, not `kite-update`. Not checksum-pinned yet |
+| XFCE (not GNOME/Plasma), windows layout from docker-crd-vstunnel | RAM: idle system 640 MiB total. 1.3 replaced the ChromeOS-style shelf + rofi launcher with the container's two layouts (owner's call, 2026-11-23); the mac one was dropped on 2026-11-24 (owner's call: focus on windows) |
+| One layout, applied by `kite-layout` | Layout files live in `/usr/share/kite/layouts/{common,windows}` and are applied to an account at first login (`kite-user-init` → `kite-layout --first-login`), not via `/etc/skel`; `kite-layout windows` puts them back |
+| Standard Papirus-Light icons, tray included (since 2026-11-24, owner's call) | Until then the KiteOS-Tray-* packs over the `KiteOS` pack over the layout icon theme (copied from docker-crd-vstunnel, plus NetworkManager glyphs and a drive-icon fix); all removed. The Start and Search glyphs live on as `kite-start-symbolic` / `kite-search-symbolic` in hicolor |
+| Fluent via a live-build hook from a pinned release tag | Not in Debian; same tags as the container. Only new ISOs update them, not `kite-update`. Not checksum-pinned yet |
 | Swap **file** sized RAM + min(RAM/2, 4 GiB), ext4 only | Hibernation must work. RAM + 1 GB (until kite-system 1.2.2) left too little room on the device once ~2 GB was already swapped out; the owner set the new rule. Calamares' "suspend" swap sizing caps at 10 % of the disk; btrfs swap files are fragile |
 | zswap (zstd), not zram | zram can't hold a hibernation image |
 | suspend-then-hibernate enabled **only after** resume is configured | A half-configured system must never make the lid do nothing |
 | `kite-storage`: move whole package-private dirs and symlink them | dpkg follows directory symlinks on upgrade. APT `Pre-Install-Pkgs` hook refuses to touch apps whose disk is unplugged |
-| Fluent-Light (windows) and Qogir-Light (mac) themes; Orchis and the Papirus-inheriting KiteOS icon theme were the 1.2 shelf's | 1.3 layouts; the icon stacking is in the tray-packs row above |
+| Fluent-Light theme, Papirus-Light icons; Orchis and the Papirus-inheriting KiteOS icon theme were the 1.2 shelf's | Orchis-Light-Compact is still the fallback when Fluent is missing |
 | Brave policy: Rewards/Wallet/VPN/Tor/P3A off | Lighter; owner can change `/etc/brave/policies/managed/kite.json` |
 
 ## Releasing

@@ -1,20 +1,17 @@
 #!/usr/bin/python3
-"""Switch the KiteOS desktop layout.
+"""Set up the KiteOS desktop: Fluent theme, Papirus-Light icons, a taskbar
+at the bottom with the Start menu on the left.
 
-  kite-layout                 show the current and default layout
-  kite-layout windows|mac     use that layout now (no logout needed)
+  kite-layout                 show whether this account has the KiteOS desktop
+  kite-layout windows         put the KiteOS desktop back now (no logout
+                              needed): panel, window, theme and keyboard
+                              settings; files, apps and other settings stay
   kite-layout keys K          window keys: chromebook, standard or auto
                               (auto: chromebook on a Chromebook)
-  kite-layout --system L      make L the default for new accounts (root;
-                              the installer runs this with your choice)
   kite-layout --first-login   used at login: set up a new account
 
-windows: Fluent theme, Papirus-Light icons, a taskbar at the bottom with the
-         Start menu on the left.
-mac:     Qogir theme and icons, a menu bar at the top and a Dock.
-
-Switching replaces the panel, window, theme and keyboard-shortcut settings
-with the layout's; files, apps and other settings are not touched.
+(KiteOS 1.3 also had a "mac" layout; it was dropped in kite-desktop 1.3.0.
+An account still on it gets the windows layout at its next login.)
 """
 import copy
 import os
@@ -25,9 +22,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-LAYOUTS = ("windows", "mac")
+LAYOUTS = ("windows",)
 DATA = os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts")
-SYSTEM_DEFAULT = os.environ.get("KITE_LAYOUT_SYSTEM", "/etc/kite/layout")
 THEMES = os.environ.get("KITE_THEMES_DIR", "/usr/share/themes")
 APPS = os.environ.get("KITE_APPS_DIR", "/usr/share/applications")
 HOME = os.path.expanduser("~")
@@ -38,26 +34,26 @@ KEYS_STATE = os.path.join(CONFIG, "kite/keys")
 DMI = os.environ.get("KITE_DMI_DIR", "/sys/class/dmi/id")
 KEY_STYLES = ("chromebook", "standard")
 
-GTK_THEME = {"windows": "Fluent-Light", "mac": "Qogir-Light"}
+GTK_THEME = {"windows": "Fluent-Light"}
 FALLBACK_THEME = "Orchis-Light-Compact"     # if the theme is missing
-# windows: the standard Papirus-Light icons, tray included (the Start and
-# Search buttons use the kite-*-symbolic icons in hicolor, which fill the
-# button the way the KiteOS tray pack's did).
-ICON_THEME = {"windows": "Papirus-Light", "mac": "KiteOS-Tray-Mac"}
-DECORATION = {"windows": "menu:minimize,maximize,close", "mac": "close,minimize,maximize:menu"}
+# The standard Papirus-Light icons, tray included (the Start and Search
+# buttons use the kite-*-symbolic icons in hicolor, which fill the button the
+# way the old KiteOS tray pack's did).
+ICON_THEME = {"windows": "Papirus-Light"}
+DECORATION = {"windows": "menu:minimize,maximize,close"}
 # Pinned apps, in order; only the installed ones are pinned. "Install KiteOS"
 # exists only in the live session.
 PINNED = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "thunar", "xfce4-terminal",
           "kite-apps", "kite-settings")
-# Favourites in the Start/kite menu, so it opens with something to click; only
+# Favourites in the Start menu, so it opens with something to click; only
 # the installed ones are listed (the text editor and image viewer have both
 # their old and their reverse-DNS desktop file names here).
 FAVOURITES = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "thunar",
               "xfce4-terminal", "org.xfce.mousepad", "mousepad", "org.xfce.ristretto",
               "ristretto", "kite-apps", "kite-settings")
 
-# Files a layout owns (relative to ~/.config); removed before the layout's own
-# copies go in, so nothing of the other layout is left behind.
+# Files the layout owns (relative to ~/.config); removed before the layout's
+# own copies go in, so nothing of an older layout is left behind.
 OWNED = ("xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",
          "xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml",
          "xfce4/xfconf/xfce-perchannel-xml/xsettings.xml",
@@ -69,7 +65,7 @@ OWNED = ("xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml",
 KEEP = ("xfce4/xfconf/xfce-perchannel-xml/thunar.xml",
         "xfce4/xfconf/xfce-perchannel-xml/xfce4-terminal.xml")
 # xsettings.xml belongs to the layout (theme, icons, buttons), but the fonts
-# in it are the user's: carried over a switch.
+# in it are the user's: kept when the layout is applied again.
 KEEP_XSETTINGS = ("FontName", "MonospaceFontName")
 
 # Keyboard shortcuts on top of XFCE's defaults. The Chromebook's Search key
@@ -87,28 +83,25 @@ SHORTCUTS = {
         },
     },
     "windows": {"commands": {}},
-    "mac": {"commands": {"<Super>Return": "exo-open --launch TerminalEmulator"}},
 }
 
 # Window keys. xfwm4 honours ONE key per action (a second key for the same
 # action is dead), so each key here replaces XFCE's default key for its action.
 #   chromebook: ChromeOS's own keys, for a keyboard with no F-keys and a
-#               Search key (Super): the same in both layouts.
-#   standard:   the layout's look-alike keys (Windows or Mac, Super as Cmd).
+#               Search key (Super).
+#   standard:   Windows keys.
 WINDOW_KEYS = {
     "chromebook": {
         "common": {"<Alt>Tab": "cycle_windows_key", "<Primary><Shift>w": "close_window_key",
                    "<Alt>minus": "hide_window_key", "<Alt>equal": "maximize_window_key",
                    "<Alt>bracketleft": "tile_left_key", "<Alt>bracketright": "tile_right_key",
                    "<Super>d": "show_desktop_key"},
-        "windows": {}, "mac": {},
+        "windows": {},
     },
     "standard": {
         "common": {},
         "windows": {"<Super>d": "show_desktop_key", "<Super>Up": "maximize_window_key",
                     "<Super>Left": "tile_left_key", "<Super>Right": "tile_right_key"},
-        "mac": {"<Super>q": "close_window_key", "<Super>m": "hide_window_key",
-                "<Super>Tab": "cycle_windows_key"},
     },
 }
 
@@ -152,7 +145,7 @@ def read_layout(path):
 
 
 def system_default():
-    return read_layout(SYSTEM_DEFAULT) or "windows"
+    return "windows"
 
 
 def placeholders(layout):
@@ -340,46 +333,6 @@ def apply_shortcuts_live():
             run(*ch, "-p", f"/{section}/custom/{p.get('name')}", "-n", "-t", typ, "-s", p.get("value", ""))
 
 
-def panel_top(layout):
-    """Height of the panel along the top of the screen in LAYOUT (xfce4-panel
-    position p=6, as the mac menu bar uses), or 0."""
-    try:
-        root = ET.parse(os.path.join(DATA, layout, ".config",
-                                     "xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml")).getroot()
-    except (OSError, ET.ParseError):
-        return 0
-    for panel in root.findall("./property[@name='panels']/property"):
-        pos = panel.find("./property[@name='position']")
-        size = panel.find("./property[@name='size']")
-        if pos is not None and size is not None and re.search(r"\bp=6\b", pos.get("value", "")):
-            return int(size.get("value", "0"))
-    return 0
-
-
-def clear_top(height, seconds=8.0):
-    """Move windows that sit under a new top panel down below it (the panel
-    takes the space for new windows only). Needs wmctrl."""
-    if height <= 0 or not shutil.which("wmctrl"):
-        return
-    end = time.monotonic() + seconds
-    while time.monotonic() < end:         # wait for the panel to claim its space
-        time.sleep(1)
-        try:
-            out = subprocess.run(["wmctrl", "-lG"], capture_output=True, text=True, timeout=5).stdout
-        except (OSError, subprocess.SubprocessError):
-            return
-        moved = False
-        for line in out.splitlines():
-            f = line.split(None, 7)
-            if len(f) < 6 or f[1] == "-1":          # sticky: panels and the desktop
-                continue
-            if int(f[3]) < height:
-                run("wmctrl", "-i", "-r", f[0], "-e", "0,-1,%d,-1,-1" % height)
-                moved = True
-        if moved:
-            return
-
-
 def xfwm4_settings(layout):
     """(name, type, value) of the window manager's settings in LAYOUT's files,
     placeholders filled in and the theme checked like write_layout does."""
@@ -429,22 +382,11 @@ def switch_live(layout):
     time.sleep(1)
     spawn("xfce4-panel")
     run("xfdesktop", "--reload")
-    clear_top(panel_top(layout))
 
 
 def main(args):
     if not args:
-        print("layout: %s (default for new accounts: %s)" % (read_layout(STATE) or "not set", system_default()))
-        return 0
-    if args[0] == "--system" and len(args) == 2 and args[1] in LAYOUTS:
-        if os.geteuid() != 0 and not os.environ.get("KITE_LAYOUT_SYSTEM"):
-            print("kite-layout: --system changes the default for new accounts; run it with sudo.",
-                  file=sys.stderr)
-            return 1
-        os.makedirs(os.path.dirname(SYSTEM_DEFAULT), exist_ok=True)
-        with open(SYSTEM_DEFAULT, "w") as f:
-            f.write(args[1] + "\n")
-        print("New accounts start with the %s layout." % args[1])
+        print("layout: %s" % (read_layout(STATE) or "not set (applied at the next login)"))
         return 0
     if args and args[0] == "keys":
         if len(args) == 1:
@@ -479,7 +421,7 @@ def main(args):
             switch_live(args[0])
         else:
             write_layout(args[0])
-        print("Switched to the %s layout." % args[0])
+        print("The KiteOS desktop (%s layout) is set up." % args[0])
         return 0
     print(__doc__.split("\n\n")[1], file=sys.stderr)
     return 2
