@@ -78,6 +78,8 @@
     <!-- Time above date, like the Windows tray clock -->
     <property name="plugin-11" type="string" value="clock">
       <property name="mode" type="uint" value="2"/>
+      <!-- no week numbers in the calendar pop-up, as on Windows 11 and macOS -->
+      <property name="show-week-numbers" type="bool" value="false"/>
       <property name="digital-layout" type="uint" value="1"/>
       <property name="digital-time-format" type="string" value="%H:%M"/>
       <property name="digital-date-format" type="string" value="%d/%m/%Y"/>

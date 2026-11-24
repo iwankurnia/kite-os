@@ -105,8 +105,13 @@ window.background > calendar > calendar.header {
   box-shadow: none;
   background: transparent;
 }
-window.background > calendar > calendar.button { color: rgba(0, 0, 0, 0.55); }
-window.background > calendar > calendar.button:hover { color: #007aff; }
+window.background > calendar > calendar.button {
+  color: rgba(0, 0, 0, 0.55);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+window.background > calendar > calendar.button:hover { color: #007aff; background: transparent; }
 window.background > calendar > calendar.highlight {
   color: rgba(0, 0, 0, 0.55);
   border: none;
