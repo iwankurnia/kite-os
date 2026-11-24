@@ -198,6 +198,7 @@ klk keys auto >/dev/null
 check "keys: auto goes back to detection" bash -c "test ! -e '$LH/home/.config/kite/keys'"
 check "keys: auto on a Chromebook gives the ChromeOS keys again" test "$(wk close_window_key)" = "<Primary><Shift>w"
 check "keys: no action has two keys" bash -c "python3 -c 'import sys, xml.etree.ElementTree as E, collections; r = E.parse(sys.argv[1]).getroot(); v = [p.get(\"value\") for p in r.findall(\"./property[@name=\x27xfwm4\x27]/property[@name=\x27custom\x27]/property\") if p.get(\"type\") == \"string\"]; d = [k for k, n in collections.Counter(v).items() if n > 1]; sys.exit(1 if d else 0)' '$X/xfce4-keyboard-shortcuts.xml'"
+check "keyring for apps (VS Code, Brave), unlocked by the login password" bash -c "sed -n '/^Depends:/,/^[A-Z]/p' '$REPO/packages/kite-desktop/DEBIAN/control' | grep -q 'gnome-keyring, libpam-gnome-keyring'"
 check "rejects unknown layouts, mac included" bash -c "! python3 '$KL' gnome 2>/dev/null && ! python3 '$KL' mac 2>/dev/null && ! python3 '$KL' --system windows 2>/dev/null"
 check "installer has no Desktop page (one layout)" bash -c "! grep -q packagechooser '$REPO/live/config/includes.chroot/etc/calamares/settings.conf'"
 check "login screen uses a light theme" bash -c "grep -q \"theme-name='Fluent-Light'\" '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override' && ! grep -qi dark '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override'"

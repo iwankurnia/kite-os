@@ -74,6 +74,7 @@ check "login screen settings valid (strict schema compile)" in_ch glib-compile-s
 check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$CH/etc/lightdm/lightdm.conf.d/50-kite.conf"
 check "desktop layout installed (windows only)" bash -c "[ -f '$CH/usr/share/kite/layouts/windows/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ] && [ ! -e '$CH/usr/share/kite/layouts/mac' ]"
 check "Start menu and app search installed" test -x "$CH/usr/bin/xfce4-popup-whiskermenu" -a -x "$CH/usr/bin/xfce4-appfinder"
+check "keyring unlocks at login (LightDM PAM) and follows password changes" bash -c "grep -q '^-session.*pam_gnome_keyring.so auto_start' '$CH/etc/pam.d/lightdm' && grep -q pam_gnome_keyring '$CH/etc/pam.d/common-password'"
 check "Start and Search button icons installed" test -f "$CH/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg" -a -f "$CH/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg"
 check "kite-layout sets up a new account" in_ch env HOME=/tmp/lh python3 /usr/bin/kite-layout --first-login
 check "new account got the default (windows) layout" grep -qx windows "$CH/tmp/lh/.config/kite/layout"

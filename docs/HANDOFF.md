@@ -89,6 +89,15 @@ kite-system 1.2.2, branch `laptop-fixes`), not yet released:
   window cannot have round corners (no alpha channel). Its shadow stays: it
   follows `show_frame_shadow`.
 - `border-spacing` is not a GTK 3 CSS property (the tray rule had it; removed).
+- Keyring: `gnome-keyring` + `libpam-gnome-keyring` in kite-desktop's Depends
+  (10 small packages, nothing always-on: the daemon is socket/D-Bus
+  activated). VS Code found no Secret Service at all. Debian's LightDM PAM file
+  already has `-auth`/`-session optional pam_gnome_keyring.so auto_start`
+  (the `-` skips a missing module), so the login password creates the "login"
+  keyring at the first login and unlocks it at every login, no prompt; the
+  package's pam-config adds it to `common-password` so `passwd` keeps them in
+  step. The live session logs in without a password, so there an app that
+  wants the keyring will ask.
 
 Layout files reach an account only at first login or on `kite-layout windows`, so
 `kite-update` alone does not change an existing desktop.

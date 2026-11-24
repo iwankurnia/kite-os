@@ -12,6 +12,10 @@ the right. Fluent theme, Papirus-Light icons.
 - **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
   Right-click an app to pin or unpin it.
 - Lock the screen with **Search + L**.
+- **Passwords saved by apps** (VS Code, Brave, Git credential helpers) go into
+  the GNOME keyring, which your login password unlocks when you log in; no
+  extra password prompt. If you change your password with `passwd`, the
+  keyring follows.
 
 To put the desktop back to the KiteOS defaults without logging out:
 
