@@ -85,10 +85,13 @@ popover, popover.background { border: 1px solid rgba(0, 0, 0, 0.22); }
 .csd.popup decoration, window.popup decoration, menu, .menu, popover,
 #whiskermenu-window, #whiskermenu-window decoration { box-shadow: none; }
 
-/* Clock calendar pop-up: roomier, a rounded accent tile for today, quiet day
-   names and arrows, no heading frame. It is a bare window holding a
-   GtkCalendar; GTK draws the calendar's parts on child nodes, hence the
-   "> calendar > calendar" selectors. */
+/* Clock calendar pop-up: roomy rows, quiet day names and arrows, no heading
+   frame, today as a blue number with a short bar under it. It is a bare
+   window holding a GtkCalendar; GTK draws the calendar's parts on child CSS
+   nodes, hence "> calendar > calendar". GTK draws each number at the top of
+   its cell, so the room is added below the numbers (.day-number padding),
+   and today is marked with a bar rather than a tile (a tile would show the
+   number off-centre). Font size and weight are ignored there. */
 window.background > calendar {
   padding: 12px 16px 16px;
   background-color: #fbfbfb;
@@ -112,9 +115,16 @@ window.background > calendar > calendar.highlight {
   border: none;
   box-shadow: none;
 }
+window.background > calendar > calendar.day-name { padding: 2px 9px 8px; }
+window.background > calendar > calendar.day-number { padding: 0 9px 12px; }
 window.background > calendar > calendar:indeterminate { color: rgba(0, 0, 0, 0.28); }
 window.background > calendar > calendar:selected {
-  background-color: #0067c0;
-  color: #ffffff;
-  border-radius: 6px;
+  color: #0067c0;
+  border-radius: 0;
+  box-shadow: none;
+  background-color: transparent;
+  background-image: linear-gradient(to top, transparent 5px, #0067c0 5px, #0067c0 8px, transparent 8px);
+  background-size: 16px 100%;
+  background-position: center;
+  background-repeat: no-repeat;
 }

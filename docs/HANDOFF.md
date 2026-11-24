@@ -63,12 +63,18 @@ kite-system 1.2.2), not yet released:
   taskbar and around menus and pop-overs, `show_popup_shadow` false. The mac
   menu bar gets no line (xfce4-panel has no per-panel CSS name, so the Dock
   panel would get one too). No border on the Whisker menu (owner's call).
-- Clock calendar pop-up restyled in `gtk.css` (both layouts): more padding, a
-  rounded accent tile for today, quiet day names and arrows. GtkCalendar draws
-  its parts on child CSS nodes, so the rules are `window.background > calendar
-  > calendar.header` etc. (`window > calendar.header` never matches). Font
-  size and weight there are ignored, and the window cannot have round corners
-  (no alpha channel). Its shadow stays: it follows `show_frame_shadow`.
+- Clock calendar pop-up restyled in `gtk.css` (both layouts): roomy rows,
+  quiet day names and arrows, no week numbers (`show-week-numbers` false in
+  `xfce4-panel.xml`), today as a blue number with a short bar under it.
+  GtkCalendar (GTK 3.24 `gtkcalendar.c`) draws its parts on child CSS nodes,
+  so the rules are `window.background > calendar > calendar.header` etc.
+  (`window > calendar.header` never matches); cell padding goes on the
+  `.day-number` / `.day-name` classes. It draws each number at the TOP of its
+  cell, so the room is added below the numbers, and a filled "today" tile
+  would show the number off-centre: hence the bar (a `linear-gradient`
+  background image). Font size and weight of the parts are ignored, and the
+  window cannot have round corners (no alpha channel). Its shadow stays: it
+  follows `show_frame_shadow`.
 - `border-spacing` is not a GTK 3 CSS property (the tray rule had it; removed).
 
 Layout files reach an account only at first login or on `kite-layout <name>`, so
