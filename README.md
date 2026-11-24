@@ -10,7 +10,7 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
 | **Boot and login** | Hidden GRUB menu, KiteOS splash screen (Plymouth, early Intel KMS), LightDM with Slick Greeter on a matching background. |
 | **Hibernation** | A swap file of RAM + half of RAM (at most RAM + 4 GB) is created at install time, and `resume=` / `resume_offset=` are set up automatically. Closing the lid suspends; after 60 min the machine hibernates. It also hibernates on critical battery and after 30 min idle on battery. Hibernate is also in the power menu. |
 | **Low memory** | zswap (zstd-compressed RAM cache in front of the swap file; unlike zram, it works with hibernation), earlyoom to end the biggest browser tab rather than freeze, a small journal, no Recommends and no docs. |
-| **Apps** | **Brave** and **ONLYOFFICE Desktop Editors** from their vendors' official APT repositories. Brave's Rewards, Wallet, VPN and Tor are turned off by policy to keep it light. |
+| **Apps** | **Brave**, **ONLYOFFICE Desktop Editors** and **Visual Studio Code** from their vendors' official APT repositories, and **git**. Brave's Rewards, Wallet, VPN and Tor are turned off by policy to keep it light. |
 | **External storage** | **App Centre** (`kite-app-centre`) finds, installs and removes apps and installs updates. It installs an app to the internal disk, then can copy its program files and/or its settings and data to a USB or SD disk and symlink them back. APT refuses to touch those apps while the disk is unplugged, and their launchers say "connect your disk" instead of failing silently. |
 | **Chromebook hardware** | Keyboard via `keyd`: tap Search for the menu, the top row works as printed, Search + top row = F1–F10, Search + Backspace = Delete, Search + arrows = Home/End/PgUp/PgDn. Audio through SOF with the Chromebook UCM profiles (`alsa-ucm-conf-cros`), and the touchpad ignores input while you type. |
 | **Installer** | A live USB with a graphical installer (Calamares). |
@@ -95,4 +95,4 @@ gotchas and to-do list. `CLAUDE.md` gives Claude Code the same pointers.
 - Debian, XFCE, keyd, Calamares and Plymouth.
 - Desktop layouts from [docker-crd-vstunnel](https://github.com/iwankurnia/docker-crd-vstunnel); Fluent theme by [vinceliuice](https://github.com/vinceliuice) (GPL-3.0) and Papirus icons.
 
-KiteOS is an unofficial personal build. It is not affiliated with Google, HP, Debian, Brave or ONLYOFFICE.
+KiteOS is an unofficial personal build. It is not affiliated with Google, HP, Debian, Brave, ONLYOFFICE or Microsoft.

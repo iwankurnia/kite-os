@@ -8,7 +8,7 @@ KiteOS release on GitHub.
 Each release carries the kite-*.deb files and kite-packages.sha256 (attached
 by the Build ISO workflow). Downloads are checked against that list; GitHub's
 HTTPS is the trust anchor (the packages are not separately signed).
-Debian, Brave and ONLYOFFICE updates come from apt as usual:
+Debian, Brave, ONLYOFFICE and VS Code updates come from apt as usual:
   sudo apt update && sudo apt upgrade
 """
 import hashlib

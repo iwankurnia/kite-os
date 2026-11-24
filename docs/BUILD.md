@@ -20,8 +20,8 @@ What `build.sh` does:
 1. Installs live-build and friends in the container.
 2. `scripts/build-packages.sh`: builds `kite-system`, `kite-chromebook`,
    `kite-desktop` and `kite-storage`.
-3. `scripts/fetch-vendor-keys.sh`: downloads the Brave and ONLYOFFICE signing
-   keys, checks their key IDs, and adds both repositories.
+3. `scripts/fetch-vendor-keys.sh`: downloads the Brave, ONLYOFFICE and VS Code
+   (Microsoft) signing keys, checks their key IDs, and adds the repositories.
 4. Runs `lb build` with `live/auto/config`.
 
 Options:

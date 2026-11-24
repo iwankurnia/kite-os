@@ -129,7 +129,7 @@ App Centre → Updates → **Update all**, or `sudo kite-storage update`
 ```bash
 kite-update --check     # what's new in the latest KiteOS release
 kite-update             # install it (asks for your password)
-sudo apt update && sudo apt upgrade     # Debian, Brave and ONLYOFFICE updates
+sudo apt update && sudo apt upgrade     # Debian, Brave, ONLYOFFICE and VS Code updates
 ```
 
 App Centre → Updates shows the same check, with **Update KiteOS**.

@@ -1,7 +1,10 @@
-# Browser and office suite, from their vendors' APT repositories
+# Browser, office suite and code editor, from their vendors' APT repositories
 # (added by scripts/fetch-vendor-keys.sh into config/archives/).
 brave-browser
 onlyoffice-desktopeditors
+code
 # ONLYOFFICE needs it but does not depend on it ("libxcb-shape.so.0: cannot
 # open shared object file"); kite-desktop depends on it too, for kite-update.
 libxcb-shape0
+# Version control (Debian)
+git

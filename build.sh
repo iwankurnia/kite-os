@@ -14,7 +14,7 @@ if [ "${KITE_IN_CONTAINER:-0}" != 1 ] && [ "${KITE_NATIVE:-0}" != 1 ]; then
     [ -n "$engine" ] || { echo "Install Docker or Podman, or run on Debian 13 with KITE_NATIVE=1" >&2; exit 1; }
     exec "$engine" run --rm --privileged \
         -v "$REPO:/kiteos" -w /kiteos \
-        -e KITE_IN_CONTAINER=1 -e KITE_VERSION -e KITE_MIRROR -e KITE_SECURITY_MIRROR -e KITE_BRAVE_MIRROR -e KITE_ONLYOFFICE_MIRROR -e KITE_TRUST_NEW_KEYS \
+        -e KITE_IN_CONTAINER=1 -e KITE_VERSION -e KITE_MIRROR -e KITE_SECURITY_MIRROR -e KITE_BRAVE_MIRROR -e KITE_ONLYOFFICE_MIRROR -e KITE_VSCODE_MIRROR -e KITE_TRUST_NEW_KEYS \
         "${KITE_BASE_IMAGE:-public.ecr.aws/docker/library/debian:trixie}" ./build.sh "$@"
 fi
 
@@ -32,7 +32,7 @@ rm -rf out/debs
 mkdir -p out/debs
 echo "==> KiteOS packages"
 scripts/build-packages.sh out/debs
-echo "==> Brave and ONLYOFFICE repositories"
+echo "==> Brave, ONLYOFFICE and VS Code repositories"
 scripts/fetch-vendor-keys.sh live/config
 
 rm -f live/config/packages.chroot/*.deb

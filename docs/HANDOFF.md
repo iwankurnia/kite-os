@@ -165,6 +165,18 @@ kite-system 1.2.2, branch `laptop-fixes`), not yet released:
   Run as administrator: pkexec with `exec.allow_gui` (polkit
   `org.kiteos.tasks`), `PKEXEC_UID` says whose apps are "yours". The data code
   runs without GTK (`kite-tasks --dump`; tests on a fake /proc).
+- **VS Code and git on the ISO** (owner's request). VS Code from
+  `packages.microsoft.com/repos/code`, key `microsoft.asc`
+  (BC528686B50D79E339D3721CEB3E94ADBE1229CF, pinned as EB3E94ADBE1229CF in
+  `fetch-vendor-keys.sh`; fingerprint checked on learn.microsoft.com/linux/packages
+  and the repo's InRelease verified with it, 2026-11-24). Microsoft's
+  `microsoft-2025.asc` is for repositories made after April 2025; watch for the
+  code repository moving to it. The archive is named `vscode` on purpose:
+  VS Code's postinst then sees the repository listed and adds no second
+  copy (it only writes `/usr/share/keyrings/microsoft.gpg`; no `set -e`, so a
+  missing gpg cannot fail the build). VS Code adds roughly 100 MB to the ISO
+  and 400 MB installed; it is a Start menu favourite (kite-layout). Existing
+  installs: `sudo apt install code git` (the laptop has both).
 - Keyring: `gnome-keyring` + `libpam-gnome-keyring` in kite-desktop's Depends
   (10 small packages, nothing always-on: the daemon is socket/D-Bus
   activated). VS Code found no Secret Service at all. Debian's LightDM PAM file
