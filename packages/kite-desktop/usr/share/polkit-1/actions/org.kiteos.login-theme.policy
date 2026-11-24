@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Settings > Login Screen runs kite-login-theme through pkexec: ask for an
+     administrator password, with a message that says what it is for. -->
+<policyconfig>
+  <vendor>KiteOS</vendor>
+  <action id="org.kiteos.login-theme">
+    <description>Change the login screen background</description>
+    <message>Changing the login screen background needs your password</message>
+    <icon_name>preferences-desktop-wallpaper</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/kite-login-theme</annotate>
+  </action>
+</policyconfig>

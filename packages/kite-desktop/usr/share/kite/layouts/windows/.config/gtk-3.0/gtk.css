@@ -128,3 +128,7 @@ window.background > calendar > calendar:selected {
   background-position: center;
   background-repeat: no-repeat;
 }
+
+/* Lock screen (xfce4-screensaver's dialog runs in this session): the same
+   KiteOS card as the login screen. */
+@import url("file:///usr/share/kite/login/kite-login.css");

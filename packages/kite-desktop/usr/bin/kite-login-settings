@@ -1,0 +1,341 @@
+#!/usr/bin/python3
+"""Settings > Login Screen: your picture and the login screen background.
+
+Your picture (one of KiteOS's, or your own) is cropped to a square, saved
+as ~/.face and handed to
+AccountsService (SetIconFile, allowed for your own account without a
+password), which keeps the copy the login and lock screens show: the login
+screen cannot read your home folder.
+
+The background is set with kite-login-theme through pkexec (one of the three
+KiteOS pictures, or your own). The lock screen shows the desktop wallpaper.
+"""
+import os
+import subprocess
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
+
+BACKGROUNDS = os.environ.get("KITE_BACKGROUNDS", "/usr/share/backgrounds/kite")
+AVATARS = os.environ.get("KITE_AVATARS", "/usr/share/kite/avatars")
+LOGIN_THEME = os.environ.get("KITE_LOGIN_THEME", "/usr/bin/kite-login-theme")
+CHOICES = (("frosted", "Frosted"), ("aurora", "Aurora"), ("dusk", "Dusk"))
+FACE = os.path.expanduser("~/.face")
+AVATAR = 96
+THUMB_W, THUMB_H = 176, 99
+
+
+def accounts_user():
+    """A proxy for this account in AccountsService, or None."""
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        path = bus.call_sync("org.freedesktop.Accounts", "/org/freedesktop/Accounts",
+                             "org.freedesktop.Accounts", "FindUserById",
+                             GLib.Variant("(x)", (os.getuid(),)), GLib.VariantType("(o)"),
+                             Gio.DBusCallFlags.NONE, 5000, None).unpack()[0]
+        return Gio.DBusProxy.new_sync(bus, Gio.DBusProxyFlags.NONE, None, "org.freedesktop.Accounts",
+                                      path, "org.freedesktop.Accounts.User", None)
+    except GLib.Error:
+        return None
+
+
+def square(pixbuf, size):
+    """The middle square of PIXBUF, scaled to SIZE."""
+    w, h = pixbuf.get_width(), pixbuf.get_height()
+    s = min(w, h)
+    sub = pixbuf.new_subpixbuf((w - s) // 2, (h - s) // 2, s, s)
+    return sub.scale_simple(size, size, GdkPixbuf.InterpType.BILINEAR)
+
+
+def cover(pixbuf, w, h):
+    """PIXBUF scaled to fill W x H, cropped in the middle."""
+    pw, ph = pixbuf.get_width(), pixbuf.get_height()
+    scale = max(w / pw, h / ph)
+    big = pixbuf.scale_simple(max(w, round(pw * scale)), max(h, round(ph * scale)),
+                              GdkPixbuf.InterpType.BILINEAR)
+    return big.new_subpixbuf((big.get_width() - w) // 2, (big.get_height() - h) // 2, w, h)
+
+
+class RoundPicture(Gtk.DrawingArea):
+    """A picture drawn in a circle (a GtkImage cannot be clipped in GTK 3)."""
+
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+        self.pixbuf = None
+        self.set_size_request(size, size)
+        self.connect("draw", self.on_draw)
+
+    def set_pixbuf(self, pixbuf):
+        self.pixbuf = square(pixbuf, self.size) if pixbuf else None
+        self.queue_draw()
+
+    def on_draw(self, _widget, cr):
+        r = self.size / 2
+        cr.arc(r, r, r, 0, 2 * 3.14159265)
+        cr.clip()
+        if self.pixbuf:
+            Gdk.cairo_set_source_pixbuf(cr, self.pixbuf, 0, 0)
+        else:
+            cr.set_source_rgb(0.85, 0.87, 0.90)
+        cr.paint()
+        return False
+
+
+class LoginSettings(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Login Screen")
+        self.set_default_size(620, -1)
+        self.set_border_width(24)
+        self.set_icon_name("lightdm-settings")
+        self.user = accounts_user()
+        self.busy = False
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.add(box)
+
+        box.pack_start(self.heading("Your picture"), False, False, 0)
+        row = Gtk.Box(spacing=18)
+        self.avatar = RoundPicture(AVATAR)
+        row.pack_start(self.avatar, False, False, 0)
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, valign=Gtk.Align.CENTER)
+        name = GLib.get_real_name() or GLib.get_user_name()
+        col.pack_start(Gtk.Label(label=name, xalign=0), False, False, 0)
+        note = Gtk.Label(label="Shown on the login screen and the lock screen.", xalign=0)
+        note.get_style_context().add_class("dim-label")
+        col.pack_start(note, False, False, 0)
+        buttons = Gtk.Box(spacing=8)
+        choose = Gtk.Button(label="Choose a picture…")
+        choose.connect("clicked", self.on_choose_picture)
+        self.remove_btn = Gtk.Button(label="Remove")
+        self.remove_btn.connect("clicked", self.on_remove_picture)
+        buttons.pack_start(choose, False, False, 0)
+        buttons.pack_start(self.remove_btn, False, False, 0)
+        col.pack_start(buttons, False, False, 0)
+        row.pack_start(col, True, True, 0)
+        box.pack_start(row, False, False, 0)
+        # KiteOS's own pictures: one click sets one
+        self.avatars = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=8,
+                                   min_children_per_line=4, column_spacing=10, row_spacing=10,
+                                   homogeneous=True, activate_on_single_click=True, margin_top=4)
+        self.avatars.connect("child-activated", self.on_avatar_picked)
+        try:
+            names = sorted(f for f in os.listdir(AVATARS) if f.endswith((".svg", ".png")))
+        except OSError:
+            names = []
+        for name in names:
+            path = os.path.join(AVATARS, name)
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_size(path, 112, 112)
+            except GLib.Error:
+                continue
+            pic = RoundPicture(52)
+            pic.set_pixbuf(pb)
+            child = Gtk.FlowBoxChild()
+            child.add(pic)
+            child.path = path
+            child.set_tooltip_text(os.path.splitext(name)[0].capitalize())
+            self.avatars.add(child)
+        if names:
+            box.pack_start(self.avatars, False, False, 0)
+
+        box.pack_start(Gtk.Separator(margin_top=12, margin_bottom=4), False, False, 0)
+        box.pack_start(self.heading("Login screen background"), False, False, 0)
+        self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.SINGLE, max_children_per_line=3,
+                                min_children_per_line=3, column_spacing=12, row_spacing=12,
+                                homogeneous=True, activate_on_single_click=True)
+        self.flow.connect("child-activated", self.on_background_picked)
+        self.children = {}
+        for key, label in CHOICES:
+            self.children[key] = self.thumb(os.path.join(BACKGROUNDS, f"login-{key}.jpg"), label, key)
+        box.pack_start(self.flow, False, False, 0)
+        own = Gtk.Box(spacing=8)
+        own_btn = Gtk.Button(label="Use your own picture…")
+        own_btn.connect("clicked", self.on_choose_background)
+        own.pack_start(own_btn, False, False, 0)
+        self.own_label = Gtk.Label(xalign=0)
+        self.own_label.get_style_context().add_class("dim-label")
+        own.pack_start(self.own_label, False, False, 0)
+        box.pack_start(own, False, False, 0)
+        hint = Gtk.Label(label="The lock screen shows your desktop wallpaper (Settings > Desktop).",
+                         xalign=0, wrap=True)
+        hint.get_style_context().add_class("dim-label")
+        box.pack_start(hint, False, False, 0)
+
+        self.status = Gtk.Label(xalign=0, wrap=True, margin_top=6)
+        box.pack_start(self.status, False, False, 0)
+        bottom = Gtk.Box()
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", lambda *_: self.destroy())
+        bottom.pack_end(close, False, False, 0)
+        box.pack_start(bottom, False, False, 6)
+
+        self.load_picture()
+        self.load_background()
+
+    # ------------------------------------------------------------- helpers --
+    @staticmethod
+    def heading(text):
+        label = Gtk.Label(xalign=0)
+        label.set_markup("<b>%s</b>" % GLib.markup_escape_text(text))
+        return label
+
+    def thumb(self, path, label, key):
+        v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin=4)
+        try:
+            pb = cover(GdkPixbuf.Pixbuf.new_from_file(path), THUMB_W, THUMB_H)
+            v.pack_start(Gtk.Image.new_from_pixbuf(pb), False, False, 0)
+        except GLib.Error:
+            v.pack_start(Gtk.Label(label="(missing)"), False, False, 0)
+        v.pack_start(Gtk.Label(label=label), False, False, 0)
+        child = Gtk.FlowBoxChild()
+        child.add(v)
+        child.key = key
+        self.flow.add(child)
+        return child
+
+    def say(self, text):
+        self.status.set_text(text)
+
+    def file_dialog(self, title):
+        dialog = Gtk.FileChooserNative(title=title, transient_for=self, action=Gtk.FileChooserAction.OPEN,
+                                       accept_label="Choose")
+        filt = Gtk.FileFilter()
+        filt.set_name("Pictures (JPEG, PNG)")
+        for mime in ("image/jpeg", "image/png"):
+            filt.add_mime_type(mime)
+        dialog.add_filter(filt)
+        pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+        if pictures and os.path.isdir(pictures):
+            dialog.set_current_folder(pictures)
+        path = dialog.get_filename() if dialog.run() == Gtk.ResponseType.ACCEPT else None
+        dialog.destroy()
+        return path
+
+    # ------------------------------------------------------------- picture --
+    def current_icon(self):
+        if self.user:
+            v = self.user.get_cached_property("IconFile")
+            if v and v.unpack() and os.path.isfile(v.unpack()):
+                return v.unpack()
+        return FACE if os.path.isfile(FACE) else None
+
+    def load_picture(self):
+        path = self.current_icon()
+        pb = None
+        try:
+            pb = GdkPixbuf.Pixbuf.new_from_file(path) if path else None
+        except GLib.Error:
+            pass
+        if pb is None:      # no picture: the theme's standard avatar
+            try:
+                pb = Gtk.IconTheme.get_default().load_icon("avatar-default", AVATAR, 0)
+            except GLib.Error:
+                pb = None
+        self.avatar.set_pixbuf(pb)
+        self.remove_btn.set_sensitive(bool(path))
+
+    def set_icon_file(self, path):
+        if not self.user:
+            raise RuntimeError("AccountsService is not running")
+        self.user.call_sync("SetIconFile", GLib.Variant("(s)", (path,)), Gio.DBusCallFlags.NONE, 10000, None)
+        # Read the new IconFile back (the proxy's cache is not updated at once).
+        self.user = accounts_user()
+
+    def on_choose_picture(self, _button):
+        path = self.file_dialog("Choose your picture")
+        if path:
+            self.set_face(path)
+
+    def on_avatar_picked(self, _flow, child):
+        self.set_face(child.path)
+
+    def set_face(self, path):
+        """Make the picture at PATH (any size; SVG too) your picture."""
+        try:
+            if path.endswith(".svg"):
+                src = GdkPixbuf.Pixbuf.new_from_file_at_size(path, 256, 256)
+            else:
+                src = GdkPixbuf.Pixbuf.new_from_file(path)
+            face = square(src, 256)
+            face.savev(FACE + ".tmp", "png", [], [])
+            os.replace(FACE + ".tmp", FACE)
+            os.chmod(FACE, 0o644)
+            self.set_icon_file(FACE)
+            self.say("Your picture is set.")
+        except (GLib.Error, OSError, RuntimeError) as e:
+            self.say("Could not set your picture: %s" % getattr(e, "message", e))
+        self.load_picture()
+
+    def on_remove_picture(self, _button):
+        try:
+            if os.path.exists(FACE):
+                os.remove(FACE)
+            self.set_icon_file("")
+            self.say("Your picture is removed.")
+        except (GLib.Error, OSError, RuntimeError) as e:
+            self.say("Could not remove your picture: %s" % getattr(e, "message", e))
+        self.load_picture()
+
+    # ---------------------------------------------------------- background --
+    def load_background(self):
+        try:
+            out = subprocess.run([LOGIN_THEME], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        current = out.splitlines()[0].split(": ", 1)[-1] if out else ""
+        self.own_label.set_text("")
+        self.flow.unselect_all()
+        for key, child in self.children.items():
+            if current.startswith(key):
+                self.flow.select_child(child)
+        if current.startswith("own picture"):
+            self.own_label.set_text("Your own picture is in use.")
+
+    def apply_background(self, arg, done_text):
+        if self.busy:
+            return
+        self.busy = True
+        self.say("Waiting for your password…")
+
+        def finished(proc, result):
+            self.busy = False
+            try:
+                ok = proc.wait_check_finish(result)
+            except GLib.Error:
+                ok = False
+            if ok:
+                self.say(done_text + " You will see it the next time the login screen appears.")
+            else:
+                self.say("The login screen background was not changed.")
+            self.load_background()
+
+        try:
+            proc = Gio.Subprocess.new(["pkexec", LOGIN_THEME, arg],
+                                      Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE)
+            proc.wait_check_async(None, finished)
+        except GLib.Error as e:
+            self.busy = False
+            self.say("Could not start pkexec: %s" % e.message)
+
+    def on_background_picked(self, _flow, child):
+        label = dict(CHOICES)[child.key]
+        self.apply_background(child.key, "The login screen background is now %s." % label)
+
+    def on_choose_background(self, _button):
+        path = self.file_dialog("Choose a login screen background")
+        if path:
+            self.apply_background(path, "The login screen background is now your picture.")
+
+
+def main():
+    win = LoginSettings()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

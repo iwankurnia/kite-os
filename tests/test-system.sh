@@ -201,30 +201,47 @@ check "keys: no action has two keys" bash -c "python3 -c 'import sys, xml.etree.
 check "keyring for apps (VS Code, Brave), unlocked by the login password" bash -c "sed -n '/^Depends:/,/^[A-Z]/p' '$REPO/packages/kite-desktop/DEBIAN/control' | grep -q 'gnome-keyring, libpam-gnome-keyring'"
 check "rejects unknown layouts, mac included" bash -c "! python3 '$KL' gnome 2>/dev/null && ! python3 '$KL' mac 2>/dev/null && ! python3 '$KL' --system windows 2>/dev/null"
 check "installer has no Desktop page (one layout)" bash -c "! grep -q packagechooser '$REPO/live/config/includes.chroot/etc/calamares/settings.conf'"
-check "login screen uses a light theme" bash -c "grep -q \"theme-name='Fluent-Light'\" '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override' && ! grep -qi dark '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override'"
+GC=$REPO/packages/kite-desktop/usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf
+check "login screen: lightdm-gtk-greeter with the KiteOS-Login theme" bash -c "grep -qx 'greeter-session=lightdm-gtk-greeter' '$REPO/packages/kite-desktop/etc/lightdm/lightdm.conf.d/50-kite.conf' && grep -qx 'theme-name=KiteOS-Login' '$GC'"
+check "login theme = Fluent-Light + the shared KiteOS card" bash -c "grep -q 'Fluent-Light/gtk-3.0/gtk.css' '$REPO/packages/kite-desktop/usr/share/themes/KiteOS-Login/gtk-3.0/gtk.css' && grep -q 'kite/login/kite-login.css' '$REPO/packages/kite-desktop/usr/share/themes/KiteOS-Login/gtk-3.0/gtk.css'"
+check "lock screen imports the same card (desktop gtk.css)" grep -q 'file:///usr/share/kite/login/kite-login.css' "$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css"
+check "card rules are scoped to the greeter/lock widgets" bash -c "! grep -E '^[a-z*]' '$REPO/packages/kite-desktop/usr/share/kite/login/kite-login.css' | grep -v '^ ' >/dev/null"
+check "installer picks lightdm-gtk-greeter (Calamares writes it into lightdm.conf)" grep -q 'preferred_greeters: \["lightdm-gtk-greeter.desktop"\]' "$REPO/live/config/includes.chroot/etc/calamares/modules/displaymanager.conf"
+LC=$T/lightdm.conf; printf '[Seat:*]\n#greeter-session=example\ngreeter-session=slick-greeter\n' > "$LC"
+sed "s#/etc/lightdm/lightdm.conf#$LC#g; s#systemctl#true#; s#update-alternatives#true#g; s#glib-compile-schemas#true#; s#gtk-update-icon-cache#true#; s#/usr/share/icons/#$T/no-icons/#g" "$REPO/packages/kite-desktop/DEBIAN/postinst" > "$T/kd-postinst"
+sh "$T/kd-postinst" configure >/dev/null 2>&1
+check "postinst moves an installed system's lightdm.conf off slick-greeter" bash -c "grep -qx 'greeter-session=lightdm-gtk-greeter' '$LC' && grep -qx '#greeter-session=example' '$LC'"
+check "no slick-greeter left" bash -c "! grep -rq slick-greeter '$REPO/packages/kite-desktop/DEBIAN/control' '$REPO/live/config/package-lists' && [ ! -e '$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override' ]"
+check "locked screen shows the wallpaper (screensaver theme)" bash -c "grep -q 'screensavers-kite-wallpaper' '$REPO/packages/kite-desktop/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-screensaver.xml' && grep -qx 'Exec=/usr/lib/kite/desktop/kite-lock-picture' '$REPO/packages/kite-desktop/usr/share/applications/screensavers/kite-wallpaper.desktop'"
+check "Settings > Login Screen entry" bash -c "grep -q 'X-XFCE-SettingsDialog' '$REPO/packages/kite-desktop/usr/share/applications/kite-login-settings.desktop' && python3 -m py_compile '$REPO/packages/kite-desktop/usr/bin/kite-login-settings'"
+check "pkexec message for kite-login-theme" grep -q '/usr/bin/kite-login-theme' "$REPO/packages/kite-desktop/usr/share/polkit-1/actions/org.kiteos.login-theme.policy"
 
 echo "== kite-login-theme (login screen background)"
-LT=$REPO/packages/kite-desktop/usr/bin/kite-login-theme; G=$T/greeter/slick-greeter.conf
+LT=$REPO/packages/kite-desktop/usr/bin/kite-login-theme; G=$T/greeter/conf.d/90-kite-login-background.conf; GS=$T/greeter/store
+lt() { KITE_GREETER_CONF=$G KITE_LOGIN_STORE=$GS sh "$LT" "$@"; }
 check "default is frosted" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'frosted (default)'"
-KITE_GREETER_CONF=$G sh "$LT" aurora >/dev/null
-check "new file gets a [Greeter] background, marked as ours" test "$(cat "$G")" = "$(printf '# Written by kite-login-theme (removed when kite-desktop is purged)\n[Greeter]\nbackground=/usr/share/backgrounds/kite/login-aurora.jpg')"
-KITE_GREETER_CONF=$G sh "$LT" dusk >/dev/null
-check "marker kept, written once" test "$(grep -c '^# Written by kite-login-theme' "$G")" = 1
-# kite-desktop's postrm, pointed at a test copy of the greeter file
-DPR=$T/greeter/postrm; sed "s#/etc/lightdm/slick-greeter.conf#$G#" "$REPO/packages/kite-desktop/DEBIAN/postrm" > "$DPR"
+lt aurora >/dev/null
+check "writes its own greeter file, marked as ours" test "$(cat "$G")" = "$(printf '# Written by kite-login-theme (removed when kite-desktop is purged)\n[greeter]\nbackground=/usr/share/backgrounds/kite/login-aurora.jpg')"
+check "reports the current one" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'login screen: aurora$'"
+lt "$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg" >/dev/null
+check "own picture copied where the greeter can read it" bash -c "cmp -s '$GS/login-background.jpg' '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg' && grep -qx 'background=$GS/login-background.jpg' '$G'"
+check "reports an own picture" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'own picture'"
+echo 'not a picture' > "$T/greeter/fake.jpg"
+check "refuses a file that is not a picture" bash -c "! KITE_GREETER_CONF='$G' KITE_LOGIN_STORE='$GS' sh '$LT' '$T/greeter/fake.jpg' 2>/dev/null"
+lt dusk >/dev/null
+check "a KiteOS picture again removes the copy" bash -c "[ ! -e '$GS/login-background.jpg' ] && grep -q login-dusk.jpg '$G'"
+check "rejects unknown names and options" bash -c "! KITE_GREETER_CONF='$G' sh '$LT' sunset 2>/dev/null && ! KITE_GREETER_CONF='$G' sh '$LT' --x 2>/dev/null"
+# kite-desktop's postrm, pointed at the test copies
+DPR=$T/greeter/postrm
+sed "s#/etc/lightdm/lightdm-gtk-greeter.conf.d/90-kite-login-background.conf#$G#; s#/etc/lightdm/slick-greeter.conf#$T/greeter/slick.conf#; s#/var/lib/kite#$GS#g" "$REPO/packages/kite-desktop/DEBIAN/postrm" > "$DPR"
+printf '# Written by kite-login-theme (x)\n[Greeter]\n' > "$T/greeter/slick.conf"; lt "$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg" >/dev/null
 sh "$DPR" purge
-check "purge removes the greeter file kite-login-theme wrote" test ! -e "$G"
-printf '[Greeter]\ntheme-name=X\nbackground=/old.png\n[Other]\nbackground=keep\n' > "$G"; KITE_GREETER_CONF=$G sh "$LT" dusk >/dev/null
-check "replaces only the greeter's background" test "$(cat "$G")" = "$(printf '[Greeter]\ntheme-name=X\nbackground=/usr/share/backgrounds/kite/login-dusk.jpg\n[Other]\nbackground=keep')"
-sh "$DPR" purge
+check "purge removes what kite-login-theme wrote (both greeters, own picture)" bash -c "[ ! -e '$G' ] && [ ! -e '$T/greeter/slick.conf' ] && [ ! -e '$GS/login-background.jpg' ]"
+mkdir -p "$(dirname "$G")"; printf '[greeter]\nbackground=/x.png\n' > "$G"; sh "$DPR" purge
 check "purge keeps a greeter file someone else wrote" test -s "$G"
-printf '[Greeter]\ntheme-name=X\n[Other]\na=1\n' > "$G"; KITE_GREETER_CONF=$G sh "$LT" frosted >/dev/null
-check "adds it to an existing [Greeter]" test "$(sed -n 3p "$G")" = background=/usr/share/backgrounds/kite/login-frosted.jpg
-check "reports the current one" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'login screen: frosted$'"
-check "rejects unknown names" bash -c "! KITE_GREETER_CONF='$G' sh '$LT' sunset 2>/dev/null"
 check "all three login images ship" bash -c "for l in frosted aurora dusk; do [ -s '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/login-'\$l.jpg ] || exit 1; done"
-check "all three wallpapers ship, Bloom by default" bash -c "for w in bloom aurora waves; do [ -s '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/'\$w.jpg ] || exit 1; done; grep -q 'kite/bloom.jpg' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init'"
-check "greeter default is frosted" grep -q "login-frosted.jpg" "$REPO/packages/kite-desktop/usr/share/glib-2.0/schemas/90_kite-slick-greeter.gschema.override"
+check "all twelve wallpapers ship (1920 x 1200), Bloom by default" bash -c "for w in bloom aurora waves dunes lagoon nightfall horizon mist mirror cabin meadow coast; do [ -s '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/'\$w.jpg ] || exit 1; done; grep -q 'kite/bloom.jpg' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init'"
+check "greeter default is frosted" grep -qx "background=/usr/share/backgrounds/kite/login-frosted.jpg" "$GC"
 check "postinst looks for Brave itself, not the KiteOS wrapper" bash -c "! grep -q '\[ -x /usr/bin/brave-browser-stable \]' '$REPO/packages/kite-desktop/DEBIAN/postinst' && grep -q '/usr/bin/brave-browser-stable.distrib' '$REPO/packages/kite-desktop/DEBIAN/postinst'"
 
 echo "== Brave flags wrapper"

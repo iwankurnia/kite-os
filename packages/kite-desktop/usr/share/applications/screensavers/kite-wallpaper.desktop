@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Desktop wallpaper
+Comment=Show your desktop wallpaper while the screen is locked
+Exec=/usr/lib/kite/desktop/kite-lock-picture
+TryExec=/usr/lib/kite/desktop/kite-lock-picture
+StartupNotify=false
+Terminal=false
+Categories=Screensaver;
+OnlyShowIn=XFCE;

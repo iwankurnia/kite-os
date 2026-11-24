@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- KiteOS avatar "cat": square, with the subject inside the middle circle
+       (the login and lock screens show avatars round) -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffc078"/><stop offset="1" stop-color="#f76707"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#bg)"/>
+  <path d="M70 96 L82 44 L116 80 Z M186 96 L174 44 L140 80 Z" fill="#fff4e6"/>
+  <ellipse cx="128" cy="140" rx="72" ry="64" fill="#fff4e6"/>
+  <ellipse cx="100" cy="132" rx="9" ry="13" fill="#343a40"/>
+  <ellipse cx="156" cy="132" rx="9" ry="13" fill="#343a40"/>
+  <path d="M120 156 L136 156 L128 166 Z" fill="#f783ac"/>
+  <path d="M128 166 C124 176 112 178 106 172 M128 166 C132 176 144 178 150 172" fill="none" stroke="#343a40" stroke-width="4" stroke-linecap="round"/>
+  <path d="M60 150 L92 156 M60 168 L92 166 M196 150 L164 156 M196 168 L164 166" stroke="#ced4da" stroke-width="3" stroke-linecap="round"/>
+</svg>

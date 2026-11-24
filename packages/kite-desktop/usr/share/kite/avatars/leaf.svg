@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- KiteOS avatar "leaf": square, with the subject inside the middle circle
+       (the login and lock screens show avatars round) -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b8f2a0"/><stop offset="1" stop-color="#2e9d68"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#bg)"/>
+  <path d="M70 188 C64 112 118 62 196 60 C198 140 152 192 70 188 Z" fill="#ffffff"/>
+  <path d="M70 188 C108 150 140 116 178 80" fill="none" stroke="#2e9d68" stroke-width="6" stroke-linecap="round"/>
+  <path d="M110 148 L104 116 M134 124 L130 96 M120 136 L150 136 M146 110 L170 112" stroke="#2e9d68" stroke-width="4" stroke-linecap="round"/>
+</svg>

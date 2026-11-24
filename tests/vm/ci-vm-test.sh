@@ -253,7 +253,7 @@ has   "installed: window manager running" 'pgrep -x xfwm4 && echo WM' '^WM$'
 has   "installed: no failed services" 'n=$(systemctl --failed --no-legend --plain | grep -vc serial-getty); echo failed=$n; systemctl --failed --no-legend --plain' 'failed=0'
 lacks "installed: picom not running" 'pgrep -a picom' 'picom'
 has   "installed: hibernation ready" 'grep -o "resume=[^ ]*" /proc/cmdline' 'resume='
-has   "installed: login screen light theme" 'grep -h "^theme-name" /usr/share/glib-2.0/schemas/*slick-greeter*.override' 'Fluent-Light'
+has   "installed: login screen = lightdm-gtk-greeter, KiteOS-Login theme" 'grep -h "^theme-name" /usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf' 'KiteOS-Login'
 vm 'tail -n 80 ~/.xsession-errors 2>/dev/null' 30 > "$OUT/installed-xsession-errors.txt"
 k stop "$VM"
 finish

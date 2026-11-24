@@ -1,23 +1,18 @@
 #!/bin/sh
-# Re-render the PNG artwork from the SVG sources (needs rsvg-convert).
+# Re-render the PNG/JPEG artwork from the SVG sources (needs rsvg-convert and
+# python3-gi with the GdkPixbuf SVG loader).
 set -eu
 cd "$(dirname "$0")"
 P=../packages
 r() { rsvg-convert "$@"; }
-# Full-screen images ship as JPEG (soft gradients make multi-MB PNGs).
-jpg() {  # jpg SVG OUT.jpg
-    rsvg-convert -w 1920 -h 1080 "$1" -o "$2.png"
-    if command -v sips >/dev/null; then sips -s format jpeg -s formatOptions 88 "$2.png" --out "$2" >/dev/null
-    elif command -v magick >/dev/null; then magick "$2.png" -quality 88 "$2"
-    else convert "$2.png" -quality 88 "$2"; fi
-    rm -f "$2.png"
-}
+# Full-screen images (wallpapers, login backgrounds) ship as JPEG, rendered
+# by render-wallpapers.py (soft gradients make multi-MB PNGs).
 mkdir -p $P/kite-desktop/usr/share/backgrounds/kite $P/kite-desktop/usr/share/kite \
          $P/kite-desktop/usr/share/icons/hicolor/scalable/apps $P/kite-desktop/usr/share/icons/hicolor/256x256/apps \
          $P/kite-system/usr/share/kite/plymouth ../live/config/includes.chroot/etc/calamares/branding/kite
 rm -f $P/kite-desktop/usr/share/backgrounds/kite/*
-for w in bloom aurora waves; do jpg wallpaper-$w.svg $P/kite-desktop/usr/share/backgrounds/kite/$w.jpg; done
-for l in frosted aurora dusk; do jpg login-$l.svg $P/kite-desktop/usr/share/backgrounds/kite/login-$l.jpg; done
+# Wallpapers and login backgrounds: 1920 x 1200, sharp on 16:10 monitors too
+python3 render-wallpapers.py $P/kite-desktop/usr/share/backgrounds/kite
 r -w 220 greeter-logo.svg       -o $P/kite-desktop/usr/share/kite/greeter-logo.png
 r -w 256 logo.svg               -o $P/kite-desktop/usr/share/icons/hicolor/256x256/apps/kiteos.png
 cp logo.svg     $P/kite-desktop/usr/share/icons/hicolor/scalable/apps/kiteos.svg

@@ -1,44 +1,72 @@
 #!/bin/sh
-# Choose the login screen background (slick-greeter).
+# Choose the login screen background (lightdm-gtk-greeter).
 #   kite-login-theme                    show the current one and the choices
 #   sudo kite-login-theme frosted|aurora|dusk
-# KiteOS's default (frosted) comes from the greeter's GSettings override;
-# /etc/lightdm/slick-greeter.conf, written here, takes precedence over it.
+#   sudo kite-login-theme /path/to/picture.jpg     your own picture
+# KiteOS's default (frosted) is in /usr/share/lightdm/lightdm-gtk-greeter.conf.d/
+# 50-kite.conf; this writes a file of its own in /etc/lightdm/
+# lightdm-gtk-greeter.conf.d/, which the greeter reads after it. Your own
+# picture is copied to /var/lib/kite, because the greeter cannot read home
+# folders. Settings > Login Screen runs this through pkexec.
 set -eu
-conf=${KITE_GREETER_CONF:-/etc/lightdm/slick-greeter.conf}
+conf=${KITE_GREETER_CONF:-/etc/lightdm/lightdm-gtk-greeter.conf.d/90-kite-login-background.conf}
+store=${KITE_LOGIN_STORE:-/var/lib/kite}
 dir=/usr/share/backgrounds/kite
-marker="# Written by kite-login-theme (removed when kite-desktop is purged)"
+
+need_root() {
+    if [ "$(id -u)" != 0 ] && [ -z "${KITE_GREETER_CONF:-}" ]; then
+        echo "Run it with sudo: sudo kite-login-theme $1" >&2
+        exit 1
+    fi
+}
+
+write_conf() {   # write_conf PICTURE
+    mkdir -p "$(dirname "$conf")"
+    tmp="$conf.kite-tmp"
+    printf '# Written by kite-login-theme (removed when kite-desktop is purged)\n[greeter]\nbackground=%s\n' "$1" > "$tmp"
+    chmod 644 "$tmp"
+    mv "$tmp" "$conf"
+}
 
 case "${1:-}" in
     "")
-        cur=$(sed -n 's#^background=.*/login-\([a-z]*\)\.jpg$#\1#p' "$conf" 2>/dev/null | tail -n1 || true)
-        echo "login screen: ${cur:-frosted (default)}"
-        echo "choices: frosted (light), aurora (dark), dusk (evening)"
+        bg=$(sed -n 's/^background=//p' "$conf" 2>/dev/null | tail -n1 || true)
+        case "$bg" in
+            "") echo "login screen: frosted (default)" ;;
+            "$dir"/login-*.jpg) n=${bg#"$dir"/login-}; echo "login screen: ${n%.jpg}" ;;
+            *) echo "login screen: own picture ($bg)" ;;
+        esac
+        echo "choices: frosted (light), aurora (dark), dusk (evening), or a picture file"
         ;;
     frosted|aurora|dusk)
-        if [ "$(id -u)" != 0 ] && [ -z "${KITE_GREETER_CONF:-}" ]; then
-            echo "Run it with sudo: sudo kite-login-theme $1" >&2
-            exit 1
-        fi
-        line="background=$dir/login-$1.jpg"
-        mkdir -p "$(dirname "$conf")"
-        # Mark a file we create, so purging kite-desktop removes only ours.
-        [ -s "$conf" ] || echo "$marker" > "$conf"
-        tmp="$conf.kite-tmp"
-        # Replace the background in [Greeter], add it there, or add the section.
-        awk -v line="$line" '
-            /^\[/ { if (insec && !done) { print line; done = 1 } insec = ($0 == "[Greeter]") }
-            insec && /^background=/ { if (!done) { print line; done = 1 } next }
-            { print }
-            END {
-                if (insec && !done) { print line; done = 1 }
-                if (!done) { print "[Greeter]"; print line }
-            }' "$conf" > "$tmp"
-        mv "$tmp" "$conf"
+        need_root "$1"
+        write_conf "$dir/login-$1.jpg"
+        rm -f "$store"/login-background.*
         echo "The login screen now uses '$1' (from the next time it appears)."
         ;;
+    -*)
+        echo "usage: kite-login-theme [frosted|aurora|dusk|PICTURE]" >&2
+        exit 2
+        ;;
+    */*|*.jpg|*.jpeg|*.png|*.JPG|*.JPEG|*.PNG)
+        need_root "$1"
+        [ -f "$1" ] && [ -r "$1" ] || { echo "kite-login-theme: cannot read '$1'" >&2; exit 1; }
+        # A picture, by its first bytes, not by its name
+        case "$(head -c 4 -- "$1" | od -An -tx1 | tr -d ' \n')" in
+            ffd8ff*) ext=jpg ;;
+            89504e47) ext=png ;;
+            *) echo "kite-login-theme: '$1' is not a JPEG or PNG picture" >&2; exit 1 ;;
+        esac
+        mkdir -p "$store"
+        chmod 755 "$store"
+        rm -f "$store"/login-background.*
+        cp -- "$1" "$store/login-background.$ext"
+        chmod 644 "$store/login-background.$ext"
+        write_conf "$store/login-background.$ext"
+        echo "The login screen now uses your picture (from the next time it appears)."
+        ;;
     *)
-        echo "usage: kite-login-theme [frosted|aurora|dusk]" >&2
+        echo "usage: kite-login-theme [frosted|aurora|dusk|PICTURE]" >&2
         exit 2
         ;;
 esac

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- "Horizon": a kite over a calm lake at sunrise (light) -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bcd8ff"/><stop offset="0.6" stop-color="#ffd9c2"/><stop offset="1" stop-color="#ffc0a8"/>
+    </linearGradient>
+    <linearGradient id="lake" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6b9a6"/><stop offset="1" stop-color="#7f9cf5"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fffdf5"/><stop offset="0.5" stop-color="#fff3df" stop-opacity="0.85"/><stop offset="1" stop-color="#fff3df" stop-opacity="0"/></radialGradient>
+    <linearGradient id="hill1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8d95e0"/><stop offset="1" stop-color="#6b74cc"/></linearGradient>
+    <linearGradient id="hill2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a7a4e8"/><stop offset="1" stop-color="#8c8ad8"/></linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="960" cy="690" r="260" fill="url(#sun)"/>
+  <path d="M0 700 C220 620 420 640 620 690 C760 724 860 712 960 700 L0 700 Z" fill="url(#hill2)"/>
+  <path d="M960 700 C1160 640 1380 600 1600 650 C1720 676 1820 690 1920 680 L1920 700 Z" fill="url(#hill1)"/>
+  <rect y="700" width="1920" height="380" fill="url(#lake)"/>
+  <g stroke="#ffffff" stroke-linecap="round" opacity="0.55">
+    <path d="M760 760 L1160 760" stroke-width="4"/><path d="M820 800 L1100 800" stroke-width="3"/>
+    <path d="M880 840 L1040 840" stroke-width="3"/><path d="M300 900 L520 900" stroke-width="2"/><path d="M1400 930 L1640 930" stroke-width="2"/>
+  </g>
+  <g transform="translate(1320 300) rotate(12)">
+    <path d="M0 -70 L48 0 L0 96 L-48 0 Z" fill="#2f5bd8"/>
+    <path d="M0 -70 L48 0 L0 0 Z" fill="#5aa9ff"/><path d="M0 0 L-48 0 L0 96 Z" fill="#4a7cf0"/>
+    <path d="M0 96 C-20 140 30 170 0 210 C-26 246 24 270 -6 310" fill="none" stroke="#3b4aa8" stroke-width="4" stroke-linecap="round"/>
+    <path d="M-8 150 l-16 -8 l4 18 Z M10 226 l16 -8 l-4 18 Z" fill="#ff8a65"/>
+  </g>
+</svg>

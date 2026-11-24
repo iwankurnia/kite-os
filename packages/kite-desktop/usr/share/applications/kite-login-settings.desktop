@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Login Screen
+Comment=Your picture and the login screen background
+Exec=kite-login-settings
+Icon=lightdm-settings
+Categories=Settings;DesktopSettings;X-XFCE-SettingsDialog;X-XFCE-PersonalSettings;
+Keywords=login;lock;avatar;picture;photo;profile;background;greeter;
+OnlyShowIn=XFCE;
+Terminal=false
+StartupNotify=true

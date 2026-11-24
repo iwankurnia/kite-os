@@ -71,7 +71,7 @@ check "earlyoom options quoted (one variable, not split)" grep -q '^Environment=
 
 echo "== kite-desktop"
 check "login screen settings valid (strict schema compile)" in_ch glib-compile-schemas --strict --dry-run /usr/share/glib-2.0/schemas
-check "slick-greeter is the greeter" grep -q '^greeter-session=slick-greeter' "$CH/etc/lightdm/lightdm.conf.d/50-kite.conf"
+check "lightdm-gtk-greeter is the greeter" bash -c "grep -q '^greeter-session=lightdm-gtk-greeter' '$CH/etc/lightdm/lightdm.conf.d/50-kite.conf' && [ -f '$CH/usr/share/xgreeters/lightdm-gtk-greeter.desktop' ]"
 check "desktop layout installed (windows only)" bash -c "[ -f '$CH/usr/share/kite/layouts/windows/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' ] && [ ! -e '$CH/usr/share/kite/layouts/mac' ]"
 check "Start menu and app search installed" test -x "$CH/usr/bin/xfce4-popup-whiskermenu" -a -x "$CH/usr/bin/xfce4-appfinder"
 check "keyring unlocks at login (LightDM PAM) and follows password changes" bash -c "grep -q '^-session.*pam_gnome_keyring.so auto_start' '$CH/etc/pam.d/lightdm' && grep -q pam_gnome_keyring '$CH/etc/pam.d/common-password'"
@@ -119,7 +119,7 @@ in_ch kite-login-theme aurora >/dev/null 2>&1 || true
 in_ch apt-get purge -y -q kite-desktop >/dev/null 2>&1 && ok "kite-desktop purged" || bad "kite-desktop purge failed"
 check "Brave gets its own launcher back" test "$(readlink "$CH/usr/bin/brave-browser-stable")" = /opt/brave.com/brave/brave-browser
 check "no diversion left behind" bash -c "[ -z \"\$(chroot '$CH' dpkg-divert --listpackage /usr/bin/brave-browser-stable)\" ]"
-check "purge removes the login screen file kite-login-theme wrote" test ! -e "$CH/etc/lightdm/slick-greeter.conf"
+check "purge removes the login screen file kite-login-theme wrote" test ! -e "$CH/etc/lightdm/lightdm-gtk-greeter.conf.d/90-kite-login-background.conf"
 
 echo
 echo "package tests ($SUITE): $pass passed, $fail failed"

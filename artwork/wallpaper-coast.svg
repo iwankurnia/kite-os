@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- "Coast": a shore at golden hour in orange and teal, low horizon. Original artwork; Unsplash's wallpaper
+       section was the reference for subject and palette only. -->
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b6e8f"/><stop offset="0.5" stop-color="#e39a72"/><stop offset="1" stop-color="#ff9a5a"/></linearGradient>
+  <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e98a5b"/><stop offset="1" stop-color="#2d5f7c"/></linearGradient>
+  <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3c79e"/><stop offset="1" stop-color="#d79a6e"/></linearGradient>
+  <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff4d8"/><stop offset="0.4" stop-color="#ffd59a" stop-opacity="0.9"/><stop offset="1" stop-color="#ffb070" stop-opacity="0"/></radialGradient></defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1300" cy="720" r="240" fill="url(#sun)"/>
+  <rect y="740" width="1920" height="340" fill="url(#sea)"/>
+  <g stroke="#ffe2c2" stroke-linecap="round" opacity="0.6"><path d="M1180 770 L1420 770" stroke-width="4"/><path d="M1220 800 L1380 800" stroke-width="3"/><path d="M1250 830 L1350 830" stroke-width="3"/></g>
+  <path d="M0 880 C380 840 760 900 1100 930 C1400 958 1700 940 1920 920 L1920 1080 L0 1080 Z" fill="url(#sand)"/>
+  <path d="M0 880 C380 840 760 900 1100 930 C1400 958 1700 940 1920 920" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.6"/>
+  <path d="M0 740 L0 610 C60 600 120 640 170 700 L230 740 Z" fill="#26475c"/>
+</svg>

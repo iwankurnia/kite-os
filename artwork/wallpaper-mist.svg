@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- "Mist": layered hazy mountain ranges in cool greys and blues (light). Original artwork; Unsplash's wallpaper
+       section was the reference for subject and palette only. -->
+  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f6fa"/><stop offset="1" stop-color="#dde6ef"/></linearGradient>
+  <linearGradient id="haze" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3f6fa" stop-opacity="0"/><stop offset="1" stop-color="#f3f6fa" stop-opacity="0.7"/></linearGradient></defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1460" cy="300" r="70" fill="#ffffff" opacity="0.85"/>
+  <path d="M-100 600 L151 354 L314 578 L670 379 L853 573 L1192 405 L1354 530 L1537 382 L1822 564 L2178 436 L2020 1080 L-100 1080 Z" fill="#dbe4ed"/>
+  <rect y="540" width="1920" height="160" fill="url(#haze)"/>
+  <path d="M-100 680 L99 530 L260 617 L494 482 L723 654 L984 494 L1254 634 L1533 508 L1693 670 L1952 536 L2199 637 L2020 1080 L-100 1080 Z" fill="#c0cfdc"/>
+  <rect y="620" width="1920" height="160" fill="url(#haze)"/>
+  <path d="M-100 770 L122 658 L286 757 L524 599 L787 765 L974 657 L1129 740 L1254 642 L1478 737 L1633 607 L1882 770 L2131 597 L2020 1080 L-100 1080 Z" fill="#a2b6ca"/>
+  <rect y="710" width="1920" height="160" fill="url(#haze)"/>
+  <path d="M-100 870 L14 723 L142 846 L347 716 L520 845 L631 743 L793 827 L979 719 L1150 861 L1380 714 L1543 865 L1724 739 L1944 840 L2125 733 L2020 1080 L-100 1080 Z" fill="#8299b3"/>
+  <rect y="810" width="1920" height="160" fill="url(#haze)"/>
+  <path d="M-100 980 L48 885 L255 974 L379 912 L490 980 L606 886 L829 955 L974 892 L1158 968 L1263 869 L1438 976 L1543 909 L1762 976 L1938 862 L2039 966 L2020 1080 L-100 1080 Z" fill="#627b97"/>
+
+</svg>

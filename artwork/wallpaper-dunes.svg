@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <!-- "Dunes": layered warm sand dunes under a pale sky (light) -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde9d4"/><stop offset="0.55" stop-color="#f9c9a4"/><stop offset="1" stop-color="#f4a989"/>
+    </linearGradient>
+    <linearGradient id="d1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f3b58c"/><stop offset="1" stop-color="#e08e6d"/></linearGradient>
+    <linearGradient id="d2" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e59a76"/><stop offset="1" stop-color="#c46f5a"/></linearGradient>
+    <linearGradient id="d3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c9745f"/><stop offset="1" stop-color="#9c4f4a"/></linearGradient>
+    <linearGradient id="d4" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a5564f"/><stop offset="1" stop-color="#6f3a45"/></linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fffaf0"/><stop offset="0.6" stop-color="#fff1dc" stop-opacity="0.9"/><stop offset="1" stop-color="#fff1dc" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <circle cx="1340" cy="380" r="220" fill="url(#sun)"/>
+  <path d="M0 640 C320 560 620 600 900 660 C1180 720 1500 610 1920 560 L1920 1080 L0 1080 Z" fill="url(#d1)"/>
+  <path d="M0 760 C260 700 520 690 820 770 C1100 845 1420 760 1920 700 L1920 1080 L0 1080 Z" fill="url(#d2)"/>
+  <path d="M0 880 C340 800 700 860 980 900 C1260 940 1560 860 1920 830 L1920 1080 L0 1080 Z" fill="url(#d3)"/>
+  <path d="M0 990 C380 930 760 980 1120 1000 C1440 1018 1700 970 1920 960 L1920 1080 L0 1080 Z" fill="url(#d4)"/>
+</svg>

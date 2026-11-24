@@ -10,11 +10,18 @@ if [ -n "${undivert:-}" ]; then
     dpkg-divert --package kite-desktop --remove --rename \
         --divert /usr/bin/brave-browser-stable.distrib /usr/bin/brave-browser-stable >/dev/null
 fi
-# The login screen file is ours only if kite-login-theme created it; it
-# points at backgrounds that go with the package.
-greeter_conf=/etc/lightdm/slick-greeter.conf
-if [ "$1" = purge ] && [ -f "$greeter_conf" ] &&
-        head -n1 "$greeter_conf" | grep -q '^# Written by kite-login-theme'; then
-    rm -f "$greeter_conf"
+# Login screen files kite-login-theme wrote (they point at backgrounds that go
+# with the package): its lightdm-gtk-greeter file, your own picture, and the
+# slick-greeter file of kite-desktop before 1.3.0 if it is ours.
+if [ "$1" = purge ]; then
+    for greeter_conf in /etc/lightdm/lightdm-gtk-greeter.conf.d/90-kite-login-background.conf \
+                        /etc/lightdm/slick-greeter.conf; do
+        if [ -f "$greeter_conf" ] &&
+                head -n1 "$greeter_conf" | grep -q '^# Written by kite-login-theme'; then
+            rm -f "$greeter_conf"
+        fi
+    done
+    rm -f /var/lib/kite/login-background.jpg /var/lib/kite/login-background.png
+    rmdir /var/lib/kite 2>/dev/null || true
 fi
 exit 0

@@ -30,7 +30,7 @@ pavucontrol
 xfce4-whiskermenu-plugin
 xfce4-appfinder
 lightdm
-slick-greeter
+lightdm-gtk-greeter
 orchis-gtk-theme
 papirus-icon-theme
 adwaita-icon-theme

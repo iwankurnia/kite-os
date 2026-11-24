@@ -1,0 +1,5 @@
+/* The login screen's GTK theme: Fluent-Light (the desktop's theme) plus the
+   KiteOS login card, which the lock screen shares (the desktop's gtk.css
+   imports the same file). */
+@import url("file:///usr/share/themes/Fluent-Light/gtk-3.0/gtk.css");
+@import url("file:///usr/share/kite/login/kite-login.css");

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- KiteOS avatar "bloom": square, with the subject inside the middle circle
+       (the login and lock screens show avatars round) -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffc8e6"/><stop offset="1" stop-color="#8b7bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#bg)"/>
+  <g transform="translate(128 132)">
+    <g fill="#ffffff" opacity="0.92">
+      <ellipse rx="22" ry="52" transform="rotate(0) translate(0 -46)"/>
+      <ellipse rx="22" ry="52" transform="rotate(60) translate(0 -46)"/>
+      <ellipse rx="22" ry="52" transform="rotate(120) translate(0 -46)"/>
+      <ellipse rx="22" ry="52" transform="rotate(180) translate(0 -46)"/>
+      <ellipse rx="22" ry="52" transform="rotate(240) translate(0 -46)"/>
+      <ellipse rx="22" ry="52" transform="rotate(300) translate(0 -46)"/>
+    </g>
+    <circle r="20" fill="#ffd166"/>
+  </g>
+</svg>

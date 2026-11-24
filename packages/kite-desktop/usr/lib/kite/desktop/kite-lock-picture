@@ -1,0 +1,16 @@
+#!/bin/sh
+# KiteOS screensaver: the desktop wallpaper, still, while the screen is
+# locked, so it matches the picture behind the unlock card (xfce4-screensaver's
+# lock dialog draws the wallpaper too). xfce4-screensaver starts it with
+# XSCREENSAVER_WINDOW set; the stock slideshow does the drawing, from a folder
+# that holds only the wallpaper.
+dir=${XDG_CACHE_HOME:-$HOME/.cache}/kite/lock-picture
+mkdir -p "$dir"
+rm -f "$dir"/*
+# The built-in screen's wallpaper (eDP), else the first one set.
+list=$(xfconf-query -c xfce4-desktop -lv 2>/dev/null | sed -n 's#^\(/backdrop/[^ ]*/last-image\) *#\1 #p')
+img=$(printf '%s\n' "$list" | sed -n 's#^/backdrop/[^ ]*monitoreDP[^ ]*/workspace0/last-image ##p' | head -n1)
+[ -n "$img" ] || img=$(printf '%s\n' "$list" | sed -n 's#^/backdrop/[^ ]* ##p' | head -n1)
+[ -r "$img" ] || img=/usr/share/backgrounds/kite/bloom.jpg
+ln -s "$img" "$dir/wallpaper.${img##*.}"
+exec /usr/libexec/xfce4-screensaver/slideshow --location="$dir" "$@"

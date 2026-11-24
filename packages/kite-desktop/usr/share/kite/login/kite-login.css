@@ -1,0 +1,105 @@
+/* KiteOS login and lock screen: one look for both. lightdm-gtk-greeter (the
+   login screen) and xfce4-screensaver's lock dialog are built from the same
+   widget names (login_box, content_frame, prompt_entry, login_button, ...)
+   under a .lightdm-gtk-greeter node, so these rules style both and nothing
+   else. A frosted card in the middle over the KiteOS login picture; the time
+   in a slim bar along the top. */
+
+/* Behind the card: the greeter draws its configured background (the KiteOS
+   login picture); the lock dialog draws the desktop wallpaper. */
+
+/* The card */
+.lightdm-gtk-greeter #login_window { background: transparent; border: none; box-shadow: none; }
+.lightdm-gtk-greeter #login_box {
+  background-color: rgba(255, 255, 255, 0.78);
+  /* a border, not a shadow: GTK clips a shadow at the edge of the box that
+     holds the card, which leaves square marks at its corners */
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 16px;
+  box-shadow: none;
+  padding: 10px 6px 4px;
+}
+.lightdm-gtk-greeter #content_frame,
+.lightdm-gtk-greeter #buttonbox_frame,
+.lightdm-gtk-greeter #user_image_border {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+.lightdm-gtk-greeter #login_box label { color: #1b1b1b; }
+
+/* Password field (and the login screen's user list): tall and rounded, an
+   accent line when focused */
+.lightdm-gtk-greeter #user_combobox button {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: rgba(255, 255, 255, 0.95);
+  color: #1b1b1b;
+  box-shadow: none;
+}
+.lightdm-gtk-greeter #prompt_entry {
+  min-width: 260px;
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background-color: rgba(255, 255, 255, 0.95);
+  color: #1b1b1b;
+  box-shadow: none;
+}
+.lightdm-gtk-greeter #prompt_entry:focus {
+  border-color: rgba(0, 0, 0, 0.16);
+  box-shadow: inset 0 -2px #0067c0;
+}
+
+/* Buttons: the main one filled in the accent colour, the others quiet */
+.lightdm-gtk-greeter #buttonbox_frame button {
+  min-height: 34px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  background: rgba(255, 255, 255, 0.85);
+  color: #1b1b1b;
+  box-shadow: none;
+  text-shadow: none;
+}
+.lightdm-gtk-greeter #buttonbox_frame button:hover { background: #ffffff; }
+.lightdm-gtk-greeter #buttonbox_frame button#login_button {
+  background: #0067c0;
+  border-color: #0067c0;
+  color: #ffffff;
+}
+.lightdm-gtk-greeter #buttonbox_frame button#login_button:hover { background: #1975c5; }
+.lightdm-gtk-greeter #buttonbox_frame button label { color: inherit; }
+
+/* Messages (wrong password, Caps Lock) inside the card, not a coloured bar */
+.lightdm-gtk-greeter #greeter_infobar,
+.lightdm-gtk-greeter #greeter_infobar > revealer > box {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+.lightdm-gtk-greeter #greeter_infobar label { color: #c42b1c; }
+
+/* Top bar: slim and frosted, date and time in the middle */
+.lightdm-gtk-greeter #panel_window,
+#panel_window.panel {
+  background-color: rgba(255, 255, 255, 0.55);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: none;
+  min-height: 28px;
+}
+.lightdm-gtk-greeter #panel_window label,
+#panel_window.panel label { color: #1b1b1b; font-weight: 500; }
+#panel_window.panel image { color: #1b1b1b; -gtk-icon-effect: none; }
+/* The login screen's bar is a menu bar (clock, power menu) */
+#panel_window menubar,
+#panel_window menubar > menuitem { background: transparent; box-shadow: none; }
+#panel_window menubar > menuitem,
+#panel_window menubar > menuitem label,
+#panel_window menubar > menuitem image { color: #1b1b1b; opacity: 1; -gtk-icon-effect: none; }
+#panel_window menubar > menuitem:hover { background: rgba(0, 0, 0, 0.06); border-radius: 6px; }
+/* The lock screen's host name at the top left: not needed */
+#panel_window.panel > label:first-child { color: transparent; }

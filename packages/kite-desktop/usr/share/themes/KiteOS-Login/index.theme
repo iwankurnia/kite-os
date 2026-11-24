@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=KiteOS Login
+Comment=Fluent-Light with the KiteOS login card; used by the login screen
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=KiteOS-Login

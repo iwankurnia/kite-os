@@ -26,12 +26,19 @@ kite-layout windows
 This replaces the panel, theme and keyboard shortcuts; your files, apps,
 fonts and other settings stay as they are.
 
-**Wallpaper:** KiteOS ships three (Bloom, the default; Aurora; Waves). Open
+**Wallpaper:** KiteOS ships twelve, all 1920 × 1200 (sharp on 16:10 and 16:9
+screens): Bloom (the default), Aurora,
+Waves, Dunes, Lagoon, Nightfall, Horizon, Mist, Mirror, Cabin, Meadow and
+Coast. Open
 **Settings → Desktop** and pick one from `/usr/share/backgrounds/kite` (the
 desktop itself has no right-click menu).
 
-**Login screen:** three backgrounds too. `kite-login-theme` shows the current
-one; `sudo kite-login-theme aurora` (or `frosted`, the default, or `dusk`)
+**Login and lock screen:** both show the same frosted card. Open
+**Settings → Login Screen** to pick your picture (one of eight KiteOS ones or
+your own photo) and the login screen background (Frosted, Aurora, Dusk or
+your own picture). The lock screen shows your desktop wallpaper. From a
+terminal: `kite-login-theme` shows the current background;
+`sudo kite-login-theme aurora` (or `frosted`, `dusk`, or a picture file)
 changes it.
 
 ## Keyboard (ChromeOS habits)

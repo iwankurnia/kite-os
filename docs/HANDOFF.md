@@ -89,6 +89,60 @@ kite-system 1.2.2, branch `laptop-fixes`), not yet released:
   window cannot have round corners (no alpha channel). Its shadow stays: it
   follows `show_frame_shadow`.
 - `border-spacing` is not a GTK 3 CSS property (the tray rule had it; removed).
+- **Login and lock screen, one look.** slick-greeter is replaced by
+  `lightdm-gtk-greeter` (0.6 MB vs 1.8 MB): xfce4-screensaver's lock dialog is
+  built from the same widget names (`login_box`, `content_frame`,
+  `prompt_entry`, `login_button`, `buttonbox_frame`, `panel_window`, under a
+  `.lightdm-gtk-greeter` node), so `/usr/share/kite/login/kite-login.css`
+  styles both: the greeter through the `KiteOS-Login` GTK theme (Fluent-Light
+  + that file), the lock dialog through an `@import` at the end of the
+  desktop's `gtk.css` (a trailing `@import` works in GTK 3). Frosted card
+  with a border (a `box-shadow` gets clipped at the card's holder and leaves
+  square corners). Greeter config: `/usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf`
+  (sorts after Debian's `01_debian.conf`; read order is `/usr/share`, then
+  `/etc/xdg`, then `/etc/lightdm/...conf.d`, last wins). `lightdm --test-mode`
+  previews it in Xephyr, but LightDM clears the greeter's environment: a
+  `greeter-wrapper` script can set `XDG_DATA_DIRS`/`XDG_CONFIG_DIRS`.
+- Lock screen picture: the lock dialog draws the desktop wallpaper of its
+  monitor (`/backdrop/screen0/monitor<name>/workspace0/last-image`), which CSS
+  cannot replace (GtkOverlay draws no CSS background). So the locked screen
+  shows the wallpaper too: screensaver theme `screensavers-kite-wallpaper`
+  (`/usr/lib/kite/desktop/kite-lock-picture`, the stock slideshow on a folder
+  holding only the wallpaper; ~0.6 % CPU, ~80 MB while locked), mode 2 in
+  the skel `xfce4-screensaver.xml`. The dialog is a GtkPlug: to preview it,
+  embed it in a GtkSocket (it prints `WINDOW ID=`).
+- Settings > Login Screen (`kite-login-settings`, Python GTK): your picture
+  (eight KiteOS avatars in `/usr/share/kite/avatars`, or your own; cropped to
+  256 px, `~/.face` + AccountsService `SetIconFile`, no password: the greeter
+  cannot read a 700 home) and the login background (`pkexec
+  kite-login-theme`, polkit action `org.kiteos.login-theme`). kite-login-theme
+  writes `/etc/lightdm/lightdm-gtk-greeter.conf.d/90-kite-login-background.conf`;
+  your own picture is copied to `/var/lib/kite/` (checked by its first bytes).
+  Existing installs keep slick-greeter installed (it was in the ISO list);
+  `sudo apt purge slick-greeter` after updating.
+- **Calamares writes the greeter into `/etc/lightdm/lightdm.conf`**
+  (`greeter-session=`, the first greeter it finds), and LightDM reads that file
+  *after* `lightdm.conf.d`, so it beats `50-kite.conf`. Removing slick-greeter
+  on the device left a blank login screen (the owner reinstalled it from a
+  console). Fixed: `preferred_greeters` in `displaymanager.conf`, and
+  kite-desktop's postinst rewrites that one line on installed systems. Check
+  with `sudo lightdm --show-config | grep greeter-session` before removing a
+  greeter.
+- **Keyring, first login:** the login keyring that PAM *creates* (first login
+  after gnome-keyring is installed) was not published on D-Bus in that
+  session (`/org/freedesktop/secrets/collection/login` listed but "does not
+  exist"), so VS Code said the keyring was unavailable. From the next login it
+  is loaded from disk, unlocked by PAM and published. On a new install that
+  first login is the first session; not worked around yet.
+- Nine new wallpapers next to Bloom, Aurora and Waves: Dunes, Lagoon,
+  Nightfall, Horizon, and (subjects and palettes from Unsplash's wallpaper
+  section, as reference only; the art is original) Mist, Mirror, Cabin, Meadow,
+  Coast. All wallpapers and login backgrounds are 1920 x 1200 now (the owner
+  has a 1920 x 1200 monitor; a 1920 x 1080 picture would be enlarged 11 %
+  there, while 16:9 screens just trim a band of a 16:10 one):
+  `artwork/render-wallpapers.py` renders the 1920 x 1080 SVGs 1200 high and
+  crops the sides around each subject (`FOCUS`). 53-143 KB each, 1.1 MB in
+  all. It uses GdkPixbuf's SVG loader, so it runs without rsvg-convert.
 - Keyring: `gnome-keyring` + `libpam-gnome-keyring` in kite-desktop's Depends
   (10 small packages, nothing always-on: the daemon is socket/D-Bus
   activated). VS Code found no Secret Service at all. Debian's LightDM PAM file

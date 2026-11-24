@@ -2,7 +2,14 @@
 <channel name="xfce4-screensaver" version="1.0">
   <property name="saver" type="empty">
     <property name="enabled" type="bool" value="true"/>
-    <property name="mode" type="int" value="0"/>
+    <!-- 2: one theme, KiteOS's "Desktop wallpaper" (kite-lock-picture), so the
+         locked screen shows the same picture as the unlock card -->
+    <property name="mode" type="int" value="2"/>
+    <property name="themes" type="empty">
+      <property name="list" type="array">
+        <value type="string" value="screensavers-kite-wallpaper"/>
+      </property>
+    </property>
     <property name="idle-activation" type="empty">
       <property name="enabled" type="bool" value="true"/>
       <property name="delay" type="int" value="8"/>

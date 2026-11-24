@@ -6,7 +6,7 @@ built for the **HP Chromebook 11 G8 EE** (board `VORTICON`, Intel Celeron N4020
 
 | | |
 |---|---|
-| **Desktop** | XFCE in a Windows-style layout: Fluent theme, Papirus-Light icons, a taskbar with the Start menu, search and apps on the left. The **Search** key opens the menu; `kite-layout windows` puts the desktop back to the KiteOS defaults. Inter font, three KiteOS wallpapers and three login screens. |
+| **Desktop** | XFCE in a Windows-style layout: Fluent theme, Papirus-Light icons, a taskbar with the Start menu, search and apps on the left. The **Search** key opens the menu; `kite-layout windows` puts the desktop back to the KiteOS defaults. Inter font, twelve KiteOS wallpapers (1920 × 1200, sharp on 16:10 and 16:9 screens), and one look for the login and lock screens (Settings → Login Screen: your picture, the login background). |
 | **Boot and login** | Hidden GRUB menu, KiteOS splash screen (Plymouth, early Intel KMS), LightDM with Slick Greeter on a matching background. |
 | **Hibernation** | A swap file of RAM + half of RAM (at most RAM + 4 GB) is created at install time, and `resume=` / `resume_offset=` are set up automatically. Closing the lid suspends; after 60 min the machine hibernates. It also hibernates on critical battery and after 30 min idle on battery. Hibernate is also in the power menu. |
 | **Low memory** | zswap (zstd-compressed RAM cache in front of the swap file; unlike zram, it works with hibernation), earlyoom to end the biggest browser tab rather than freeze, a small journal, no Recommends and no docs. |

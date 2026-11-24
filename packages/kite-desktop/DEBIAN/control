@@ -6,12 +6,12 @@ Architecture: all
 Maintainer: KiteOS builder <root@localhost>
 Depends: xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, thunar, xfce4-terminal,
  xfce4-power-manager, xfce4-power-manager-plugins, xfce4-pulseaudio-plugin, xfce4-docklike-plugin,
- xfce4-notifyd, xfce4-screensaver, exo-utils, xfce4-whiskermenu-plugin, xfce4-appfinder, lightdm, slick-greeter, orchis-gtk-theme,
+ xfce4-notifyd, xfce4-screensaver, exo-utils, xfce4-whiskermenu-plugin, xfce4-appfinder, lightdm, lightdm-gtk-greeter, accountsservice, orchis-gtk-theme,
  papirus-icon-theme, fonts-inter, fonts-jetbrains-mono, x11-xserver-utils, procps, python3, libspa-0.2-bluetooth, libxcb-shape0,
- gnome-keyring, libpam-gnome-keyring, kite-system
+ gnome-keyring, libpam-gnome-keyring, python3-gi, gir1.2-gtk-3.0, kite-system
 Recommends: fonts-roboto | fonts-dejavu-core, xfce4-taskmanager, brave-browser, onlyoffice-desktopeditors
 Description: KiteOS desktop
  XFCE in a Windows-style layout set up by kite-layout: Fluent theme,
  Papirus-Light icons, a taskbar with the Start menu, search and apps on the
- left. The Search key opens the menu. Wallpapers, LightDM slick-greeter login
- screen and artwork.
+ left. The Search key opens the menu. Wallpapers, the LightDM login screen and
+ lock screen (one look, set in Settings > Login Screen) and artwork.
