@@ -9,6 +9,8 @@
     <property name="use_compositing" type="bool" value="true"/>
     <!-- no drop shadow under the panels -->
     <property name="show_dock_shadow" type="bool" value="false"/>
+    <!-- no shadow under menus either: gtk.css gives them a thin border -->
+    <property name="show_popup_shadow" type="bool" value="false"/>
     <property name="placement_mode" type="string" value="center"/>
     <property name="workspace_count" type="int" value="1"/>
   </property>

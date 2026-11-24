@@ -70,3 +70,23 @@ tooltip * { color: #1d1d1f; }
 /* KiteOS: the kite menu's header buttons (settings, lock, log out) were too
    faint on Qogir; give their symbolic icons the menu bar's text colour. */
 #whiskermenu-window button image { color: #1d1d1f; opacity: 1; -gtk-icon-effect: none; }
+
+/* Tray (volume, systray, notifications, battery): narrow buttons, so the icons
+   sit close together. The ids are the plugin ids in xfce4-panel.xml. */
+#pulseaudio-9 button,
+#systray-6 button,
+#notification-plugin-7 button,
+#power-manager-plugin-14 button {
+  padding: 0 4px;
+  min-width: 0;
+}
+#systray-6 box { border-spacing: 0; }
+
+/* Borders, not shadows: a thin line around menus and pop-overs separates them
+   from the window behind. Pop-up shadows are off here and in xfwm4.xml
+   (show_popup_shadow). No line under the menu bar: xfce4-panel gives both
+   panels the same CSS names, so it would also draw one under the Dock. */
+menu, .menu, window.popup menu { border: 1px solid rgba(0, 0, 0, 0.22); }
+popover, popover.background { border: 1px solid rgba(0, 0, 0, 0.22); }
+.csd.popup decoration, window.popup decoration, menu, .menu, popover,
+#whiskermenu-window, #whiskermenu-window decoration { box-shadow: none; }

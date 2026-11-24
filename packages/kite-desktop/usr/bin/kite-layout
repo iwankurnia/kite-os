@@ -40,7 +40,10 @@ KEY_STYLES = ("chromebook", "standard")
 
 GTK_THEME = {"windows": "Fluent-Light", "mac": "Qogir-Light"}
 FALLBACK_THEME = "Orchis-Light-Compact"     # if the theme is missing
-ICON_THEME = {"windows": "KiteOS-Tray-Windows", "mac": "KiteOS-Tray-Mac"}
+# windows: the standard Papirus-Light icons, tray included (the Start and
+# Search buttons use the kite-*-symbolic icons in hicolor, which fill the
+# button the way the KiteOS tray pack's did).
+ICON_THEME = {"windows": "Papirus-Light", "mac": "KiteOS-Tray-Mac"}
 DECORATION = {"windows": "menu:minimize,maximize,close", "mac": "close,minimize,maximize:menu"}
 # Pinned apps, in order; only the installed ones are pinned. "Install KiteOS"
 # exists only in the live session.

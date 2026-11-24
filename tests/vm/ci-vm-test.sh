@@ -121,7 +121,8 @@ sleep 8; shot 10-live-desktop
 has   "live: windows layout" 'cat ~/.config/kite/layout' '^windows$'
 lacks "live: picom not running" 'pgrep -a picom' 'picom'
 lacks "live: no add-calamares-desktop-icon error" 'cat ~/.xsession-errors 2>/dev/null' 'add-calamares'
-has   "live: panel plugins inside the panel (no wrapper processes)" 'echo wrappers=$(pgrep -c -f "xfce4/panel/wrapper")' 'wrappers=0'
+has   "live: panel plugins in their own processes (wrappers)" 'echo wrappers=$(pgrep -c -f "xfce4/panel/wrapper")' 'wrappers=[1-9]'
+lacks "live: ONLYOFFICE finds all its libraries" 'cd /opt/onlyoffice/desktopeditors && LD_LIBRARY_PATH=$PWD:$PWD/converter ldd DesktopEditors' 'not found'
 has   "live: window keys = standard (not a Chromebook)" 'kite-layout keys' 'standard'
 has   "live: one key per window action" 'python3 - <<"PY"
 import collections, os, xml.etree.ElementTree as E

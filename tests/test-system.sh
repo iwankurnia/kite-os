@@ -16,8 +16,9 @@ echo "== kite-hibernate-setup helpers"
 # shellcheck source=/dev/null
 . "$REPO/packages/kite-system/usr/sbin/kite-hibernate-setup"
 set +e
-check "4 GB machine (3800 MiB visible) -> 4864 MiB swap" test "$(target_swap_mib 3800)" = 4864
-check "8 GB machine -> 9216 MiB swap" test "$(target_swap_mib 8192)" = 9216
+check "4 GB machine (3800 MiB visible) -> 5888 MiB swap (RAM + half)" test "$(target_swap_mib 3800)" = 5888
+check "8 GB machine -> 12288 MiB swap (RAM + 4 GiB)" test "$(target_swap_mib 8192)" = 12288
+check "16 GB machine -> 20480 MiB swap (extra capped at 4 GiB)" test "$(target_swap_mib 16384)" = 20480
 check "never below 2 GiB" test "$(target_swap_mib 512)" = 2048
 
 sample='Filesystem type is: ef53
@@ -108,12 +109,16 @@ check "first login runs only once" grep -qx mac "$LH/home/.config/kite/layout"
 kl windows >/dev/null
 check "switch: windows recorded" grep -qx windows "$LH/home/.config/kite/layout"
 check "windows: one taskbar" bash -c "! grep -q '<property name=\"panel-2\"' '$X/xfce4-panel.xml'"
-check "windows: Fluent theme and tray pack" bash -c "grep -q 'value=\"Fluent-Light\"' '$X/xsettings.xml' && grep -q 'value=\"KiteOS-Tray-Windows\"' '$X/xsettings.xml'"
+check "windows: Fluent theme and Papirus-Light icons" bash -c "grep -q 'value=\"Fluent-Light\"' '$X/xsettings.xml' && grep -q 'value=\"Papirus-Light\"' '$X/xsettings.xml'"
 check "windows: buttons on the right" grep -q 'value="menu:minimize,maximize,close"' "$X/xsettings.xml"
 check "no placeholders left" bash -c "! grep -rq '@[A-Z_]*@' '$LH/home/.config'"
 check "nothing of the mac layout left (its launchers)" test ! -d "$LH/home/.config/xfce4/panel/launcher-4"
-check "panel plugins run inside the panel (force-all-internal, saves RAM)" grep -q 'name="force-all-internal" type="bool" value="true"' "$X/xfce4-panel.xml"
+check "panel plugins run in their own processes (battery + volume crash the panel together)" grep -q 'name="force-all-internal" type="bool" value="false"' "$X/xfce4-panel.xml"
 check "battery on the taskbar" grep -q 'value="power-manager-plugin"' "$X/xfce4-panel.xml"
+check "windows: 36 px taskbar, tray in one row" bash -c "grep -q 'name=\"size\" type=\"uint\" value=\"36\"' '$X/xfce4-panel.xml' && grep -q 'name=\"single-row\" type=\"bool\" value=\"true\"' '$X/xfce4-panel.xml'"
+check "windows: no pop-up shadows (borders instead)" grep -q 'name="show_popup_shadow" type="bool" value="false"' "$X/xfwm4.xml"
+check "windows: Start and Search icons shipped in hicolor" bash -c "grep -qx 'button-icon=kite-start-symbolic' '$LH/home/.config/xfce4/panel/whiskermenu-1.rc' && grep -qx 'Icon=kite-search-symbolic' '$LH/home/.config/xfce4/panel/launcher-2/search.desktop' && test -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg' -a -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg'"
+check "Bluetooth tray applet not hidden for new accounts" test ! -e "$REPO/packages/kite-desktop/etc/skel/.config/autostart/blueman.desktop"
 check "Start menu offers shut down" grep -qx 'show-command-shutdown=true' "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
 check "pins only installed apps, Brave first" grep -qx "pinned=$LH/apps/brave-browser.desktop;$LH/apps/thunar.desktop;$LH/apps/xfce4-terminal.desktop;$LH/apps/kite-apps.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
 check "Start menu favourites: installed apps only" grep -qx "favorites=brave-browser.desktop,thunar.desktop,xfce4-terminal.desktop,kite-apps.desktop" "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"

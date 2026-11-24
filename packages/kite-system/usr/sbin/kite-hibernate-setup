@@ -2,7 +2,8 @@
 # kite-hibernate-setup — make hibernation (suspend-to-disk) work on KiteOS.
 #
 # What it does:
-#   1. Makes sure there is swap space at least as large as RAM (+1 GiB headroom).
+#   1. Makes sure there is swap space for hibernation: RAM plus half of RAM
+#      (at most 4 GiB) for what is already swapped out when it hibernates.
 #      Uses an existing swap partition if it is big enough, otherwise creates
 #      (or grows) /swapfile on the root file system.
 #   2. Points the kernel at it: resume=/resume_offset= on the GRUB command line
@@ -40,7 +41,7 @@ Usage: $PROG [--apply] [--no-update] [--size MiB]
   --apply       Create/resize swap and write the resume configuration (default).
   --no-update   Do not run update-initramfs / update-grub afterwards
                 (the installer regenerates both itself).
-  --size MiB    Swap file size to use instead of RAM + 1 GiB.
+  --size MiB    Swap file size to use instead of RAM + min(RAM / 2, 4 GiB).
   --check       Report whether hibernation is ready; changes nothing.
 EOF
 }
@@ -51,10 +52,14 @@ ram_mib() {
     awk '/^MemTotal:/ { printf "%d\n", $2 / 1024 }' /proc/meminfo
 }
 
-# RAM + 1 GiB, rounded up to a multiple of 256 MiB, never below 2 GiB.
+# RAM + half of RAM (at most 4 GiB), rounded up to a multiple of 256 MiB,
+# never below 2 GiB. RAM + 1 GiB was too little on a 4 GB machine: with 2 GB
+# already in swap, the hibernation image no longer fitted beside it.
 target_swap_mib() {
-    local ram=$1 t
-    t=$(( ram + 1024 ))
+    local ram=$1 t extra
+    extra=$(( ram / 2 ))
+    (( extra > 4096 )) && extra=4096
+    t=$(( ram + extra ))
     t=$(( (t + 255) / 256 * 256 ))
     (( t < 2048 )) && t=2048
     echo "$t"

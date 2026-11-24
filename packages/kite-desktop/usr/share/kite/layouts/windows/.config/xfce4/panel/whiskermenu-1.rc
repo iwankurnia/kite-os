@@ -1,6 +1,6 @@
 favorites=@FAVOURITES@
 button-title=Start
-button-icon=view-app-grid-symbolic
+button-icon=kite-start-symbolic
 show-button-title=false
 show-button-icon=true
 launcher-show-name=true

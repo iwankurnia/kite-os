@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Blueman Applet
-# KiteOS: the Bluetooth tray applet uses ~90 MB of RAM all the time.
-# Open "Bluetooth" from the launcher instead, or delete this file to bring
-# the tray icon back.
-Hidden=true

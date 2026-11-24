@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
   <property name="configver" type="int" value="2"/>
-  <!-- Run every plugin inside the panel process instead of one wrapper
-       process each (saves about 200 MB of RAM; official xfce4-panel option). -->
-  <property name="force-all-internal" type="bool" value="true"/>
+  <!-- Each plugin in its own wrapper process (the X11 default). Inside the
+       panel process (force-all-internal) saves about 200 MB of RAM, but the
+       battery and volume plugins both register a GObject type named
+       ScaleMenuItem, so opening one menu after the other crashed the panel. -->
+  <property name="force-all-internal" type="bool" value="false"/>
   <property name="panels" type="array">
     <value type="int" value="1"/>
     <value type="int" value="2"/>
@@ -96,7 +98,9 @@
       <property name="mixer-command" type="string" value="pavucontrol"/>
     </property>
     <property name="plugin-6" type="string" value="systray">
-      <property name="square-icons" type="bool" value="true"/>
+      <!-- One row, icons only as wide as they are, close together -->
+      <property name="square-icons" type="bool" value="false"/>
+      <property name="single-row" type="bool" value="true"/>
       <property name="icon-size" type="int" value="18"/>
       <property name="symbolic-icons" type="bool" value="true"/>
     </property>

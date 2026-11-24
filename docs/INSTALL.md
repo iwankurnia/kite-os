@@ -13,7 +13,8 @@
    sound, the touchpad and the keyboard work.
 4. Click **Install KiteOS** (first pinned app on the taskbar):
    - **Partitions:** "Erase disk" (ext4 only, which hibernation relies on). No swap
-     partition is needed: the installer creates a swap file of RAM + 1 GB.
+     partition is needed: the installer creates a swap file of RAM + half of RAM (at most
+     RAM + 4 GB).
    - Encryption is offered but **not tested** with hibernation on this device.
    - **Desktop** (after Users, before Summary): pick the **Windows style** or
      **Mac style** layout (you can switch later with `kite-layout`).

@@ -3,5 +3,5 @@ Type=Application
 Name=Search
 Comment=Find and launch applications (Super+R)
 Exec=xfce4-appfinder --collapsed
-Icon=system-search-symbolic
+Icon=kite-search-symbolic
 NoDisplay=true
