@@ -257,6 +257,11 @@ has   "installed: account layout = windows" 'cat ~/.config/kite/layout' '^window
 has   "installed: window manager running" 'pgrep -x xfwm4 && echo WM' '^WM$'
 has   "installed: no failed services" 'n=$(systemctl --failed --no-legend --plain | grep -vc serial-getty); echo failed=$n; systemctl --failed --no-legend --plain' 'failed=0'
 has   "installed: picom animations running" 'pgrep -a picom' 'picom --config /etc/kite/picom.conf'
+# kite-power must start at boot (v1.5.0 lost it to an ordering cycle): it writes the mode.
+has   "installed: kite-power ran at boot (power mode written)" 'cat /run/kite/power' '^(ac|saving)$'
+has   "installed: X server kept in memory (lightdm, no swap)" 'systemctl show lightdm.service -p MemorySwapMax' '^MemorySwapMax=0$'
+has   "installed: window manager + picom kept in memory (kite-ui scope)" 'sleep 20; systemctl show "kite-ui-$(id -u).scope" -p ActiveState -p MemorySwapMax | sort | tr "\n" " "' 'ActiveState=active MemorySwapMax=0'
+has   "installed: MGLRU working-set guard 1 s" 'cat /sys/kernel/mm/lru_gen/min_ttl_ms' '^1000$'
 has   "installed: xfwm4 compositor off while picom runs" "$GUI"' xfconf-query -c xfwm4 -p /general/use_compositing' '^false'
 has   "installed: hibernation ready" 'grep -o "resume=[^ ]*" /proc/cmdline' 'resume='
 has   "installed: login screen = lightdm-gtk-greeter, KiteOS-Login theme" 'grep -h "^theme-name" /usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf' 'KiteOS-Login'

@@ -1,7 +1,11 @@
 [Unit]
 Description=KiteOS power mode (P/E cores, GPU speed, low-end CPU boost on battery)
 Documentation=man:tlp(8)
-After=tlp.service
+# tlp.service runs after multi-user.target (and is wanted by it). Without
+# the explicit After=multi-user.target, the target would order itself after
+# this unit too: an ordering cycle, and systemd drops this unit's boot start
+# (seen in the v1.5.0 VM test).
+After=multi-user.target tlp.service
 ConditionPathExists=/usr/sbin/kite-power
 
 [Service]

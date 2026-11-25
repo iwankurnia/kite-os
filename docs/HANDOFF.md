@@ -229,7 +229,11 @@ kite-desktop 1.4.0, kite-system 1.2.3, kite-storage 1.1.3:
   Wi-Fi power saving, Bluetooth off on unplug when unused, NMI watchdog off,
   60 s write-back. `/usr/sbin/kite-power` (Python, fake-/sys tests) does the
   rest on each power_supply change (`90-kite-power.rules` → oneshot
-  `kite-power.service`, also at boot after tlp.service): Intel hybrid CPUs
+  `kite-power.service`, also at boot after tlp.service; it needs
+  `After=multi-user.target` like tlp.service itself, or multi-user.target
+  orders itself after it and systemd drops the boot start as an ordering
+  cycle: v1.5.0 shipped with that, fixed in kite-system 1.2.4, and the VM
+  test now checks `/run/kite/power` after boot): Intel hybrid CPUs
   (`/sys/devices/cpu_atom/cpus`) get `system.slice AllowedCPUs=<E-cores>`
   (runtime) while saving; i915 `gt_max/boost_freq_mhz` at RPn + 60 % of the
   range (UHD 600: 470 of 650 MHz); `/run/kite/power` = ac / saving / full.

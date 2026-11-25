@@ -432,6 +432,8 @@ check "TLP on battery: PCIe powersupersave, runtime PM, Wi-Fi power saving" bash
 check "TLP: Bluetooth adapter never autosuspended (headphones), off on battery only when unused" bash -c \
     "grep -qx 'USB_EXCLUDE_BTUSB=1' '$TC' && grep -qx 'DEVICES_TO_DISABLE_ON_BAT_NOT_IN_USE=\"bluetooth\"' '$TC'"
 check "TLP is a kite-system dependency (kite-update brings it)" grep -q 'ca-certificates, tlp$' "$REPO/packages/kite-system/DEBIAN/control"
+check "kite-power.service ordered after multi-user.target like tlp.service (no ordering cycle at boot)" \
+    grep -qx 'After=multi-user.target tlp.service' "$REPO/packages/kite-system/usr/lib/systemd/system/kite-power.service"
 check "plug/unplug runs kite-power through systemd" grep -q 'SUBSYSTEM=="power_supply".*systemctl --no-block start kite-power.service' "$REPO/packages/kite-system/usr/lib/udev/rules.d/90-kite-power.rules"
 check "Settings > Battery switches without a password for the person at the laptop" bash -c \
     "grep -q '<allow_active>yes</allow_active>' '$REPO/packages/kite-system/usr/share/polkit-1/actions/org.kiteos.power.policy' && grep -q '/usr/sbin/kite-power' '$REPO/packages/kite-system/usr/share/polkit-1/actions/org.kiteos.power.policy'"
