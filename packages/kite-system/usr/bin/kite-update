@@ -106,8 +106,14 @@ def main(args):
     except Exception as e:  # network, rate limit, no release yet
         print(UNREACHABLE % e, file=sys.stderr)
         return 1
-    todo = plan(release)
     tag = release.get("tag_name", "?")
+    # A new release is published before its build has attached the packages.
+    if not any(a.get("name", "").startswith("kite-") and a.get("name", "").endswith(".deb")
+               for a in release.get("assets", [])):
+        print("KiteOS %s is still being built: its packages are not on the release yet. "
+              "Try again in about half an hour." % tag)
+        return 0
+    todo = plan(release)
     if not todo:
         print("KiteOS is up to date (latest release %s)." % tag)
         return 0

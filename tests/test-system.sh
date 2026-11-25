@@ -687,6 +687,14 @@ def run(fail_on):
     last = err.getvalue().splitlines()[-1]
     assert rc == 1 and last.startswith("Could not reach the KiteOS releases on GitHub: "), (rc, last)
 '
+check "a release still building (no packages yet) says so, not up to date" ku_py '
+import contextlib, io
+release["assets"] = []
+ku.fetch = lambda url, binary=False: __import__("json").dumps(release)
+out = io.StringIO()
+with contextlib.redirect_stdout(out):
+    rc = ku.main(["--check"])
+assert rc == 0 and "still being built" in out.getvalue() and "up to date" not in out.getvalue(), (rc, out.getvalue())'
 check "dropped connection on the checksum list: one plain line, exit 1" ku_py "$ku_drop"'run(".sha256")'
 check "dropped connection on a package: one plain line, exit 1" ku_py "$ku_drop"'run(".deb")'
 
