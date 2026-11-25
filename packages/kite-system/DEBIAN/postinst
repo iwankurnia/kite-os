@@ -20,6 +20,7 @@ case "$1" in
         build_plymouth_theme
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload || true
+            systemd-tmpfiles --create kite-memory.conf >/dev/null 2>&1 || true
             systemctl restart kite-zswap.service || true
             systemctl try-restart earlyoom.service || true
         fi
@@ -27,6 +28,15 @@ case "$1" in
         systemctl enable kite-hibernate-firstboot.service >/dev/null 2>&1 || true
         systemctl enable earlyoom.service >/dev/null 2>&1 || true
         systemctl enable fstrim.timer >/dev/null 2>&1 || true
+        # Power: TLP switches its settings with the charger (its own unit and
+        # udev rule); kite-power adds KiteOS's part at boot and on each switch.
+        systemctl enable tlp.service >/dev/null 2>&1 || true
+        systemctl enable kite-power.service >/dev/null 2>&1 || true
+        if [ -d /run/systemd/system ]; then
+            udevadm control --reload-rules >/dev/null 2>&1 || true
+            systemctl restart tlp.service >/dev/null 2>&1 || true
+            systemctl start kite-power.service >/dev/null 2>&1 || true
+        fi
         # sysctl.d applies at boot; apply now if we are on a live system
         if [ -d /run/systemd/system ]; then
             sysctl -q -p /usr/lib/sysctl.d/60-kite.conf || true

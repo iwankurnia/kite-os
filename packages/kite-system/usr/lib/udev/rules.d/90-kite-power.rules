@@ -1,0 +1,4 @@
+# KiteOS: when the charger is plugged in or out, apply KiteOS's part of the
+# power mode (kite-power; TLP's own rule does the rest). Through systemd,
+# so udev is not kept waiting.
+ACTION=="change", SUBSYSTEM=="power_supply", KERNEL!="hidpp_battery*", RUN+="/usr/bin/systemctl --no-block start kite-power.service"

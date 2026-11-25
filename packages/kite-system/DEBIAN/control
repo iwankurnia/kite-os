@@ -4,9 +4,11 @@ Section: admin
 Priority: optional
 Architecture: all
 Maintainer: KiteOS builder <root@localhost>
-Depends: systemd, initramfs-tools, e2fsprogs, util-linux, plymouth, plymouth-themes, earlyoom, upower, debianutils, kmod, python3, apt, ca-certificates
+Depends: systemd, initramfs-tools, e2fsprogs, util-linux, plymouth, plymouth-themes, earlyoom, upower, debianutils, kmod, python3, apt, ca-certificates, tlp
 Recommends: grub-common
 Description: KiteOS system tuning for low-memory laptops
  Hibernation setup (kite-hibernate-setup), zswap compressed swap cache,
- memory/OOM tuning, small journal, quiet boot with the KiteOS splash, and
- kite-update to install newer KiteOS packages from the GitHub releases.
+ memory/OOM tuning, small journal, quiet boot with the KiteOS splash,
+ kite-update to install newer KiteOS packages from the GitHub releases, and
+ power saving on battery: TLP with KiteOS settings, and kite-power for P/E
+ cores, the Intel GPU and the boost of low-end CPUs.

@@ -89,6 +89,45 @@ in `/etc/keyd/`.
 - Status/diagnosis: `sudo kite-hibernate-setup --check`
 - Hibernating and resuming takes roughly 10–30 s on eMMC.
 
+## Battery
+
+Unplugged, KiteOS saves power on its own; plugged in, everything runs at full
+speed. **Settings → Battery** shows which mode is on and has **Full speed on
+battery** for heavy work away from the charger (it lasts until you switch it
+off or restart; no password needed). While saving power:
+
+- **Processor:** stays at its base speed (no turbo) and its own power
+  management is set to save energy (EPP "power"). **Low-end processors**
+  (no performance/efficiency split and 4 threads or fewer, like the
+  Chromebook's Celeron N4020) keep their boost instead: at its 1.1 GHz base
+  speed the web is too slow, so it may still reach 2.8 GHz for a moment and
+  only leans towards saving energy (EPP "balance_power"). All cores stay on:
+  idle cores sleep by themselves, and switching one off would only make busy
+  moments slower.
+- **Laptops with performance and efficiency cores** (Intel 12th generation
+  and later): system services run on the efficiency cores; your apps may use
+  every core, and the energy setting makes the processor prefer the
+  efficiency cores anyway.
+- **Graphics:** the Intel graphics chip's top speed is lowered to 60 % of its
+  range; video decoding has its own hardware and still plays smoothly.
+- **Drivers and devices:** PCI Express links use their deepest power states,
+  every device's driver may power it down when idle (Wi-Fi, storage
+  controllers, audio, USB controllers), idle USB devices (webcam, card
+  reader, sticks) are suspended, keyboard, touchpad, mouse, audio devices and
+  the Bluetooth adapter excepted, so nothing you touch or hear drops out.
+- **Wi-Fi** sleeps between the access point's beacons. **Bluetooth** is
+  switched off when you unplug if nothing is connected (switch it on in the
+  tray when you need it).
+- **Brave's energy saver** throttles background tabs and frame rates.
+  Window animations stay on.
+- Changed files are written to storage every 60 s instead of 15 s.
+
+Change the details in `/etc/tlp.d/60-kite.conf` (TLP's settings; `sudo
+tlp-stat` shows what is in force; on low-end processors kite-power adds
+`/etc/tlp.d/61-kite-boost.conf`). `kite-power` shows KiteOS's part.
+`ANIMATIONS_ON_BATTERY=0` in `~/.config/kite/display.conf` turns window
+animations off while saving power (shadows stay).
+
 ## Apps on an external disk
 
 Open **App Centre** (a pinned app, or from the menu). The sidebar has four pages
@@ -165,3 +204,11 @@ own changes to files under `/etc` are kept. Log out and in again afterwards.
 - `/etc/kite/display.conf`: "vivid" colours on the built-in screen (1.2× saturation, done by the
   graphics hardware). Change it for yourself with `kite-vivid 1.3`, `kite-vivid off` or `kite-vivid status`.
 - `/usr/lib/systemd/system/earlyoom.service.d/kite.conf`: out-of-memory guard.
+- The desktop is kept in memory when memory runs low, so the pointer and
+  switching between windows stay quick while Brave fills the rest: the X
+  server (`lightdm.service.d/kite-ui.conf`), the window manager and picom
+  (`kite-ui-<uid>.scope`, made at login by `/usr/lib/kite/kite-ui-protect`)
+  are protected from reclaim and never swapped out; the kernel also keeps
+  whatever was used in the last second in memory
+  (`/usr/lib/tmpfiles.d/kite-memory.conf`). The panel is not protected: the
+  apps it starts would inherit the protection.

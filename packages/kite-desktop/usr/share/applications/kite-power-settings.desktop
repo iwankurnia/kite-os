@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Battery
+Comment=Save power on battery, or full speed when you need it
+Exec=kite-power-settings
+Icon=battery
+Categories=Settings;HardwareSettings;X-XFCE-SettingsDialog;X-XFCE-HardwareSettings;
+Keywords=battery;power;saving;energy;performance;speed;
+OnlyShowIn=XFCE;
+Terminal=false
+StartupNotify=true

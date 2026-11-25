@@ -51,6 +51,9 @@ wireplumber
 alsa-utils
 alsa-ucm-conf
 upower
+# Saving power on battery (KiteOS settings in /etc/tlp.d/60-kite.conf; also a
+# kite-system dependency, so kite-update brings it)
+tlp
 earlyoom
 plymouth
 plymouth-themes

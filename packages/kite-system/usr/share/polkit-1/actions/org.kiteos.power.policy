@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Settings > Battery runs kite-power full / auto through pkexec: the
+     person at the laptop may switch between saving power and full speed
+     without a password (as power-profiles-daemon allows); others may not. -->
+<policyconfig>
+  <vendor>KiteOS</vendor>
+  <action id="org.kiteos.power">
+    <description>Switch between saving power and full speed on battery</description>
+    <message>Changing the power mode needs your password</message>
+    <icon_name>battery</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/sbin/kite-power</annotate>
+  </action>
+</policyconfig>

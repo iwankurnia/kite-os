@@ -6,5 +6,6 @@
   "TorDisabled": true,
   "BraveP3AEnabled": false,
   "BraveStatsPingEnabled": false,
-  "HighEfficiencyModeEnabled": true
+  "HighEfficiencyModeEnabled": true,
+  "BatterySaverModeAvailability": 2
 }

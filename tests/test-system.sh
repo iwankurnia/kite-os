@@ -337,6 +337,23 @@ rm "$C/bin/pgrep" "$C/bin/picom"; mkdir -p "$C/sys"
 for t in sed tail id; do ln -sf "$(command -v "$t")" "$C/sys/$t"; done
 rm -f "$C/log"; env PATH="$C/bin:$C/sys" XDG_CONFIG_HOME="$C/cfg" KITE_DISPLAY_CONF=/nonexistent "$(command -v sh)" "$SC" || true
 check "picom missing: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+# On battery, animations stay by default (the owner's choice): picom while
+# saving power too. With ANIMATIONS_ON_BATTERY=0: xfwm4's compositor while
+# saving, picom again once the charger is plugged in.
+printf '#!/bin/sh\necho "picom $*" >> "%s/log"\nexit ${FAKE_PICOM_EXIT:-0}\n' "$C" > "$C/bin/picom"; chmod 755 "$C/bin/picom"
+echo saving > "$C/power"
+rm -f "$C/log"; env PATH="$C/bin:/usr/bin:/bin" XDG_CONFIG_HOME="$C/cfg" XDG_RUNTIME_DIR="$C" KITE_DISPLAY_CONF=/nonexistent KITE_POWER_STATE="$C/power" FAKE_PICOM_EXIT=1 timeout 8 sh "$SC" || true
+check "on battery by default: picom and its animations stay" test "$(tr '\n' '|' < "$C/log")" = "xfwm false|picom --config /etc/kite/picom.conf|xfwm true|"
+check "animations on battery by default (display.conf)" grep -qx 'ANIMATIONS_ON_BATTERY=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
+echo ANIMATIONS_ON_BATTERY=0 > "$C/cfg/kite/display.conf"
+rm -f "$C/log"; env PATH="$C/bin:/usr/bin:/bin" XDG_CONFIG_HOME="$C/cfg" XDG_RUNTIME_DIR="$C" KITE_DISPLAY_CONF=/nonexistent KITE_POWER_STATE="$C/power" timeout 3 sh "$SC" || true
+check "ANIMATIONS_ON_BATTERY=0, saving power: xfwm4's compositor, no picom" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+rm -f "$C/log"
+( sleep 2; echo ac > "$C/power" ) &
+env PATH="$C/bin:/usr/bin:/bin" XDG_CONFIG_HOME="$C/cfg" XDG_RUNTIME_DIR="$C" KITE_DISPLAY_CONF=/nonexistent KITE_POWER_STATE="$C/power" FAKE_PICOM_EXIT=1 timeout 12 sh "$SC" || true
+wait
+check "ANIMATIONS_ON_BATTERY=0, charger plugged in: picom comes back" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|xfwm false|picom --config /etc/kite/picom.conf|xfwm true|"
+rm -f "$C/cfg/kite/display.conf" "$C/bin/picom"
 check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
 # Calm animations: short, a small zoom at most, nothing on resize/maximise
 # (picom stretches the old picture), the taskbar and desktop never move.
@@ -352,6 +369,114 @@ check "taskbar and desktop: no animation, no shadow" grep -q "window_type = 'doc
 check "menus and tooltips: no shadow (gtk.css border), fade only" bash -c \
     "grep -A3 'override_redirect ||' '$PC' | grep -q 'shadow = false' && grep -A3 'override_redirect ||' '$PC' | grep -q 'scale = 1.0'"
 check "Start menu and calendar (panel pop-ups): fade only" bash -c "grep -A2 \"class_g = 'Wrapper-2.0'\" '$PC' | grep -q 'scale = 1.0'"
+
+echo "== kite-power (saving power on battery) and TLP settings"
+KP=$REPO/packages/kite-system/usr/sbin/kite-power
+PW=$T/power; mkdir -p "$PW/run" "$PW/bin"
+kp_py() { KITE_SYS="$PW/sys" KITE_RUN="$PW/run" KITE_TLP_BOOST="$PW/61-kite-boost.conf" PATH="$PW/bin:$PATH" python3 - "$KP" <<KPEOF
+import importlib.machinery, importlib.util, os, sys
+loader = importlib.machinery.SourceFileLoader("kp", sys.argv[1])
+spec = importlib.util.spec_from_loader("kp", loader); kp = importlib.util.module_from_spec(spec); loader.exec_module(kp)
+def supply(name, **files):
+    d = os.path.join(os.environ["KITE_SYS"], "class/power_supply", name); os.makedirs(d, exist_ok=True)
+    for k, v in files.items(): open(os.path.join(d, k), "w").write(v + "\n")
+def reset():
+    import shutil; shutil.rmtree(os.environ["KITE_SYS"], ignore_errors=True)
+    for p in [os.path.join(os.environ["KITE_RUN"], f) for f in ("power", "power-full", "../calls")] + [os.environ["KITE_TLP_BOOST"]]:
+        if os.path.exists(p): os.remove(p)
+def cpus(present, hybrid=False):
+    d = os.environ["KITE_SYS"] + "/devices"; os.makedirs(d + "/system/cpu", exist_ok=True)
+    open(d + "/system/cpu/present", "w").write(present + "\n")
+    if hybrid:
+        os.makedirs(d + "/cpu_atom"); os.makedirs(d + "/cpu_core"); open(d + "/cpu_atom/cpus", "w").write("2-3\n"); open(d + "/cpu_core/cpus", "w").write("0-1\n")
+def calls():
+    p = os.environ["KITE_RUN"] + "/../calls"
+    return open(p).read().splitlines() if os.path.exists(p) else []
+reset()
+$1
+KPEOF
+}
+check "on battery: a laptop battery and no charger online" kp_py \
+    'supply("BAT0", type="Battery", present="1"); supply("AC", type="Mains", online="0"); assert kp.on_battery() and kp.mode() == "saving"'
+check "plugged in: mains, or a USB-C charger" kp_py \
+    'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="1"); assert not kp.on_battery(); reset(); supply("BAT0", type="Battery"); supply("cros-usbpd-charger", type="USB", online="1"); assert not kp.on_battery()'
+check "no battery (desktop, VM), or only a wireless mouse's: plugged-in mode" kp_py \
+    'assert not kp.on_battery(); supply("hidpp_battery_0", type="Battery", scope="Device"); assert kp.mode() == "ac"'
+check "full speed on battery: the flag wins" kp_py \
+    'supply("BAT0", type="Battery"); open(kp.FULL, "w").write("1"); assert kp.mode() == "full"'
+check "P/E cores found from the hybrid PMUs; none on the N4020" kp_py \
+    'assert kp.e_cores() is None; d = os.environ["KITE_SYS"] + "/devices"; os.makedirs(d + "/cpu_atom"); os.makedirs(d + "/cpu_core"); open(d + "/cpu_atom/cpus", "w").write("12-19\n"); open(d + "/cpu_core/cpus", "w").write("0-11\n"); assert kp.e_cores() == "12-19" and kp.cpu_list("0-3,8") == [0, 1, 2, 3, 8]'
+check "Intel GPU capped at 60 % of its range on battery (UHD 600: 200-650 MHz -> 470)" kp_py \
+    'assert kp.gpu_cap(200, 650) == 470'
+printf '#!/bin/sh\necho "$*" >> "%s/calls"\n' "$PW" > "$PW/bin/systemctl"; chmod 755 "$PW/bin/systemctl"
+check "apply on battery: mode written, services on E-cores, GPU capped" kp_py \
+    'supply("BAT0", type="Battery"); d = os.environ["KITE_SYS"]; os.makedirs(d + "/devices/cpu_atom"); os.makedirs(d + "/devices/cpu_core"); open(d + "/devices/cpu_atom/cpus", "w").write("12-19"); open(d + "/devices/cpu_core/cpus", "w").write("0-11"); g = d + "/class/drm/card0"; os.makedirs(g); [open(g + "/" + n, "w").write(v) for n, v in (("gt_RPn_freq_mhz", "200"), ("gt_RP0_freq_mhz", "650"), ("gt_max_freq_mhz", "650"), ("gt_boost_freq_mhz", "650"))]; kp.apply(); assert open(kp.STATE).read().strip() == "saving"; assert open(g + "/gt_max_freq_mhz").read() == "470" and open(g + "/gt_boost_freq_mhz").read() == "470"; assert "set-property --runtime system.slice AllowedCPUs=12-19" in open(os.environ["KITE_RUN"] + "/../calls").read()'
+check "apply plugged in: every core, GPU full range" kp_py \
+    'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="1"); d = os.environ["KITE_SYS"]; os.makedirs(d + "/devices/cpu_atom"); os.makedirs(d + "/devices/cpu_core"); open(d + "/devices/cpu_atom/cpus", "w").write("12-19"); open(d + "/devices/cpu_core/cpus", "w").write("0-11"); g = d + "/class/drm/card0"; os.makedirs(g); [open(g + "/" + n, "w").write(v) for n, v in (("gt_RPn_freq_mhz", "200"), ("gt_RP0_freq_mhz", "650"), ("gt_max_freq_mhz", "470"), ("gt_boost_freq_mhz", "470"))]; kp.apply(); assert open(kp.STATE).read().strip() == "ac" and open(g + "/gt_max_freq_mhz").read() == "650"; assert open(os.environ["KITE_RUN"] + "/../calls").read().splitlines()[-1].endswith("AllowedCPUs=")'
+printf '#!/bin/sh\necho "tlp $*" >> "%s/calls"\n' "$PW" > "$PW/bin/tlp"; chmod 755 "$PW/bin/tlp"
+check "low-end CPU (N4020: 2 CPUs, no P/E cores): boost kept on battery, once" kp_py \
+    'cpus("0-1"); supply("BAT0", type="Battery"); assert kp.low_end(); kp.apply(); t = open(kp.BOOST_CONF).read(); assert "CPU_BOOST_ON_BAT=1" in t and "CPU_HWP_DYN_BOOST_ON_BAT=1" in t and "CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power" in t and "2 logical CPUs" in t; assert calls() == ["tlp start"], calls(); kp.apply(); assert calls() == ["tlp start"], calls()'
+check "low-end CPU at full speed: TLP's plugged-in settings stay (tlp ac)" kp_py \
+    'cpus("0-3"); supply("BAT0", type="Battery"); open(kp.FULL, "w").write("1"); kp.apply(); assert os.path.exists(kp.BOOST_CONF) and calls() == ["tlp ac"], calls()'
+check "other CPUs (8 CPUs, or P/E cores): no boost on battery, drop-in removed" kp_py \
+    'cpus("0-7"); open(kp.BOOST_CONF, "w").write("x"); assert not kp.low_end(); kp.apply(); assert not os.path.exists(kp.BOOST_CONF) and calls() == ["tlp start"]; reset(); cpus("0-3", hybrid=True); assert not kp.low_end(); kp.apply(); assert not os.path.exists(kp.BOOST_CONF) and "tlp start" not in calls()'
+check "unknown CPU count: left alone" kp_py \
+    'assert kp.cpu_count() == 0 and not kp.low_end() and not kp.tune_boost()'
+check "kite-system purge removes the boost drop-in" grep -q 'rm -f /etc/tlp.d/61-kite-boost.conf' "$REPO/packages/kite-system/DEBIAN/postrm"
+check "kite-power full/auto need root" bash -c "! KITE_RUN='$PW/run' python3 '$KP' full 2>/dev/null || [ \"\$(id -u)\" = 0 ]"
+TC=$REPO/packages/kite-system/etc/tlp.d/60-kite.conf
+check "TLP on battery: energy policy power, no turbo, no dynamic boost" bash -c \
+    "grep -qx 'CPU_ENERGY_PERF_POLICY_ON_BAT=power' '$TC' && grep -qx 'CPU_BOOST_ON_BAT=0' '$TC' && grep -qx 'CPU_HWP_DYN_BOOST_ON_BAT=0' '$TC'"
+check "TLP on battery: PCIe powersupersave, runtime PM, Wi-Fi power saving" bash -c \
+    "grep -qx 'PCIE_ASPM_ON_BAT=powersupersave' '$TC' && grep -qx 'RUNTIME_PM_ON_BAT=auto' '$TC' && grep -qx 'WIFI_PWR_ON_BAT=on' '$TC'"
+check "TLP: Bluetooth adapter never autosuspended (headphones), off on battery only when unused" bash -c \
+    "grep -qx 'USB_EXCLUDE_BTUSB=1' '$TC' && grep -qx 'DEVICES_TO_DISABLE_ON_BAT_NOT_IN_USE=\"bluetooth\"' '$TC'"
+check "TLP is a kite-system dependency (kite-update brings it)" grep -q 'ca-certificates, tlp$' "$REPO/packages/kite-system/DEBIAN/control"
+check "plug/unplug runs kite-power through systemd" grep -q 'SUBSYSTEM=="power_supply".*systemctl --no-block start kite-power.service' "$REPO/packages/kite-system/usr/lib/udev/rules.d/90-kite-power.rules"
+check "Settings > Battery switches without a password for the person at the laptop" bash -c \
+    "grep -q '<allow_active>yes</allow_active>' '$REPO/packages/kite-system/usr/share/polkit-1/actions/org.kiteos.power.policy' && grep -q '/usr/sbin/kite-power' '$REPO/packages/kite-system/usr/share/polkit-1/actions/org.kiteos.power.policy'"
+check "Brave's energy saver on battery (policy)" python3 -c "import json, sys; sys.exit(0 if json.load(open('$REPO/packages/kite-desktop/etc/brave/policies/managed/kite.json')).get('BatterySaverModeAvailability') == 2 else 1)"
+
+echo "== desktop kept in memory (kite-ui-protect, Xorg, MGLRU)"
+UP=$REPO/packages/kite-desktop/usr/lib/kite/kite-ui-protect
+U=$T/uiprot; mkdir -p "$U/bin" "$U/proc"
+me=$(id -u)
+mkproc() {      # pid, program, cgroup
+    mkdir -p "$U/proc/$1"; ln -sfn "$2" "$U/proc/$1/exe"; echo "0::$3" > "$U/proc/$1/cgroup"
+}
+mkproc 101 /usr/bin/xfwm4 "/user.slice/user-$me.slice/session-2.scope"
+mkproc 102 /usr/bin/picom "/user.slice/user-$me.slice/session-2.scope"
+mkproc 103 /opt/brave.com/brave/brave "/user.slice/user-$me.slice/session-2.scope"
+mkproc 104 /usr/bin/picom "/user.slice/user-$me.slice/kite-ui-$me.scope"
+mkproc 105 /tmp/xfwm4 "/user.slice/user-$me.slice/session-2.scope"
+mkproc 106 /usr/bin/xfwm4 "/user.slice/user-4242.slice/session-3.scope"; chown 4242 "$U/proc/106"
+printf '#!/bin/sh\n[ "$1" = is-active ] && exit ${FAKE_ACTIVE:-1}\nexit 0\n' > "$U/bin/systemctl"
+printf '#!/bin/sh\necho "$*" >> "%s/calls"\n[ "$5" = StartTransientUnit ] && exit ${FAKE_START_EXIT:-0}\nexit 0\n' "$U" > "$U/bin/busctl"
+chmod 755 "$U/bin/systemctl" "$U/bin/busctl"
+up() { rm -f "$U/calls"; env PATH="$U/bin:/usr/bin:/bin" KITE_PROC="$U/proc" PKEXEC_UID="$me" "$@" sh "$UP"; }
+up; check "the caller's xfwm4 and picom go into a protected scope (no swap); Brave, renamed programs, other users' and already moved ones do not" \
+    test "$(cat "$U/calls")" = "call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager StartTransientUnit ssa(sv)a(sa(sv)) kite-ui-$me.scope fail 5 PIDs au 2 101 102 Slice s user-$me.slice Description s KiteOS desktop kept in memory (window manager, compositor) MemoryLow t 134217728 MemorySwapMax t 0 0"
+up FAKE_ACTIVE=0; check "scope already there (picom restarted): attached" \
+    test "$(cat "$U/calls")" = "call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager AttachProcessesToUnit ssau kite-ui-$me.scope  2 101 102"
+up FAKE_START_EXIT=1; check "two calls at login race: the loser attaches" \
+    test "$(tail -n1 "$U/calls" | cut -d' ' -f5-6)" = "AttachProcessesToUnit ssau"
+rm -rf "$U/proc/101" "$U/proc/102"; up; check "nothing to move: no systemd call" test ! -e "$U/calls"
+check "kite-ui-protect only through pkexec" bash -c "! env -u PKEXEC_UID sh '$UP' 2>/dev/null && ! PKEXEC_UID='0 1' sh '$UP' 2>/dev/null"
+check "polkit: no password at the laptop, nobody else" bash -c \
+    "p='$REPO/packages/kite-desktop/usr/share/polkit-1/actions/org.kiteos.ui-protect.policy'; grep -q '<allow_active>yes</allow_active>' \"\$p\" && grep -q '<allow_any>no</allow_any>' \"\$p\" && grep -q '<allow_inactive>no</allow_inactive>' \"\$p\" && grep -q '>/usr/lib/kite/kite-ui-protect<' \"\$p\""
+D=$REPO/packages/kite-desktop/usr/lib/systemd/system
+check "X server (pointer) kept in memory: lightdm.service protected, no swap, and its slice passes it on" bash -c \
+    "grep -qx 'MemoryLow=256M' '$D/lightdm.service.d/kite-ui.conf' && grep -qx 'MemorySwapMax=0' '$D/lightdm.service.d/kite-ui.conf' && grep -qx 'MemoryLow=256M' '$D/system.slice.d/kite-ui.conf'"
+check "user slices pass on the desktop scope's 128 MiB" bash -c \
+    "grep -qx 'MemoryLow=128M' '$D/user.slice.d/kite-ui.conf' && grep -qx 'MemoryLow=128M' '$D/user-.slice.d/kite-ui.conf' && grep -q 'low=\$((128 \* 1024 \* 1024))' '$UP'"
+printf '#!/bin/sh\necho protect >> "%s/protect"\n' "$U" > "$U/bin/protect-ui"; chmod 755 "$U/bin/protect-ui"
+printf '#!/bin/sh\nexit 0\n' > "$U/bin/xfconf-query"; printf '#!/bin/sh\nexec sleep 30\n' > "$U/bin/picom"; chmod 755 "$U/bin/xfconf-query" "$U/bin/picom"
+rm -f "$U/protect"; env PATH="$U/bin:/usr/bin:/bin" XDG_RUNTIME_DIR="$U" KITE_DISPLAY_CONF=/nonexistent KITE_POWER_STATE=/nonexistent KITE_PROTECT_UI="$U/bin/protect-ui" timeout 5 sh "$SC" || true
+sleep 1; pkill -f "^sleep 30$" || true
+check "start-compositor asks for the protection at login and after picom starts" test "$(wc -l < "$U/protect")" -eq 2
+check "MGLRU on with a 1 s working-set guard (as on ChromeOS)" bash -c \
+    "grep -qx 'w- /sys/kernel/mm/lru_gen/enabled - - - - y' '$REPO/packages/kite-system/usr/lib/tmpfiles.d/kite-memory.conf' && grep -qx 'w- /sys/kernel/mm/lru_gen/min_ttl_ms - - - - 1000' '$REPO/packages/kite-system/usr/lib/tmpfiles.d/kite-memory.conf'"
+check "kite-desktop depends on pkexec" grep -q 'procps, pkexec,' "$REPO/packages/kite-desktop/DEBIAN/control"
 
 echo "== kite-tasks (Task Manager)"
 KT=$REPO/packages/kite-desktop/usr/bin/kite-tasks

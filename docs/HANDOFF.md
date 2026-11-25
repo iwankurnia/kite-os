@@ -219,6 +219,67 @@ kite-desktop 1.4.0, kite-system 1.2.3, kite-storage 1.1.3:
   rules (every duration < 0.16 s, scale ≥ 0.96, no geometry trigger).
 - `kite-layout windows` / `keys` with picom running leave xfwm4's compositor
   off (the layout's xfwm4.xml says `use_compositing` true for the fallback).
+- **Saving power on battery** (after 6cf3296; owner's choices: TLP + KiteOS
+  settings, strong saving with a way out, services on E-cores, all cores
+  kept on). kite-system depends on Debian's **tlp 1.8.0**;
+  `/etc/tlp.d/60-kite.conf` on battery: EPP `power`, turbo and HWP dynamic
+  boost off, platform profile low-power, PCIe ASPM powersupersave, runtime PM
+  auto, USB autosuspend (TLP itself skips usbhid input devices, audio,
+  printers; KiteOS also skips btusb so Bluetooth audio does not drop),
+  Wi-Fi power saving, Bluetooth off on unplug when unused, NMI watchdog off,
+  60 s write-back. `/usr/sbin/kite-power` (Python, fake-/sys tests) does the
+  rest on each power_supply change (`90-kite-power.rules` → oneshot
+  `kite-power.service`, also at boot after tlp.service): Intel hybrid CPUs
+  (`/sys/devices/cpu_atom/cpus`) get `system.slice AllowedCPUs=<E-cores>`
+  (runtime) while saving; i915 `gt_max/boost_freq_mhz` at RPn + 60 % of the
+  range (UHD 600: 470 of 650 MHz); `/run/kite/power` = ac / saving / full.
+  **Low-end CPUs keep their boost on battery** (owner, 2026-11-25: 1.1 GHz
+  is not enough for the web): no P/E split and ≤ 4 logical CPUs
+  (`/sys/devices/system/cpu/present`; the N4020 has 2) → kite-power writes
+  `/etc/tlp.d/61-kite-boost.conf` (BOOST_ON_BAT=1, HWP_DYN_BOOST_ON_BAT=1,
+  EPP balance_power) and re-runs `tlp start` once (first boot on that CPU;
+  `tlp ac` if at full speed); other CPUs get it removed; postrm removes it.
+  `kite-power full` (TLP's manual AC mode, `tlp ac`, + a flag in /run) and
+  `auto` (`tlp start`) are behind Settings → Battery (`kite-power-settings`,
+  polkit `org.kiteos.power`, allow_active yes). `start-compositor` is now a
+  loop: picom on battery too by default (owner, 2026-11-25:
+  `ANIMATIONS_ON_BATTERY=1` in display.conf); with `ANIMATIONS_ON_BATTERY=0`
+  xfwm4's compositor while saving (checked every 5 s), picom again plugged
+  in or at full speed; one
+  copy per session (flock), and after each picom start it re-sets
+  `_GTK_FRAME_EXTENTS` on open windows: picom 12.5 checks rules on windows
+  open at its start before reading their properties, and neither its
+  SIGUSR1 reset nor waiting fixes Brave's pale box; re-setting the property
+  does (measured). Brave policy `BatterySaverModeAvailability: 2`.
+  kite-desktop depends on x11-utils (xprop). **Only the device can confirm**
+  that the N4020's intel_pstate offers EPP (HWP), the real discharge rates
+  and that nothing (Wi-Fi, Bluetooth audio, the touchpad) misbehaves with
+  the deeper power states; the checks are in INSTALL.md's list. Tried in
+  the container: kite-power with no battery, the compositor switch both ways
+  with Brave open (no pale box), Settings → Battery; pkexec is not there.
+- **Desktop kept in memory** (owner, 2026-11-25: the pointer and moving
+  between apps must not lag when memory is low). The X server lives in
+  lightdm.service (lightdm spawns it; the session has its own scope):
+  drop-in `MemoryLow=256M`, `MemorySwapMax=0`, and `system.slice` gets
+  `MemoryLow=256M` because protection is handed down the tree. xfwm4 and
+  picom live in the session scope with every app, and the user manager may
+  not move processes out of a logind scope (common ancestor
+  user-<uid>.slice is root's), so `/usr/lib/kite/kite-ui-protect` (root via
+  pkexec, polkit `org.kiteos.ui-protect`, allow_active yes, any/inactive no)
+  moves the caller's own `/usr/bin/xfwm4` and `/usr/bin/picom` (exe checked,
+  nothing from argv) into `kite-ui-<uid>.scope` (StartTransientUnit in
+  user-<uid>.slice, MemoryLow 128 MiB, MemorySwapMax 0; AttachProcesses
+  when it exists or the login race is lost); `user.slice.d` and
+  `user-.slice.d` pass the 128 MiB down. `start-compositor` runs
+  `protect-ui` (waits ≤ 30 s for xfwm4, then pkexec) at login and after each
+  picom start. Not protected on purpose: xfce4-panel, xfdesktop,
+  xfsettingsd, xfce4-session, as apps started from them inherit the cgroup.
+  An xfwm4 respawned by xfce4-session is unprotected until the next picom
+  start or login. kite-system adds MGLRU with `min_ttl_ms=1000`
+  (tmpfiles, ChromeOS's thrashing guard: shared library pages charged to
+  other cgroups stay in memory while used). Tested with fake /proc, busctl
+  and systemctl only; **only the device can confirm** the cgroup values and
+  the feel under pressure (INSTALL.md list).
 - **Task Manager, compact and flatter** (after 77102ba, owner's requests):
   opens at 720 x 500 (was 980 x 640, really 980 x 691 because of the graph
   heights), 16 px icons and tight rows, smaller paddings, graphs and figures

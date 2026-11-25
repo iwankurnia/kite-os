@@ -1,0 +1,13 @@
+#!/bin/sh
+# Ask kite-ui-protect (root, through pkexec, no password) to keep this
+# session's window manager and compositor in memory. Started by
+# start-compositor at login and after each picom start; at login it waits up
+# to 30 s for xfce4-session to start xfwm4.
+helper=${KITE_UI_PROTECT:-/usr/lib/kite/kite-ui-protect}
+[ -x "$helper" ] && command -v pkexec >/dev/null 2>&1 || exit 0
+i=0
+while [ "$i" -lt 30 ] && ! pgrep -u "$(id -u)" -x xfwm4 >/dev/null 2>&1; do
+    sleep 1
+    i=$((i + 1))
+done
+exec pkexec "$helper"

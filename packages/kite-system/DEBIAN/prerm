@@ -3,11 +3,16 @@ set -e
 # Only on removal: an upgrade keeps the units and postinst enables them again.
 # earlyoom and fstrim.timer belong to other packages and stay as they are.
 if [ "$1" = remove ]; then
-    for unit in kite-zswap.service kite-hibernate-firstboot.service; do
+    for unit in kite-zswap.service kite-hibernate-firstboot.service kite-power.service; do
         systemctl disable "$unit" >/dev/null 2>&1 || true
         if [ -d /run/systemd/system ]; then
             systemctl stop "$unit" >/dev/null 2>&1 || true
         fi
     done
+    # kite-power may have kept services on the E-cores (until the next boot
+    # anyway): every core again.
+    if [ -d /run/systemd/system ]; then
+        systemctl set-property --runtime system.slice AllowedCPUs= >/dev/null 2>&1 || true
+    fi
 fi
 exit 0

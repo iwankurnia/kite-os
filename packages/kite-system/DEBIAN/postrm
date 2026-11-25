@@ -4,6 +4,8 @@ case "$1" in
     remove|purge)
         update-alternatives --remove default.plymouth /usr/share/plymouth/themes/kite/kite.plymouth >/dev/null 2>&1 || true
         rm -rf /usr/share/plymouth/themes/kite
+        # kite-power's boost drop-in for low-end CPUs (written at boot)
+        rm -f /etc/tlp.d/61-kite-boost.conf
         ;;
 esac
 if [ "$1" = purge ]; then

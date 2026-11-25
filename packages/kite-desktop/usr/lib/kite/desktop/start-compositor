@@ -3,12 +3,27 @@
 # session. If picom is missing, switched off (ANIMATIONS=0 in display.conf)
 # or exits for any reason (bad config, GPU without GLX), xfwm4's compositor
 # is switched back on, so the desktop never loses transparency and shadows.
+#
+# picom also runs on battery (the owner's choice, ANIMATIONS_ON_BATTERY=1,
+# the default). With ANIMATIONS_ON_BATTERY=0 in display.conf, xfwm4's
+# compositor takes over while KiteOS saves power (/run/kite/power says
+# "saving", written by kite-power): shadows stay, no animations, a little
+# less work for the CPU and GPU; picom comes back when the charger is plugged
+# in or "Full speed on battery" is switched on (checked every 5 s).
+#
+# It also keeps xfwm4 and each picom it starts in memory when memory runs low
+# (protect-ui → kite-ui-protect: a protected systemd scope, no swap).
 conf=${KITE_PICOM_CONF:-/etc/kite/picom.conf}
+state=${KITE_POWER_STATE:-/run/kite/power}
+protect=${KITE_PROTECT_UI:-/usr/lib/kite/desktop/protect-ui}
 animations=1
+battery_animations=1
 for f in "${KITE_DISPLAY_CONF:-/etc/kite/display.conf}" "${XDG_CONFIG_HOME:-$HOME/.config}/kite/display.conf"; do
     [ -r "$f" ] || continue
     v=$(sed -n 's/^[[:space:]]*ANIMATIONS[[:space:]]*=[[:space:]]*\([01]\).*/\1/p' "$f" | tail -n1)
     [ -n "$v" ] && animations=$v
+    v=$(sed -n 's/^[[:space:]]*ANIMATIONS_ON_BATTERY[[:space:]]*=[[:space:]]*\([01]\).*/\1/p' "$f" | tail -n1)
+    [ -n "$v" ] && battery_animations=$v
 done
 
 xfwm() { xfconf-query -c xfwm4 -p /general/use_compositing -s "$1" 2>/dev/null; }
@@ -18,13 +33,49 @@ xfwm() { xfconf-query -c xfwm4 -p /general/use_compositing -s "$1" 2>/dev/null; 
 if pgrep -u "$(id -u)" -x picom >/dev/null 2>&1; then
     exit 0
 fi
+lock=${XDG_RUNTIME_DIR:-/tmp}/kite-compositor-$(id -u).lock
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$lock"
+    flock -n 9 || exit 0
+fi
+
+protect_ui() { [ -x "$protect" ] && "$protect" >/dev/null 2>&1; }
+(exec 9>&-; protect_ui) &               # xfwm4 at login, picom or not
 
 if [ "$animations" != 1 ] || ! command -v picom >/dev/null 2>&1; then
     xfwm true
     exit 0
 fi
-xfwm false
-picom --config "$conf"
-status=$?
-xfwm true
-exit $status
+
+use_picom() { [ "$battery_animations" = 1 ] || [ "$(cat "$state" 2>/dev/null)" != saving ]; }
+
+# picom 12.5 checks its rules on windows that are already open before it has
+# read their properties, so an app that draws its own frame (Brave) would get
+# picom's shadow round its invisible margin. Setting _GTK_FRAME_EXTENTS again
+# (same value) makes picom check that window again.
+nudge() {
+    [ -n "${DISPLAY:-}" ] && command -v xprop >/dev/null 2>&1 || return 0
+    for w in $(xprop -root _NET_CLIENT_LIST 2>/dev/null | grep -o '0x[0-9a-f]*'); do
+        v=$(xprop -id "$w" _GTK_FRAME_EXTENTS 2>/dev/null | sed -n 's/^_GTK_FRAME_EXTENTS(CARDINAL) = //p')
+        [ -n "$v" ] && xprop -id "$w" -f _GTK_FRAME_EXTENTS 32c -set _GTK_FRAME_EXTENTS "$v" 2>/dev/null
+    done
+}
+
+while :; do
+    if use_picom; then
+        xfwm false
+        picom --config "$conf" 9>&- &
+        pid=$!
+        (exec 9>&-; sleep 2; nudge; protect_ui) &
+        while kill -0 "$pid" 2>/dev/null && use_picom; do sleep 5; done
+        if kill -0 "$pid" 2>/dev/null; then
+            kill "$pid"; wait "$pid" 2>/dev/null
+            continue                    # saving power now: xfwm4's compositor below
+        fi
+        wait "$pid"; status=$?
+        xfwm true                       # picom ended by itself: xfwm4's from now on
+        exit $status
+    fi
+    xfwm true
+    while ! use_picom; do sleep 5; done
+done

@@ -1,0 +1,12 @@
+[Unit]
+Description=KiteOS power mode (P/E cores, GPU speed, low-end CPU boost on battery)
+Documentation=man:tlp(8)
+After=tlp.service
+ConditionPathExists=/usr/sbin/kite-power
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/kite-power apply
+
+[Install]
+WantedBy=multi-user.target

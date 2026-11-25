@@ -1,0 +1,60 @@
+#!/bin/sh
+# Keep the desktop's own drawing in memory when memory runs low. Runs as root
+# through pkexec (polkit action org.kiteos.ui-protect: no password for the
+# person at the laptop), started by /usr/lib/kite/desktop/protect-ui at login
+# and after each picom start.
+#
+# The caller's window manager (xfwm4: switching, moving and drawing windows)
+# and compositor (picom: animations, shadows) go into kite-ui-<uid>.scope,
+# where MemoryLow= keeps them from being reclaimed while anything else can be
+# and MemorySwapMax=0 keeps them out of swap; so the desktop stays quick when
+# Brave fills the memory, instead of waiting for its pieces to come back from
+# swap on the eMMC. Only these two: the panel, the desktop icons and the
+# session start the apps, which would inherit the protection. Xorg (the
+# pointer) is protected the same way in lightdm.service
+# (lightdm.service.d/kite-ui.conf). The scope ends when the session does.
+#
+# Only processes of the calling user whose program is /usr/bin/xfwm4 or
+# /usr/bin/picom are moved; nothing is taken from the command line.
+set -u
+uid=${PKEXEC_UID:-}
+case $uid in
+    ''|*[!0-9]*) echo "kite-ui-protect: run it through pkexec" >&2; exit 1 ;;
+esac
+proc=${KITE_PROC:-/proc}
+unit=kite-ui-$uid.scope
+low=$((128 * 1024 * 1024))      # protected from reclaim: up to 128 MiB
+
+pids=
+for p in "$proc"/[0-9]*; do
+    [ -d "$p" ] || continue
+    [ "$(stat -c %u "$p" 2>/dev/null)" = "$uid" ] || continue
+    case $(readlink "$p/exe" 2>/dev/null) in
+        /usr/bin/xfwm4|/usr/bin/picom) ;;
+        *) continue ;;
+    esac
+    grep -q "/$unit\$" "$p/cgroup" 2>/dev/null && continue     # already there
+    pids="$pids ${p##*/}"
+done
+[ -n "$pids" ] || exit 0
+# shellcheck disable=SC2086  # one argument per PID
+set -- $pids
+
+sd() {
+    busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 \
+        org.freedesktop.systemd1.Manager "$@" >/dev/null
+}
+attach() { sd AttachProcessesToUnit ssau "$unit" "" $# "$@"; }
+
+if systemctl is-active --quiet "$unit"; then
+    attach "$@"
+else
+    # Two calls at login may race: the second one attaches instead.
+    sd StartTransientUnit 'ssa(sv)a(sa(sv))' "$unit" fail 5 \
+        PIDs au $# "$@" \
+        Slice s "user-$uid.slice" \
+        Description s "KiteOS desktop kept in memory (window manager, compositor)" \
+        MemoryLow t "$low" \
+        MemorySwapMax t 0 \
+        0 2>/dev/null || attach "$@"
+fi

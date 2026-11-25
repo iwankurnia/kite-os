@@ -1,0 +1,125 @@
+#!/usr/bin/python3
+"""Settings > Battery: whether KiteOS saves power on battery, and a switch
+for full speed on battery (kite-power full / auto through pkexec; polkit
+action org.kiteos.power lets the person at the laptop do it without a
+password). The switch lasts until it is switched off or the laptop restarts.
+"""
+import os
+import subprocess
+import sys
+
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import GLib, Gtk  # noqa: E402
+
+STATE = os.environ.get("KITE_POWER_STATE", "/run/kite/power")
+BOOST = os.environ.get("KITE_TLP_BOOST", "/etc/tlp.d/61-kite-boost.conf")
+KP = "/usr/sbin/kite-power"
+
+TEXT = {
+    "ac": ("Plugged in", "Full speed. KiteOS saves power when you unplug."),
+    "saving": ("On battery: saving power", "Everything below is in force."),
+    "full": ("On battery: full speed", "Power saving is off until you switch it back or restart."),
+}
+CPU_SAVING = "The processor stays at its base speed (no turbo) and prefers to save energy."
+CPU_LOW_END = ("The processor keeps its boost, as a low-end processor needs it for the web, "
+               "and leans towards saving energy.")
+SAVING = [
+    None,                       # CPU_SAVING or CPU_LOW_END, see cpu_line()
+    "On laptops with performance and efficiency cores, system services run on the efficiency cores.",
+    "The graphics chip's top speed is lowered; video still plays smoothly.",
+    "Wi-Fi, PCI Express links and idle devices (webcam, card reader, USB) sleep when not in use.",
+    "Bluetooth is switched off when you unplug, if nothing is connected.",
+    "Brave's energy saver runs: background tabs and video frame rates are throttled.",
+    "The screen dims and the laptop sleeps sooner when idle (Power Manager settings).",
+]
+
+
+def cpu_line():
+    """kite-power writes TLP's boost drop-in on low-end CPUs (the N4020)."""
+    return CPU_LOW_END if os.path.exists(BOOST) else CPU_SAVING
+
+
+def mode():
+    try:
+        with open(STATE) as f:
+            m = f.read().strip()
+        return m if m in TEXT else "ac"
+    except OSError:
+        return "ac"
+
+
+class Window(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Battery")
+        self.set_icon_name("battery")
+        self.set_default_size(520, -1)
+        self.set_resizable(False)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin=16)
+        self.add(box)
+        self.title = Gtk.Label(xalign=0)
+        self.sub = Gtk.Label(xalign=0, wrap=True)
+        self.sub.get_style_context().add_class("dim-label")
+        box.pack_start(self.title, False, False, 0)
+        box.pack_start(self.sub, False, False, 0)
+        row = Gtk.Box(spacing=12, margin_top=6)
+        lab = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        lab.pack_start(Gtk.Label(label="Full speed on battery", xalign=0), False, False, 0)
+        note = Gtk.Label(label="For heavy work away from the charger. Until you switch it off or restart.",
+                         xalign=0, wrap=True, max_width_chars=48)
+        note.get_style_context().add_class("dim-label")
+        lab.pack_start(note, False, False, 0)
+        row.pack_start(lab, True, True, 0)
+        self.switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.switch.connect("notify::active", self.on_switch)
+        row.pack_end(self.switch, False, False, 0)
+        box.pack_start(row, False, False, 0)
+        box.pack_start(Gtk.Separator(margin_top=4), False, False, 0)
+        head = Gtk.Label(xalign=0)
+        head.set_markup("<b>Saving power on battery</b>")
+        box.pack_start(head, False, False, 0)
+        for line in SAVING:
+            item = Gtk.Label(label="•  " + (line or cpu_line()), xalign=0, wrap=True, max_width_chars=64)
+            box.pack_start(item, False, False, 0)
+        self.busy = False
+        self.refresh()
+        GLib.timeout_add_seconds(3, self.refresh)
+
+    def refresh(self):
+        m = mode()
+        t, s = TEXT[m]
+        self.title.set_markup("<span size='large' weight='600'>%s</span>" % GLib.markup_escape_text(t))
+        self.sub.set_text(s)
+        if not self.busy:
+            self.busy = True                    # no "notify::active" round trip
+            self.switch.set_active(m == "full")
+            self.busy = False
+        return True
+
+    def on_switch(self, sw, _param):
+        if self.busy:
+            return
+        want = "full" if sw.get_active() else "auto"
+        try:
+            r = subprocess.run(["pkexec", KP, want], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.PIPE, timeout=120)
+            ok = r.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        if not ok:
+            self.busy = True
+            sw.set_active(not sw.get_active())
+            self.busy = False
+        self.refresh()
+
+
+def main():
+    w = Window()
+    w.connect("destroy", Gtk.main_quit)
+    w.show_all()
+    Gtk.main()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

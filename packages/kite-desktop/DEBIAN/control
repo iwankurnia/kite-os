@@ -7,7 +7,7 @@ Maintainer: KiteOS builder <root@localhost>
 Depends: xfce4-session, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings, xfconf, thunar, xfce4-terminal,
  xfce4-power-manager, xfce4-power-manager-plugins, xfce4-pulseaudio-plugin, kite-docklike,
  xfce4-notifyd, xfce4-screensaver, exo-utils, xfce4-whiskermenu-plugin, xfce4-appfinder, lightdm, lightdm-gtk-greeter, accountsservice, orchis-gtk-theme,
- papirus-icon-theme, fonts-inter, fonts-jetbrains-mono, x11-xserver-utils, procps, python3, libspa-0.2-bluetooth, libxcb-shape0,
+ papirus-icon-theme, fonts-inter, fonts-jetbrains-mono, x11-xserver-utils, x11-utils, procps, pkexec, python3, libspa-0.2-bluetooth, libxcb-shape0,
  gnome-keyring, libpam-gnome-keyring, python3-gi, python3-gi-cairo, gir1.2-gtk-3.0, picom, kite-system
 Recommends: fonts-roboto | fonts-dejavu-core, brave-browser, onlyoffice-desktopeditors
 Description: KiteOS desktop
