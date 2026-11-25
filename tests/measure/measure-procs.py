@@ -18,7 +18,7 @@ def group(comm):
         return "Brave"
     if c in ("DesktopEditors", "editors", "editors_helper", "x2t") or c.startswith("onlyoffice"):
         return "ONLYOFFICE"
-    if c.startswith(("xfwm4", "xfce4-", "xfdesktop", "xfsettingsd", "xfconfd", "Thunar", "panel-", "wrapper-2.0", "rofi")):
+    if c.startswith(("xfwm4", "picom", "xfce4-", "xfdesktop", "xfsettingsd", "xfconfd", "Thunar", "panel-", "wrapper-2.0", "rofi")):
         return "Desktop (XFCE)"
     if c.startswith(("pipewire", "wireplumber")):
         return "Audio"

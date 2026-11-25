@@ -8,6 +8,8 @@ mate-polkit
 network-manager-applet
 xfce4-session
 xfwm4
+# Compositor with animations (start-compositor); xfwm4's is the fallback
+picom
 xfce4-panel
 xfdesktop4
 xfce4-settings
@@ -19,7 +21,9 @@ xfce4-pulseaudio-plugin
 xfce4-notifyd
 xfce4-screensaver
 xfce4-screenshooter
-xfce4-docklike-plugin
+# Taskbar: KiteOS's patched docklike (scripts/build-patched.sh, in place of
+# Debian's xfce4-docklike-plugin, which it replaces)
+kite-docklike
 exo-utils
 thunar
 thunar-volman

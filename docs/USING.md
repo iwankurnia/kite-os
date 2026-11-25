@@ -12,6 +12,15 @@ the right. Fluent theme, Papirus-Light icons.
 - **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
   Right-click an app to pin or unpin it.
 - Lock the screen with **Search + L**.
+- **Animations:** windows fade in and out with a slight zoom; the Start menu,
+  calendar and menus just fade. They are short on purpose, and resizing,
+  maximising and tiling stay instant. To turn them off (XFCE's own compositor
+  keeps the shadows), put `ANIMATIONS=0` in `~/.config/kite/display.conf`
+  and log in again.
+- **Window previews:** point at an app on the taskbar to see its windows
+  (also when it has only one); click one to switch to it, or use its ×,
+  which shows while you point at that window.
+- **Music and video** open in **VLC**.
 - **Passwords saved by apps** (VS Code, Brave, Git credential helpers) go into
   the GNOME keyring, which your login password unlocks when you log in; no
   extra password prompt. If you change your password with `passwd`, the

@@ -121,7 +121,9 @@ wait_desktop || die "live desktop did not come up"
 log "live desktop up"
 sleep 8; shot 10-live-desktop
 has   "live: windows layout" 'cat ~/.config/kite/layout' '^windows$'
-lacks "live: picom not running" 'pgrep -a picom' 'picom'
+has   "live: picom animations running" 'pgrep -a picom' 'picom --config /etc/kite/picom.conf'
+has   "live: xfwm4 compositor off while picom runs" "$GUI"' xfconf-query -c xfwm4 -p /general/use_compositing' '^false'
+has   "live: VLC plays audio and video by default" "$GUI"' echo "$(xdg-mime query default video/mp4) $(xdg-mime query default audio/mpeg) $(command -v vlc)"' '^vlc.desktop vlc.desktop /usr/bin/vlc$'
 lacks "live: no add-calamares-desktop-icon error" 'cat ~/.xsession-errors 2>/dev/null' 'add-calamares'
 has   "live: panel plugins in their own processes (wrappers)" 'echo wrappers=$(pgrep -c -f "xfce4/panel/wrapper")' 'wrappers=[1-9]'
 lacks "live: ONLYOFFICE finds all its libraries" 'cd /opt/onlyoffice/desktopeditors && LD_LIBRARY_PATH=$PWD:$PWD/converter ldd DesktopEditors' 'not found'
@@ -254,7 +256,8 @@ sleep 8; shot 51-desktop
 has   "installed: account layout = windows" 'cat ~/.config/kite/layout' '^windows$'
 has   "installed: window manager running" 'pgrep -x xfwm4 && echo WM' '^WM$'
 has   "installed: no failed services" 'n=$(systemctl --failed --no-legend --plain | grep -vc serial-getty); echo failed=$n; systemctl --failed --no-legend --plain' 'failed=0'
-lacks "installed: picom not running" 'pgrep -a picom' 'picom'
+has   "installed: picom animations running" 'pgrep -a picom' 'picom --config /etc/kite/picom.conf'
+has   "installed: xfwm4 compositor off while picom runs" "$GUI"' xfconf-query -c xfwm4 -p /general/use_compositing' '^false'
 has   "installed: hibernation ready" 'grep -o "resume=[^ ]*" /proc/cmdline' 'resume='
 has   "installed: login screen = lightdm-gtk-greeter, KiteOS-Login theme" 'grep -h "^theme-name" /usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf' 'KiteOS-Login'
 vm 'tail -n 80 ~/.xsession-errors 2>/dev/null' 30 > "$OUT/installed-xsession-errors.txt"

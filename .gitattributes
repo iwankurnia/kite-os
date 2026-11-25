@@ -1,0 +1,3 @@
+# Patch files keep a diff's own spacing (a space before tab-indented
+# context lines, blank context lines); not whitespace errors.
+*.patch -whitespace

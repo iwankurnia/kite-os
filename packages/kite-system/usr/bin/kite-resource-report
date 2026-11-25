@@ -38,7 +38,7 @@ group_of() {
         brave*|chrome_crashpad*) echo "Brave" ;;
         DesktopEditors|editors|editors_helper|x2t|onlyoffice*) echo "ONLYOFFICE" ;;
         Xorg|Xwayland) echo "Display server (Xorg)" ;;
-        xfwm4|xfce4-*|xfdesktop|xfsettingsd|xfconfd|Thunar|thunar|panel-*|wrapper-2.0) echo "Desktop (XFCE)" ;;
+        xfwm4|picom|xfce4-*|xfdesktop|xfsettingsd|xfconfd|Thunar|thunar|panel-*|wrapper-2.0) echo "Desktop (XFCE)" ;;
         lightdm|slick-greeter|lightdm-*) echo "Login manager" ;;
         pipewire*|wireplumber|pulseaudio) echo "Audio" ;;
         NetworkManager|wpa_supplicant|nm-applet|ModemManager|bluetoothd|blueman*) echo "Network & Bluetooth" ;;

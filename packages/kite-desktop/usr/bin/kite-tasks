@@ -41,7 +41,7 @@ AUTOSTART_USER = os.environ.get("KITE_AUTOSTART_USER") or os.path.join(
 # Desktop processes: they launch apps, so a walk up the parents stops at them;
 # ending them would break the session, so they cannot be ended here.
 DESKTOP_SHELL = {"systemd", "(sd-pam)", "xfce4-session", "xfce4-panel", "wrapper-2.0", "xfsettingsd",
-                 "xfdesktop", "xfwm4", "xfconfd", "lightdm", "Xorg", "X", "dbus-daemon", "dbus-broker",
+                 "xfdesktop", "xfwm4", "picom", "start-composito", "xfconfd", "lightdm", "Xorg", "X", "dbus-daemon", "dbus-broker",
                  "at-spi-bus-laun", "at-spi2-registr", "gnome-keyring-d", "Xsession", "startxfce4"}
 INTERPRETERS = ("python", "perl", "ruby", "node", "sh", "bash", "dash")
 # Startup entries KiteOS needs: settings and keyboard shortcuts, password

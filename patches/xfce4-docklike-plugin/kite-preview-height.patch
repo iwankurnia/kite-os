@@ -1,0 +1,123 @@
+Description: Fixed-height window previews in the taskbar pop-up
+ New setting previewHeight (pixels, 0 = off, the default): every window
+ preview in the pop-up is that high and as wide as the window's shape gives,
+ between 4:3 and 2.2:1 of the height (very narrow and very wide windows still
+ get a tidy tile). Each tile is then as wide as its preview: the title gives
+ up its fixed 26-character width and is shortened to fit. The preview's box is
+ set from the window's size when the pop-up opens, so tiles do not change size
+ when the first preview arrives. With previewHeight 0 nothing changes
+ (previewScale as before).
+ .
+ The pop-up window also gets the style class "docklike-popup", so a theme
+ can give it a background (its box draws none) without touching other
+ pop-up windows.
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-25
+---
+--- a/src/GroupMenu.cpp
++++ b/src/GroupMenu.cpp
+@@ -18,6 +18,7 @@
+ create_window()
+ {
+ 	GtkWidget* window = gtk_window_new(GtkWindowType::GTK_WINDOW_POPUP);
++	gtk_style_context_add_class(gtk_widget_get_style_context(window), "docklike-popup");
+ 	gtk_widget_add_events(window, GDK_SCROLL_MASK);
+ 	gtk_window_set_default_size(GTK_WINDOW(window), 1, 1);
+ #ifdef ENABLE_WAYLAND
+--- a/src/GroupMenuItem.cpp
++++ b/src/GroupMenuItem.cpp
+@@ -14,6 +14,18 @@
+ 
+ static GtkTargetEntry entries[1] = {{(gchar*)"any", 0, 0}};
+ 
++// previewHeight (pixels, 0 = off): every preview is that high, as wide as the
++// window's shape gives, but at least 4:3 and at most 2.2:1 of the height, so
++// very narrow and very wide windows still get a tidy tile. The tile is as wide
++// as its preview; the title is shortened to fit.
++static void previewBox(int winWidth, int winHeight, int* boxWidth, int* boxHeight)
++{
++	int height = Settings::previewHeight;
++	int width = winHeight > 0 ? (int)((double)winWidth * height / winHeight) : height * 16 / 9;
++	*boxHeight = height;
++	*boxWidth = CLAMP(width, height * 4 / 3, height * 22 / 10);
++}
++
+ GroupMenuItem::GroupMenuItem(GroupWindow* groupWindow)
+ {
+ 	mGroupWindow = groupWindow;
+@@ -58,6 +70,20 @@
+ 	gtk_grid_attach(mGrid, GTK_WIDGET(mPreview), 0, 1, 3, 1);
+ 	gtk_widget_set_visible(GTK_WIDGET(mPreview), Settings::showPreviews);
+ 
++	if (Settings::previewHeight > 0)
++	{
++		// The title takes the width the preview gives instead of 26 characters,
++		// and the preview's box is set from the window's size at once, so the
++		// tile has its final size before the first preview is drawn.
++		gtk_label_set_width_chars(mLabel, 1);
++		gtk_label_set_max_width_chars(mLabel, 1);
++		gtk_widget_set_hexpand(GTK_WIDGET(mLabel), TRUE);
++		GdkRectangle* geometry = xfw_window_get_geometry(mGroupWindow->mXfwWindow);
++		int boxWidth, boxHeight;
++		previewBox(geometry ? geometry->width : 0, geometry ? geometry->height : 0, &boxWidth, &boxHeight);
++		gtk_widget_set_size_request(GTK_WIDGET(mPreview), boxWidth, boxHeight);
++	}
++
+ 	if (Xfw::getActiveWindow() == mGroupWindow->mXfwWindow)
+ 		Help::Gtk::cssClassAdd(GTK_WIDGET(mItem), "active_menu_item");
+ 
+@@ -184,9 +210,19 @@
+ 			if (pixbuf != nullptr)
+ 			{
+ 				gint scale_factor = gtk_widget_get_scale_factor(GTK_WIDGET(mPreview));
++				int pixWidth = gdk_pixbuf_get_width(pixbuf);
++				int pixHeight = gdk_pixbuf_get_height(pixbuf);
++				if (Settings::previewHeight > 0 && pixWidth > 0 && pixHeight > 0)
++				{
++					// Fit the window into its box, keeping its shape.
++					int boxWidth, boxHeight;
++					previewBox(pixWidth, pixHeight, &boxWidth, &boxHeight);
++					scale = MIN((double)boxWidth / pixWidth, (double)boxHeight / pixHeight);
++					gtk_widget_set_size_request(GTK_WIDGET(mPreview), boxWidth, boxHeight);
++				}
+ 				scale *= scale_factor;
+ 				thumbnail = gdk_pixbuf_scale_simple(pixbuf,
+-					gdk_pixbuf_get_width(pixbuf) * scale, gdk_pixbuf_get_height(pixbuf) * scale, GDK_INTERP_BILINEAR);
++					MAX(1, (int)(pixWidth * scale)), MAX(1, (int)(pixHeight * scale)), GDK_INTERP_BILINEAR);
+ 				cairo_surface_t* surface = gdk_cairo_surface_create_from_pixbuf(thumbnail, scale_factor, NULL);
+ 
+ 				gtk_image_set_from_surface(mPreview, surface);
+--- a/src/Settings.cpp
++++ b/src/Settings.cpp
+@@ -40,6 +40,7 @@
+ 	State<int> dockSize;
+ 	State<double> previewScale;
+ 	State<int> previewSleep;
++	State<int> previewHeight;
+ 
+ 	void init()
+ 	{
+@@ -259,6 +260,12 @@
+ 				g_key_file_set_integer(mFile.get(), "user", "previewSleep", _previewSleep);
+ 				saveFile();
+ 			});
++
++		previewHeight.setup(g_key_file_get_integer(file, "user", "previewHeight", nullptr),
++			[](int _previewHeight) -> void {
++				g_key_file_set_integer(mFile.get(), "user", "previewHeight", _previewHeight);
++				saveFile();
++			});
+ 	}
+ 
+ 	void finalize()
+--- a/src/Settings.hpp
++++ b/src/Settings.hpp
+@@ -56,6 +56,7 @@
+ 	extern State<int> dockSize;
+ 	extern State<double> previewScale;
+ 	extern State<int> previewSleep;
++	extern State<int> previewHeight;
+ }; // namespace Settings
+ 
+ #endif // SETTINGS_HPP

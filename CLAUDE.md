@@ -25,6 +25,7 @@ tests/vm/kitevm.py --help             # drive a QEMU test VM (boot, click, type,
 
 ## Layout
 - `packages/kite-*`: the four KiteOS .deb packages (system, chromebook, desktop, storage), built by `scripts/build-packages.sh`
+- `patches/<package>/`: KiteOS patches to Debian packages, built by `scripts/build-patched.sh` under a kite-* name (kite-docklike = xfce4-docklike-plugin with fixed-height previews)
 - `live/`: live-build config: package lists, hooks, Calamares config and branding, boot menu theme
 - `artwork/`: SVG sources; `render.sh` renders PNGs
 - `tests/`: unit tests, VM driver (`tests/vm`), measurement helpers (`tests/measure`)

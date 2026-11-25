@@ -190,9 +190,118 @@ kite-system 1.2.2, branch `laptop-fixes`), released as **v1.4.0** the same day:
 Layout files reach an account only at first login or on `kite-layout windows`, so
 `kite-update` alone does not change an existing desktop.
 
+## Changes on 2026-11-25 (Windows laptop, not released yet)
+
+kite-desktop 1.4.0, kite-system 1.2.3, kite-storage 1.1.3:
+
+- **Animations are back: xfwm4 + picom** (owner's call). The owner first asked
+  for Compiz; a full port was built and tried in a Debian 13 container
+  (gtk-window-decorator drawing Fluent-Light's Metacity theme, keys mapped
+  from xfwm4's, xfwm4 fallback), then he chose xfwm4 + picom instead. None of
+  the Compiz work is in the repository. Worth knowing if it comes up again:
+  Compiz used ~125 MB (with its decorator) against xfwm4's 66 MB under
+  software OpenGL, Fluent's Metacity theme centres titles (`x=` of each
+  `<title>`, both the `version="< 3.1"` and `">= 3.1"` ones), and the
+  decorator needs `librsvg2-common` for the theme's SVG buttons.
+- picom 12.5 setup is the 1.2.x one brought back (`start-compositor` from
+  `/etc/X11/Xsession.d/46kite-compositor` and XDG autostart; xfwm4's
+  compositor off while picom runs, back on when picom is missing, exits or
+  `ANIMATIONS=0` in `/etc/kite/display.conf` or `~/.config/kite/display.conf`),
+  with a new `/etc/kite/picom.conf` for the windows layout. The owner asked
+  that the animations "not look weird": windows fade in/out with a 96 % zoom
+  in 0.15/0.12 s (also minimise/restore); panel pop-ups (`Wrapper-2.0`: Start
+  menu, calendar) and notifications only fade; menus and tooltips fade in
+  0.08 s with no shadow; the taskbar and desktop never move and have no
+  shadow; **no `geometry` animation** (picom stretches the window's old
+  picture while it resizes, maximises or tiles, which looked wrong);
+  full-screen windows are unredirected. Shadows follow xfwm4.xml's rules
+  (none under the taskbar or menus). Tests in `test-system.sh` hold those
+  rules (every duration < 0.16 s, scale ≥ 0.96, no geometry trigger).
+- `kite-layout windows` / `keys` with picom running leave xfwm4's compositor
+  off (the layout's xfwm4.xml says `use_compositing` true for the fallback).
+- **VLC** on the ISO (Debian, no Recommends; VA-API through
+  intel-media-va-driver) and the default for audio and video files
+  (`/etc/xdg/mimeapps.list`). It is in the ISO list only, not a kite-desktop
+  Depends (an app, like Brave): existing installs need `sudo apt install vlc`.
+- picom is a kite-desktop Depends, so `kite-update` brings it; it starts at
+  the next login with no `kite-layout` run needed.
+- **picom backend xrender, not glx.** With glx, a taskbar started while
+  picom ran (`kite-layout windows`/`keys`, a panel crash) stayed invisible
+  until picom restarted, every time; not a config issue (a bare `backend =
+  "glx"` did it), not damage tracking (`use-damage = false` did not help),
+  not `xrender-sync-fence` or `glx-no-rebind-pixmap`; egl is missing
+  `EGL_KHR_image_pixmap` under Mesa's software GL and is experimental. xrender
+  showed the taskbar every time and draws the same animations; on the device
+  X's glamor runs it on the GPU (measure CPU there).
+- **Shadows matched to xfwm4's by measurement**: under xrender picom's
+  shadows came out ~1/3 as strong as glx's; radius 22, opacity 0.70, a 3 px
+  drop gives 48/37/23/11/3 levels darker at 3/6/10/15/20 px below a window
+  against xfwm4's 50/39/26/12/2.
+- **Taskbar window pop-up, Windows 11 style** (owner's design steps): a light
+  grey card (`#ececec`) so the often white previews stand out, rounded 8 px
+  and with a shadow by a picom rule (GTK cannot: no alpha channel), plain
+  tiles grey on hover, the close button only on the hovered window, titles
+  never bold or italic ("KiteOS Plain", `/etc/fonts/conf.d/45-kite-plain.conf`:
+  Inter at regular weight whatever is asked; docklike writes `<b>`/`<i>`
+  markup that CSS cannot undo), also for apps with one window
+  (`noWindowsListIfSingle=false`). Previews a fixed 120 px high, width from
+  the window's shape between 160 and 264 px, each tile as wide as its
+  preview: that needed a patch to docklike (below). GTK gives the pop-up
+  window no `popup` class, so `window.popup …` rules never matched; the patch
+  gives it `.docklike-popup`.
+- **kite-docklike**: Debian's xfce4-docklike-plugin 0.4.3-1 with
+  `patches/xfce4-docklike-plugin/kite-preview-height.patch` (new setting
+  `previewHeight`; the pop-up's style class), built from Debian's source by
+  `scripts/build-patched.sh` (in `build.sh`, so in the ISO build), as the
+  binary package `kite-docklike` 0.4.3-1+kite1 that Provides, Conflicts with
+  and Replaces `xfce4-docklike-plugin` (owner: renamed so an update from
+  Debian or upstream never replaces it). It is in the release's kite-*.deb
+  files; `kite-update` offers it where Debian's plugin is installed
+  (`TAKES_PLACE_OF`). kite-desktop depends on it. The source version is
+  pinned: when Debian updates the plugin, the build fails until the patch is
+  checked and the version and revision raised. An explicit `apt install
+  xfce4-docklike-plugin` would swap Debian's back; `apt upgrade` does not.
+- **Brave's "pale box" under picom (solved).** Brave draws its own frame and
+  soft shadow in a transparent 16/16/10/32 px margin (`_GTK_FRAME_EXTENTS`).
+  picom added its own shadow round the whole window, margin included, so
+  Brave's soft margin sat inside a dark rim with a hard edge and read as a
+  pale box. Brave's pixels are identical under both compositors (read with
+  their alpha), and inside the margin picom's output equals xfwm4's; only
+  outside the window picom was darker (193/214 against 235). The rule
+  `{ match = "_GTK_FRAME_EXTENTS@"; shadow = false; }` fixes it: with picom
+  started first and Brave opened later (the order at login), the pixels
+  outside Brave equal the background (235/234), also after minimise and
+  restore. Gotcha that hid it for a while: picom 12.5 checks its rules on
+  windows already open at its start before it has read their properties
+  (trace: `Property _GTK_FRAME_EXTENTS not found`, `result = 0`, then
+  `result = 1` once the window changed), so testing by restarting picom with
+  Brave open shows the box again until Brave is minimised and restored.
+  Measure from the screen, not by eye: the box was a shadow, not the margin.
+  ONLYOFFICE and VS Code draw their own frames with no margin and look right.
+- Tried in a Docker container (Debian 13, Xvfb + noVNC, software OpenGL),
+  frame by frame at x6 slow motion: window open/close/minimise/restore,
+  dialogs (fade + 96 % zoom), maximise/tile (instant), Start menu, calendar,
+  notifications, tooltips, menus (fade only), Alt+Tab (xfwm4's own blue
+  outline box also under its own compositor), the taskbar pop-up, Thunar,
+  Ristretto, Settings, App Centre, Task Manager, Login Screen, App Finder,
+  Mousepad, Terminal (all with xfwm4 frames), Brave, ONLYOFFICE, VS Code,
+  VLC (full screen covers the taskbar, no shadow). picom starts from the
+  Xsession hook, xfwm4's compositor goes off, a picom crash and
+  `ANIMATIONS=0` give xfwm4's back, the live layout switch keeps it off.
+  `tests/run-all.sh` there: shellcheck clean, system 213/213, storage 41/41.
+  picom used ~90 MB PSS under software OpenGL; on the device it should be
+  far less: measure with `sudo kite-resource-report`. VLC's default video
+  output needs real GL (in the container only its X11 output worked);
+  ONLYOFFICE must be started through its launcher (it sets its own Qt
+  library path; VLC brings the system Qt 5). Not built into an ISO or
+  VM-tested yet.
+
 ## Open to-do list
 
-0. **Next session:** bring the device from v1.3.2 to v1.4.0 (`sudo
+0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;
+   v1.4.1 or 1.5.0): the tag build now runs the VM test by itself; look at its
+   report (picom running, xfwm4 compositor off, VLC default) and screenshots.
+   Then bring the device from v1.3.2 to the new release (`sudo
    kite-update`, then `kite-layout windows` for the new layout files, `sudo apt
    install code git` if missing, and `sudo apt purge slick-greeter` only after
    `sudo lightdm --show-config | grep greeter-session` names
@@ -339,6 +448,7 @@ cores). On the device, use `sudo kite-resource-report`.
 | suspend-then-hibernate enabled **only after** resume is configured | A half-configured system must never make the lid do nothing |
 | `kite-storage`: move whole package-private dirs and symlink them | dpkg follows directory symlinks on upgrade. APT `Pre-Install-Pkgs` hook refuses to touch apps whose disk is unplugged |
 | Fluent-Light theme, Papirus-Light icons; Orchis and the Papirus-inheriting KiteOS icon theme were the 1.2 shelf's | Orchis-Light-Compact is still the fallback when Fluent is missing |
+| xfwm4 + picom for animations (2026-11-25, owner's call), not Compiz | Keeps xfwm4's Fluent theme, window keys and settings as they are; picom only composites. Calm animations (short, small zoom, none on resize). xfwm4's compositor is the fallback. Compiz was built and tried first, then dropped by the owner |
 | Brave policy: Rewards/Wallet/VPN/Tor/P3A off | Lighter; owner can change `/etc/brave/policies/managed/kite.json` |
 
 ## Releasing

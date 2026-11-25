@@ -42,7 +42,8 @@ printf '#!/bin/sh\nexit 101\n' > "$CH/usr/sbin/policy-rc.d"; chmod 755 "$CH/usr/
 in_ch apt-get update -q >/dev/null
 
 echo "== stand-ins for packages $SUITE does not have"
-for p in keyd xfce4-docklike-plugin firmware-sof-signed; do
+# kite-docklike is built by scripts/build-patched.sh (ISO builds only).
+for p in keyd kite-docklike firmware-sof-signed; do
     if ! in_ch apt-cache policy "$p" | grep '^  Candidate: [0-9a-z]' >/dev/null; then
         d=$W/stub-$p; mkdir -p "$d/DEBIAN"
         printf 'Package: %s\nVersion: 0.0-stub\nArchitecture: all\nMaintainer: test <t@localhost>\nDescription: test stand-in\n' "$p" > "$d/DEBIAN/control"
@@ -79,6 +80,8 @@ check "Start and Search button icons installed" test -f "$CH/usr/share/icons/hic
 check "kite-layout sets up a new account" in_ch env HOME=/tmp/lh python3 /usr/bin/kite-layout --first-login
 check "new account got the default (windows) layout" grep -qx windows "$CH/tmp/lh/.config/kite/layout"
 check "Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/45kite-user-init
+check "compositor Xsession hook is valid sh" in_ch sh -n /etc/X11/Xsession.d/46kite-compositor
+check "picom installed for animations" test -x "$CH/usr/bin/picom"
 # A stand-in Brave package installed after kite-desktop. (The ISO build
 # unpacks Brave first; dpkg-divert --rename handles that order too.)
 d=$W/stub-brave; mkdir -p "$d/DEBIAN" "$d/opt/brave.com/brave" "$d/usr/bin"

@@ -32,6 +32,8 @@ rm -rf out/debs
 mkdir -p out/debs
 echo "==> KiteOS packages"
 scripts/build-packages.sh out/debs
+echo "==> Debian packages with KiteOS patches (patches/)"
+scripts/build-patched.sh out/debs
 echo "==> Brave, ONLYOFFICE and VS Code repositories"
 scripts/fetch-vendor-keys.sh live/config
 

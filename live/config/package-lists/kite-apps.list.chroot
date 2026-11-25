@@ -8,3 +8,8 @@ code
 libxcb-shape0
 # Version control (Debian)
 git
+# Media player (Debian). No Recommends, so no skins, visualisations or
+# Samba/extra access plugins; hardware decoding through VA-API
+# (intel-media-va-driver, in kite-base). Default for audio and video files
+# (kite-desktop's mimeapps.list).
+vlc

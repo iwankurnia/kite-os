@@ -25,6 +25,10 @@ import urllib.request
 CONF = "/etc/kite/update.conf"
 DEFAULT_REPO = "iwankurnia/kite-os"
 DEB = re.compile(r"^(kite-[a-z0-9-]+)_([^_]+)_(all|amd64)\.deb$")
+# KiteOS packages that take the place of a Debian one (scripts/build-patched.sh
+# builds them patched under a kite-* name): offered when the Debian one is
+# installed, so a system installed before the switch gets them too.
+TAKES_PLACE_OF = {"kite-docklike": "xfce4-docklike-plugin"}
 SUMS = "kite-packages.sha256"
 # A dropped or refused connection while downloading. URLError, TimeoutError
 # and ssl.SSLError are all OSErrors; a body cut short is an HTTPException.
@@ -76,7 +80,9 @@ def plan(release, installed=installed_version, is_newer=newer):
             continue
         pkg, version = m.group(1), m.group(2)
         have = installed(pkg)
-        if have is not None and is_newer(version, have):
+        if have is None and pkg in TAKES_PLACE_OF and installed(TAKES_PLACE_OF[pkg]) is not None:
+            out.append((pkg, "%s %s" % (TAKES_PLACE_OF[pkg], installed(TAKES_PLACE_OF[pkg])), version, asset))
+        elif have is not None and is_newer(version, have):
             out.append((pkg, have, version, asset))
     return sorted(out, key=lambda x: x[0])
 

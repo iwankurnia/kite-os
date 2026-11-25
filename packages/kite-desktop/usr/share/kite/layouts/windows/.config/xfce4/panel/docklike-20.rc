@@ -4,8 +4,15 @@ pinned=@PINNED@
 iconSize=24
 forceIconSize=true
 showPreviews=true
+# Previews 120 px high, as wide as the window's shape gives (at least 160,
+# at most 264 px), each tile as wide as its preview, as on Windows 11.
+# previewHeight is KiteOS's patch to docklike (patches/xfce4-docklike-plugin);
+# previewScale is used only by an unpatched docklike.
+previewHeight=120
+previewScale=0.2
 showWindowCount=false
-noWindowsListIfSingle=true
+# The window pop-up also for an app with one window (as on Windows 11)
+noWindowsListIfSingle=false
 onlyDisplayVisible=false
 onlyDisplayScreen=false
 indicatorStyle=0

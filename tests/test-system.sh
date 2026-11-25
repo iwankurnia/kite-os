@@ -151,6 +151,16 @@ check "live apply: window buttons on the right through xfconf" grep -q '^xfconf-
 check "live apply: window settings sent before xfconfd reloads (else xfwm4 is not told)" bash -c "a=\$(grep -n '^xfconf-query -c xfwm4' '$LH/calls' | head -n1 | cut -d: -f1); b=\$(grep -n '^xfce4-panel --quit' '$LH/calls' | head -n1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$b\" ] && [ \"\$a\" -lt \"\$b\" ]"
 check "live apply: panel quit, then started again" bash -c "grep -n '^xfce4-panel' '$LH/calls' | tr '\n' ' ' | grep -q 'xfce4-panel --quit.*xfce4-panel *\$\|xfce4-panel --quit .*:xfce4-panel '"
 check "live apply: settings daemon reloads (shortcuts, theme)" grep -q '^xfsettingsd --replace' "$LH/calls"
+check "live apply without picom: xfwm4's compositor on" grep -q '^xfconf-query -c xfwm4 -p /general/use_compositing -n -t bool -s true' "$LH/calls"
+# With picom running (start-compositor), xfwm4's compositor must stay off.
+printf '#!/bin/sh\ncase "$*" in *picom*) exit 0 ;; esac\nexit 1\n' > "$LH/fake/pgrep"; chmod 755 "$LH/fake/pgrep"
+rm -f "$LH/calls"
+env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" XDG_CACHE_HOME="$LH/cache" DISPLAY=:99 PATH="$LH/fake:$PATH" \
+    KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
+    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" windows >/dev/null
+rm -f "$LH/fake/pgrep"
+check "live apply with picom: xfwm4's compositor never switched on" bash -c "! grep -q 'use_compositing .* -s true' '$LH/calls'"
+check "live apply with picom: xfwm4's compositor kept off after the reload" bash -c "a=\$(grep -n '^xfce4-panel --quit' '$LH/calls' | head -n1 | cut -d: -f1); b=\$(grep -n 'use_compositing -n -t bool -s false' '$LH/calls' | tail -n1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$b\" ] && [ \"\$b\" -gt \"\$a\" ]"
 # Applying the layout again keeps the user's own Files/Terminal settings and fonts.
 echo '<channel name="thunar" version="1.0"><property name="mine" type="bool" value="true"/></channel>' > "$X/thunar.xml"
 sed -i.bak 's/value="Inter 10"/value="Ubuntu 12"/' "$X/xsettings.xml" && rm -f "$X/xsettings.xml.bak"
@@ -306,6 +316,43 @@ check "sets CTM on the built-in screen" grep -q '^--output eDP-1 --set CTM 1.236
 check "leaves external screens alone" bash -c "! grep -q HDMI '$T/vivid/calls'"
 check "new level saved" grep -qx 'SATURATION=1.3' "$T/vivid/kite/vivid.conf"
 
+echo "== compositor (picom animations, xfwm4's compositor as the fallback)"
+SC=$REPO/packages/kite-desktop/usr/lib/kite/desktop/start-compositor
+PC=$REPO/packages/kite-desktop/etc/kite/picom.conf
+C=$T/comp; mkdir -p "$C/bin" "$C/cfg/kite"
+printf '#!/bin/sh\necho "xfwm $6" >> "%s/log"\n' "$C" > "$C/bin/xfconf-query"
+printf '#!/bin/sh\necho "picom $*" >> "%s/log"\nexit ${FAKE_PICOM_EXIT:-0}\n' "$C" > "$C/bin/picom"
+chmod 755 "$C/bin/xfconf-query" "$C/bin/picom"
+run_sc() { rm -f "$C/log"; env PATH="$C/bin:/usr/bin:/bin" XDG_CONFIG_HOME="$C/cfg" KITE_DISPLAY_CONF=/nonexistent "$@" sh "$SC" || true; }
+run_sc FAKE_PICOM_EXIT=1
+check "picom replaces xfwm4 compositing, then hands it back when picom exits" \
+    test "$(tr '\n' '|' < "$C/log")" = "xfwm false|picom --config /etc/kite/picom.conf|xfwm true|"
+echo ANIMATIONS=0 > "$C/cfg/kite/display.conf"; run_sc
+check "ANIMATIONS=0: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+printf '#!/bin/sh\nexit 0\n' > "$C/bin/pgrep"; chmod 755 "$C/bin/pgrep"; rm "$C/cfg/kite/display.conf"; run_sc
+check "second start while picom runs: touches nothing" test ! -e "$C/log"
+# picom missing: a PATH with only what start-compositor needs besides picom
+# (a real /usr/bin/picom on the test machine must not count).
+rm "$C/bin/pgrep" "$C/bin/picom"; mkdir -p "$C/sys"
+for t in sed tail id; do ln -sf "$(command -v "$t")" "$C/sys/$t"; done
+rm -f "$C/log"; env PATH="$C/bin:$C/sys" XDG_CONFIG_HOME="$C/cfg" KITE_DISPLAY_CONF=/nonexistent "$(command -v sh)" "$SC" || true
+check "picom missing: xfwm4 compositing only" test "$(tr '\n' '|' < "$C/log")" = "xfwm true|"
+check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
+# Calm animations: short, a small zoom at most, nothing on resize/maximise
+# (picom stretches the old picture), the taskbar and desktop never move.
+check "every animation is shorter than 0.16 s" bash -c \
+    "! grep -o 'duration = [0-9.]*' '$PC' | awk '{ if (\$3 >= 0.16) bad = 1 } END { exit !bad }'"
+check "windows grow from 96 % or more (no big zoom)" bash -c \
+    "! grep -o 'scale = [0-9.]*' '$PC' | awk '{ if (\$3 < 0.96) bad = 1 } END { exit !bad }'"
+check "no animation on resize, maximise or tiling" bash -c "! grep -q '\"geometry\"' '$PC'"
+check "xrender backend (glx left a restarted taskbar invisible)" grep -qx 'backend = "xrender";' "$PC"
+check "no picom shadow on windows that draw their own (Brave's pale box)" grep -q 'match = "_GTK_FRAME_EXTENTS@"; shadow = false;' "$PC"
+check "taskbar pop-up: rounded card with a shadow" bash -c "grep -A3 \"class_g = 'Wrapper-2.0' && window_type = 'normal'\" '$PC' | grep -q 'corner-radius = 8'"
+check "taskbar and desktop: no animation, no shadow" grep -q "window_type = 'dock' || window_type = 'desktop'\"; shadow = false; animations = ();" "$PC"
+check "menus and tooltips: no shadow (gtk.css border), fade only" bash -c \
+    "grep -A3 'override_redirect ||' '$PC' | grep -q 'shadow = false' && grep -A3 'override_redirect ||' '$PC' | grep -q 'scale = 1.0'"
+check "Start menu and calendar (panel pop-ups): fade only" bash -c "grep -A2 \"class_g = 'Wrapper-2.0'\" '$PC' | grep -q 'scale = 1.0'"
+
 echo "== kite-tasks (Task Manager)"
 KT=$REPO/packages/kite-desktop/usr/bin/kite-tasks
 FP=$T/tasks/proc; FA=$T/tasks/apps; FS=$T/tasks/autostart-sys; FU=$T/tasks/autostart-user
@@ -411,6 +458,13 @@ check "offers only installed packages with a newer version" ku_py \
     'assert [(p, h, v) for p, h, v, _ in ku.plan(release, installed, newer)] == [("kite-system", "1.0.0", "1.1.0")]'
 check "nothing to do when up to date" ku_py \
     'assert ku.plan(release, {"kite-system": "1.1.0"}.get, newer) == []'
+check "offers kite-docklike in place of Debian's plugin, nothing from Debian itself" ku_py \
+    'release["assets"] += [{"name": "kite-docklike_0.4.3-1+kite1_amd64.deb"}, {"name": "xfwm4_4.20.0-1_amd64.deb"}]
+p = ku.plan(release, {"xfce4-docklike-plugin": "0.4.3-1+b1", "xfwm4": "4.18.0-1"}.get, lambda a, b: a != b)
+assert [(x[0], x[1]) for x in p] == [("kite-docklike", "xfce4-docklike-plugin 0.4.3-1+b1")], p'
+check "kite-docklike not offered where neither docklike is installed" ku_py \
+    'release["assets"] += [{"name": "kite-docklike_0.4.3-1+kite1_amd64.deb"}]
+assert ku.plan(release, {}.get, newer) == []'
 check "reads the release checksum list" ku_py \
     'assert ku.checksums("a" * 64 + "  kite-system_1.1.0_all.deb" + chr(10) + "junk line") == {"kite-system_1.1.0_all.deb": "a" * 64}'
 check "update source is the KiteOS repository" grep -qx 'REPO=iwankurnia/kite-os' "$REPO/packages/kite-system/etc/kite/update.conf"

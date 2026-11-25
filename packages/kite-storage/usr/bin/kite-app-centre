@@ -48,7 +48,7 @@ C_ENV = dict(os.environ, LC_ALL="C.UTF-8")
 
 # Packages that ship a launcher but are part of the desktop itself, not apps
 # (the same list as kite-apps had).
-HIDDEN_PACKAGES = ("kite-*", "calamares*", "xfce4-*", "xfconf", "xfdesktop4", "xfwm4",
+HIDDEN_PACKAGES = ("kite-*", "calamares*", "xfce4-*", "xfconf", "xfdesktop4", "xfwm4", "picom",
                    "exo-utils", "rofi", "blueman", "pavucontrol", "nm-connection-editor",
                    "thunar-volman", "vim*", "yad")
 

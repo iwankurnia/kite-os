@@ -40,6 +40,45 @@
 #docklike-plugin .group.hover_group { background-color: rgba(0, 0, 0, 0.05); }
 #docklike-plugin .group.active_group { background-color: rgba(255, 255, 255, 0.85); }
 #docklike-plugin .group.open_group   { background-color: transparent; }
+
+/* Taskbar window pop-up (kite-docklike, when you hover an app with open
+   windows), like Windows 11's: a light grey card, so the (often white)
+   window previews stand out (picom rounds its corners and gives it a soft
+   shadow, /etc/kite/picom.conf; GTK cannot, the window has no alpha
+   channel); each window a plain tile with its icon, title and preview
+   (fixed height, width from the window: previewHeight in docklike-20.rc),
+   grey on hover, and its close button only while the pointer is on that
+   window. Structure (docklike 0.4.3 + KiteOS patch): window.docklike-popup >
+   box.menu > .menu_item > grid (icon, title, close button, preview); GTK
+   gives this window no "popup" class. Titles in "KiteOS Plain"
+   (/etc/fonts/conf.d/45-kite-plain.conf): docklike's markup makes the
+   focused window's title bold and minimised ones italic, which CSS cannot
+   undo; that font stays regular. */
+.docklike-popup > box.menu {
+  background-color: #ececec;
+  border: none;
+  padding: 6px;
+}
+box.menu > .menu_item {
+  border-radius: 6px;
+  margin: 2px;
+  padding: 6px 4px 2px;
+  transition: background-color 120ms ease-in-out;
+}
+box.menu > .menu_item.hover_menu_item { background-color: rgba(0, 0, 0, 0.07); }
+box.menu > .menu_item label { color: #1b1b1b; font-family: "KiteOS Plain"; font-size: 9pt; }
+box.menu > .menu_item button {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 120ms ease-in-out, background-color 120ms ease-in-out;
+}
+box.menu > .menu_item.hover_menu_item button,
+box.menu > .menu_item button:hover { opacity: 1; }
+box.menu > .menu_item button:hover { background-color: #c42b1c; color: #ffffff; }
+box.menu > .menu_item button:hover image { color: #ffffff; -gtk-icon-style: symbolic; }
 .xfce4-panel .separator { color: rgba(0, 0, 0, 0.12); }
 
 /* Pop-ups: Windows 11-style rounded corners. The Start menu window itself
