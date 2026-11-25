@@ -407,6 +407,23 @@ are upstream 3.3.14's, because the file replaces Debian's whole) and a
 Systems installed before 1.5.2 keep their `/etc/fstab`; this device's was
 fixed by hand. No kite package changed, so `kite-update` has nothing new.
 
+**Lid dead after hibernation (fixed in kite-chromebook 1.0.2, tested on the
+device 2026-11-25).** After a resume from hibernation the lid did nothing
+until a reboot. The lid sensor and `_LID` were fine (`/proc/acpi/button/lid`
+followed the lid), but the EC never raised its ACPI interrupt (GPE 0x14
+counter frozen), so logind never heard "lid closed". Cause: the EC's
+host-event masks read back **all zero** after the resume; MrChromebox sets
+them at a cold boot only (cold boot on this device: `SMI=0 SCI=0x14e601fb
+WAKE=0`, i.e. lid, AC, battery, thermal/throttle, PD, MKBP, mode change; so
+charger and battery events were lost after hibernation too). Re-enabling the
+GPE in Linux and re-probing `cros_ec_lpcs` did not help; writing the SCI mask
+back did. `kite-ec-events.service` saves the firmware's masks at boot
+(`/var/lib/kite/chromebook/ec-masks`, never empty ones) and the system-sleep
+hook `kite-ec-events` writes them back after any wake that left SCI at zero.
+`sudo /usr/lib/kite/chromebook/kite-ec-events show` prints the masks. Commands
+come from the kernel's `cros_ec_commands.h` (0x88/0x89/0x8D get, 0x8A/0x8B/0x8E
+set) through `/dev/cros_ec`.
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;
@@ -429,9 +446,15 @@ fixed by hand. No kite package changed, so `kite-update` has nothing new.
    repository use the GitHub noreply address (repo-local `git config`).
 3. **Real-hardware run, in progress.** Live USB on the device works: desktop,
    launcher, Brave, Wi-Fi, Bluetooth audio, animations, vivid colours, drive
-   icons. Still to check from [INSTALL.md](INSTALL.md#after-installing-check-list):
-   install to the eMMC, hibernate and resume, lid, keyboard top row, speakers
-   and headphone jack, brightness keys. After installing, `kite-update` keeps
+   icons. **Installed on the eMMC and checked on 2026-11-25:** zswap, the
+   memory guards, battery saving, vivid colours, keyd running, SOF card found,
+   no failed services, and **hibernate and resume work** (`systemctl
+   hibernate` from a live session: 1.27 GB image, 16 s to free memory first,
+   session, Wi-Fi, Bluetooth, picom and vivid colours all back). Still to
+   check from [INSTALL.md](INSTALL.md#after-installing-check-list): the lid's
+   hibernate after 60 min (lid suspend works, also after a hibernate with
+   kite-chromebook 1.0.2), keyboard top row, speakers and
+   headphone jack, brightness keys. After installing, `kite-update` keeps
    it current.
 4. **Brave hardware video decoding:** on by default from kite-desktop 1.1.0
    (after the v1.0 ISO): a KiteOS wrapper takes the place of

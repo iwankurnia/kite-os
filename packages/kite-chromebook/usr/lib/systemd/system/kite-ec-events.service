@@ -1,0 +1,12 @@
+[Unit]
+Description=KiteOS: remember the Chromebook EC's event masks for after hibernation
+ConditionPathExists=/dev/cros_ec
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/kite/chromebook/kite-ec-events save
+
+[Install]
+WantedBy=multi-user.target

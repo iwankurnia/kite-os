@@ -1,5 +1,5 @@
 Package: kite-chromebook
-Version: 1.0.1
+Version: 1.0.2
 Section: admin
 Priority: optional
 Architecture: all
@@ -12,3 +12,4 @@ Description: KiteOS hardware support for Intel Chromebooks running MrChromebox U
     Search+top row = F1-F10, Search+Backspace = Delete, Search+arrows = Home/End/PgUp/PgDn)
   * Chromebook audio UCM profiles (alsa-ucm-conf-cros) and SOF driver selection
   * WirePlumber and libinput tweaks
+  * the lid keeps working after hibernation (EC event masks restored on resume)

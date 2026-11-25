@@ -77,6 +77,30 @@ python3 "$GEN" --physmap /nonexistent -o "$T/default.conf"
 check "falls back to the classic 10-key row" grep -q '^forward = forward' "$T/default.conf"
 check "every section header is known to keyd" bash -c "! grep -E '^\[' '$T/kite.conf' | grep -vxE '\[(ids|main|meta|alt|control\+alt)\]'"
 
+echo "== EC event masks (lid after hibernate)"
+EC=$REPO/packages/kite-chromebook/usr/lib/kite/chromebook/kite-ec-events
+ecfake() { printf '{"SMI": %d, "SCI": %d, "WAKE": %d}\n' "$1" "$2" "$3" > "$T/ec.json"; }
+ec() { KITE_EC_FAKE=$T/ec.json KITE_EC_STATE=$T/ec-masks python3 "$EC" "$@"; }
+sci() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["SCI"])' "$T/ec.json"; }
+ecfake 1 0x1ffbf 0x60000; ec save >/dev/null
+check "save keeps the firmware's masks from a cold boot" grep -qx 'SMI=0x00000001 SCI=0x0001ffbf WAKE=0x00060000' "$T/ec-masks"
+ecfake 0 0 0; ec save >/dev/null
+check "save never overwrites good masks with the empty ones" grep -qx 'SMI=0x00000001 SCI=0x0001ffbf WAKE=0x00060000' "$T/ec-masks"
+ec restore >/dev/null
+check "restore after hibernate puts the saved masks back" test "$(sci)" = $((0x1ffbf))
+check "restore brings back the wake and SMI masks too" grep -q '"WAKE": 393216' "$T/ec.json"
+ecfake 0 3 0; ec restore >/dev/null
+check "restore leaves a non-empty SCI mask alone (normal suspend)" test "$(sci)" = 3
+rm "$T/ec-masks"; ecfake 0 0 0
+check "restore without saved masks does nothing and does not fail" bash -c "KITE_EC_FAKE='$T/ec.json' KITE_EC_STATE='$T/ec-masks' python3 '$EC' restore && test \"\$(python3 -c 'import json; print(json.load(open(\"$T/ec.json\"))[\"SCI\"])')\" = 0"
+ecfake 0 3 0
+check "show names the lid events" bash -c "KITE_EC_FAKE='$T/ec.json' python3 '$EC' show | grep -q 'SCI .*LID_CLOSED, LID_OPEN'"
+HOOK=$REPO/packages/kite-chromebook/usr/lib/systemd/system-sleep/kite-ec-events
+check "sleep hook restores only after waking (post)" bash -c "grep -q '\"\$1\" = post' '$HOOK' && grep -q 'kite-ec-events restore' '$HOOK' && test -x '$HOOK'"
+U=$REPO/packages/kite-chromebook/usr/lib/systemd/system/kite-ec-events.service
+check "boot service saves the masks, only on a Chrome EC" bash -c "grep -qx 'ConditionPathExists=/dev/cros_ec' '$U' && grep -q 'kite-ec-events save' '$U'"
+check "kite-chromebook enables the boot service" grep -q 'systemctl enable kite-ec-events.service' "$REPO/packages/kite-chromebook/DEBIAN/postinst"
+
 echo "== boot splash builder"
 if [ -f /usr/share/plymouth/themes/spinner/spinner.plymouth ]; then
     "$REPO/packages/kite-system/usr/lib/kite/kite-plymouth-theme" /usr/share/plymouth/themes/spinner "$T/kite" \

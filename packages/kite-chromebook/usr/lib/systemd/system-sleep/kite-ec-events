@@ -1,0 +1,6 @@
+#!/bin/sh
+# After waking (suspend or hibernate), give the Chrome EC back the event
+# masks a resume from hibernation clears, so the lid works again.
+[ "$1" = post ] || exit 0
+[ -e /dev/cros_ec ] || exit 0
+exec /usr/lib/kite/chromebook/kite-ec-events restore

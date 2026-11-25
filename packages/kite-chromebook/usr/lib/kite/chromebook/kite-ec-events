@@ -1,0 +1,128 @@
+#!/usr/bin/python3 -I
+"""Keep the Chrome EC reporting lid (and other) events after hibernation.
+
+MrChromebox firmware sets the EC's host-event masks (which events raise the
+ACPI interrupt, the SMI and the wake) at a cold boot, but a resume from
+hibernation leaves all three at zero: the lid then stops suspending the
+laptop until the next reboot. So, as root:
+
+    kite-ec-events save      # at boot: remember the firmware's masks
+    kite-ec-events restore   # after waking: put them back if they were cleared
+    kite-ec-events show      # print the masks
+
+Commands from include/linux/platform_data/cros_ec_commands.h (Linux 6.12).
+For tests, KITE_EC_FAKE=<json file> stands in for /dev/cros_ec and
+KITE_EC_STATE for the saved-masks file.
+"""
+import json
+import os
+import struct
+import sys
+
+STATE = os.environ.get("KITE_EC_STATE", "/var/lib/kite/chromebook/ec-masks")
+FAKE = os.environ.get("KITE_EC_FAKE")
+DEV = "/dev/cros_ec"
+# _IOWR(0xEC, 0, struct cros_ec_command): a header of five u32
+IOCXCMD = (3 << 30) | (20 << 16) | (0xEC << 8) | 0
+MASKS = ("SMI", "SCI", "WAKE")
+GET = {"SMI": 0x88, "SCI": 0x89, "WAKE": 0x8D}
+SET = {"SMI": 0x8A, "SCI": 0x8B, "WAKE": 0x8E}
+EVENTS = dict(enumerate((
+    "LID_CLOSED", "LID_OPEN", "POWER_BUTTON", "AC_CONNECTED", "AC_DISCONNECTED",
+    "BATTERY_LOW", "BATTERY_CRITICAL", "BATTERY", "THERMAL_THRESHOLD", "DEVICE",
+    "THERMAL", "USB_CHARGER", "KEY_PRESSED", "INTERFACE_READY",
+    "KEYBOARD_RECOVERY", "THERMAL_SHUTDOWN", "BATTERY_SHUTDOWN",
+    "THROTTLE_START", "THROTTLE_STOP", "HANG_DETECT", "HANG_REBOOT", "PD_MCU",
+    "BATTERY_STATUS", "PANIC", "KEYBOARD_FASTBOOT", "RTC", "MKBP", "USB_MUX",
+    "MODE_CHANGE", "KEYBOARD_RECOVERY_HW_REINIT", "WOV"), start=1))
+
+
+class DevEC:
+    def __init__(self):
+        self.fd = open(DEV, "r+b", buffering=0)
+
+    def _cmd(self, command, out=b"", insize=0):
+        import fcntl
+        buf = bytearray(struct.pack("<5I", 0, command, len(out), insize, 0)
+                        + out + bytes(max(insize, len(out))))
+        fcntl.ioctl(self.fd, IOCXCMD, buf, True)
+        result = struct.unpack_from("<I", buf, 16)[0]
+        if result:
+            raise OSError(f"EC command 0x{command:02X}: EC result {result}")
+        return bytes(buf[20:20 + insize])
+
+    def get(self, name):
+        return struct.unpack("<I", self._cmd(GET[name], insize=4))[0]
+
+    def set(self, name, value):
+        self._cmd(SET[name], struct.pack("<I", value))
+
+
+class FakeEC:
+    def get(self, name):
+        with open(FAKE) as f:
+            return int(json.load(f)[name])
+
+    def set(self, name, value):
+        with open(FAKE) as f:
+            masks = json.load(f)
+        masks[name] = value
+        with open(FAKE, "w") as f:
+            json.dump(masks, f)
+
+
+def read(ec):
+    return {name: ec.get(name) for name in MASKS}
+
+
+def fmt(masks):
+    return " ".join(f"{name}=0x{masks[name]:08x}" for name in MASKS)
+
+
+def load():
+    try:
+        with open(STATE) as f:
+            masks = dict(word.split("=") for word in f.read().split())
+        return {name: int(masks[name], 16) for name in MASKS}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def names(mask):
+    return ", ".join(EVENTS.get(b + 1, f"#{b + 1}") for b in range(32) if mask >> b & 1) or "(none)"
+
+
+def main():
+    action = sys.argv[1] if len(sys.argv) == 2 else ""
+    if action not in ("save", "restore", "show"):
+        sys.exit(__doc__)
+    ec = FakeEC() if FAKE else DevEC()
+    now = read(ec)
+    if action == "show":
+        for name in MASKS:
+            print(f"{name:4} 0x{now[name]:08x}  {names(now[name])}")
+    elif action == "save":
+        # Only a cold boot's masks are worth keeping: an empty SCI mask is the bug.
+        if not now["SCI"]:
+            print(f"EC masks empty, keeping the saved ones ({fmt(now)})")
+            return
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        with open(STATE + ".tmp", "w") as f:
+            f.write(fmt(now) + "\n")
+        os.replace(STATE + ".tmp", STATE)
+        print(f"EC masks saved: {fmt(now)}")
+    else:
+        saved = load()
+        if now["SCI"]:
+            return  # a normal suspend: the firmware kept them
+        if not saved:
+            print("EC masks were cleared, but none are saved to restore")
+            return
+        for name in MASKS:
+            if not now[name] and saved[name]:
+                ec.set(name, saved[name])
+        print(f"EC masks restored after waking: {fmt(read(ec))}")
+
+
+if __name__ == "__main__":
+    main()

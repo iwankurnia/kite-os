@@ -4,9 +4,11 @@ case "$1" in
     configure)
         systemctl enable kite-chromebook-setup.service >/dev/null 2>&1 || true
         systemctl enable keyd.service >/dev/null 2>&1 || true
+        systemctl enable kite-ec-events.service >/dev/null 2>&1 || true
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload || true
             /usr/lib/kite/chromebook/kite-chromebook-setup || true
+            systemctl start kite-ec-events.service >/dev/null 2>&1 || true
         fi
         ;;
     triggered)
