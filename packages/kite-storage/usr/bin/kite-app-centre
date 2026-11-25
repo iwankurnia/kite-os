@@ -5,6 +5,8 @@ disk, and update KiteOS and the system. A GTK 3 front end for the root tool
 
   kite-app-centre                     open the window
   kite-app-centre --page PAGE         open on installed, discover, storage or updates
+  kite-app-centre --install-file F    install a .deb file (double-clicking one in Files
+                                      or a download opens this: kite-install-package.desktop)
   kite-app-centre --askpass [PROMPT]  password box for sudo -A (no polkit agent)
 
 The parsing helpers at the top import without GTK or a display, so the tests
@@ -391,9 +393,94 @@ def external_partitions(lsblk_json, root_disk, live_disk="", sd_disks=()):
     return out
 
 
-def install_steps(pkg, user, app_ext, data_ext):
-    flags = (["--app-ext"] if app_ext else []) + (["--data-ext"] if data_ext else [])
+def install_steps(pkg, user, app_ext, data_ext, extra=()):
+    flags = (["--app-ext"] if app_ext else []) + (["--data-ext"] if data_ext else []) + list(extra)
     return [[KS, "install"] + flags + ["--user", user, pkg]]
+
+
+# ------------------------------------------- a .deb file (double-clicked) --
+
+DEB_FIELDS = ("Package", "Version", "Architecture", "Installed-Size", "Description", "Homepage")
+
+
+def parse_deb_fields(text):
+    """`dpkg-deb -f FILE field...` output -> {field: value}; Description is
+    the summary line only."""
+    out, key = {}, None
+    for line in text.splitlines():
+        if line[:1] in (" ", "\t"):
+            continue                                    # long description
+        if ":" in line:
+            key, _, value = line.partition(":")
+            out[key.strip()] = value.strip()
+    return out
+
+
+def deb_action(installed, new, newer):
+    """install / upgrade / reinstall / downgrade, for NEW against the installed
+    version (None: not installed); NEWER(a, b) is dpkg's a > b."""
+    if not installed:
+        return "install"
+    if installed == new:
+        return "reinstall"
+    return "upgrade" if newer(new, installed) else "downgrade"
+
+
+def dpkg_newer(a, b):
+    """dpkg's version order: is A newer than B?"""
+    return run(["dpkg", "--compare-versions", a, "gt", b])[0] == 0
+
+
+def deb_arch_ok(arch, machine):
+    return arch in ("all", machine)
+
+
+def parse_simulated_install(text, pkg):
+    """`apt-get -s install ./FILE` -> (other packages it installs, packages it
+    removes, apt's error lines). Unmet dependencies come out as errors."""
+    inst, remv, errors = [], [], []
+    for line in text.splitlines():
+        f = line.split()
+        if line.startswith("Inst ") and len(f) > 1 and f[1] != pkg:
+            inst.append(f[1])
+        elif line.startswith("Remv ") and len(f) > 1:
+            remv.append(f[1])
+        elif line.startswith("E: ") or "but it is not installable" in line or \
+                "but it is not going to be installed" in line or line.strip().startswith("Depends:"):
+            errors.append(line.strip())
+    return sorted(set(inst)), sorted(set(remv)), errors
+
+
+def deb_question(info, action, installed, extra, removes):
+    """The question (Pango markup) and the button label for installing a .deb."""
+    name, new = info.get("Package", "?"), info.get("Version", "?")
+    verb = {"install": "Install", "upgrade": "Upgrade", "reinstall": "Reinstall",
+            "downgrade": "Downgrade"}[action]
+    if action == "install":
+        head = "Install <b>%s</b> %s?" % (esc(name), esc(new))
+    elif action == "reinstall":
+        head = "Reinstall <b>%s</b> %s?" % (esc(name), esc(new))
+    else:
+        head = "%s <b>%s</b> from %s to %s?" % (verb, esc(name), esc(installed), esc(new))
+    lines = [head]
+    if info.get("Description"):
+        lines.append("<i>%s</i>" % esc(info["Description"]))
+    facts = []
+    size = info.get("Installed-Size", "")
+    if size.isdigit():
+        facts.append("%.1f MB installed" % (int(size) / 1024.0))
+    if extra:
+        facts.append("also installs %d package%s: %s" % (len(extra), "" if len(extra) == 1 else "s",
+                                                        esc(", ".join(extra[:6]) + (" …" if len(extra) > 6 else ""))))
+    if facts:
+        lines.append(" · ".join(facts))
+    if removes:
+        lines.append("<b>It removes:</b> %s" % esc(", ".join(removes)))
+    if action == "downgrade":
+        lines.append("An older version can lack fixes; your settings stay.")
+    lines.append("This file does not come from KiteOS's or Debian's app sources: "
+                 "install it only if you trust where it came from.")
+    return "\n\n".join(lines), verb
 
 
 def move_steps(pkg, user, app_ext, data_ext):
@@ -519,6 +606,8 @@ progressbar.kite-external progress { background-image: none; background-color: @
 
 
 def esc(text):
+    if GLib is None:            # loaded without GTK (the tests): the same three escapes
+        return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return GLib.markup_escape_text(text or "")
 
 
@@ -1179,6 +1268,72 @@ class AppCentre:
         if self.last_search:
             self.search()
 
+    def install_file(self, path):
+        """A .deb file opened from Files or a download: show what it is and
+        what installing it changes, then install it with kite-storage."""
+        if not self.idle_check():
+            return False
+        path = os.path.abspath(path)
+
+        def work():
+            rc, out, err = run(["dpkg-deb", "-f", path] + list(DEB_FIELDS), env=C_ENV)
+            if rc != 0 or "Package:" not in out:
+                return {"error": (err or out).strip() or "It is not a package file."}
+            info = parse_deb_fields(out)
+            arch = run(["dpkg", "--print-architecture"], env=C_ENV)[1].strip()
+            rc, q, _ = run(["dpkg-query", "-W", "-f=${Status}|${Version}", info.get("Package", "")], env=C_ENV)
+            installed = q.split("|", 1)[1] if rc == 0 and q.startswith("install ok installed|") else None
+            _, sim, sim_err = run(["apt-get", "-s", "install", path], env=C_ENV)
+            return {"info": info, "arch": arch, "installed": installed, "sim": sim + "\n" + sim_err}
+        self.bg(work, self.confirm_install_file, path)
+        return False
+
+    def confirm_install_file(self, res, path):
+        name = os.path.basename(path)
+        if isinstance(res, Exception) or "error" in res:
+            self.message("%s cannot be opened as a package." % name,
+                         str(res) if isinstance(res, Exception) else res["error"])
+            return False
+        info = res["info"]
+        pkg = info.get("Package", "")
+        if not deb_arch_ok(info.get("Architecture", ""), res["arch"]):
+            self.message("%s is made for another kind of computer." % name,
+                         "It is built for %s; this computer is %s." % (info.get("Architecture", "?"), res["arch"]))
+            return False
+        action = deb_action(res["installed"], info.get("Version", ""), dpkg_newer)
+        extra, removes, errors = parse_simulated_install(res["sim"], pkg)
+        if errors:
+            self.message("%s cannot be installed." % pkg,
+                         "Something it needs is missing or clashes with what is installed:\n\n"
+                         + "\n".join(errors[:8]))
+            return False
+        kite = [p for p in removes if p.startswith("kite-")]
+        if kite:
+            self.message("%s cannot be installed here." % pkg,
+                         "Installing it would remove part of KiteOS (%s)." % ", ".join(kite))
+            return False
+        markup, verb = deb_question(info, action, res["installed"], extra, removes)
+        r = self.ask(markup, [("Cancel", 1, None),
+                              (verb, 0, "destructive-action" if removes else "suggested-action")],
+                     kind=Gtk.MessageType.WARNING if removes else Gtk.MessageType.QUESTION,
+                     default=1 if removes else 0)
+        if r != 0:
+            return False
+        where = (False, False)
+        if self.ext_ready():
+            where = self.choose_location("It is installed on the internal disk first, then copied "
+                                         "to the external disk and linked back.")
+            if where is None:
+                return False
+        flags = {"reinstall": ["--reinstall"], "downgrade": ["--allow-downgrades"]}.get(action, [])
+        doing = {"Install": "Installing", "Upgrade": "Upgrading", "Reinstall": "Reinstalling",
+                 "Downgrade": "Downgrading"}[verb]
+        self.run_task("%s %s…" % (doing, pkg), install_steps(path, self.user, *where, extra=flags),
+                      "%s %s is installed." % (pkg, info.get("Version", "")),
+                      "Installing %s failed. See the details for why." % pkg,
+                      after=self.after_install)
+        return False
+
     def move_app(self, app):
         if not self.idle_check():
             return
@@ -1463,12 +1618,15 @@ def main(argv):
         rest = args[1:] if args[:1] == ["--askpass"] else args
         return askpass(" ".join(rest))
     page = "installed"
+    deb = None
     if args[:1] in (["-h"], ["--help"]):
         print(__doc__.split("\n\n")[1])
         return 0
     if args[:1] == ["--page"] and len(args) == 2 and args[1] in ("installed", "discover",
                                                                     "storage", "updates"):
         page = args[1]
+    elif args[:1] == ["--install-file"] and len(args) == 2:
+        deb = os.path.abspath(args[1])
     elif args:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
@@ -1481,7 +1639,9 @@ def main(argv):
     GLib.set_application_name(TITLE)
     Gtk.Window.set_default_icon_name(ICON)
 
-    app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.FLAGS_NONE)
+    # HANDLES_OPEN: a .deb opened while App Centre is already running goes to
+    # that window (one App Centre, one task at a time).
+    app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
     state = {}
 
     def activate(application):
@@ -1497,8 +1657,15 @@ def main(argv):
             print("kite-app-centre: style not loaded: %s" % e, file=sys.stderr)
         state["ui"] = AppCentre(application, page)
 
+    def open_files(application, files, _n, _hint):
+        activate(application)
+        state["ui"].win.present()
+        if files and files[0].get_path():
+            GLib.idle_add(state["ui"].install_file, files[0].get_path())
+
     app.connect("activate", activate)
-    return app.run([argv[0]])
+    app.connect("open", open_files)
+    return app.run([argv[0], deb] if deb else [argv[0]])
 
 
 if __name__ == "__main__":

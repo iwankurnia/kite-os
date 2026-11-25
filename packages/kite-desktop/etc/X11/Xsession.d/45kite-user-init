@@ -10,3 +10,7 @@ export XFCE_PANEL_MIGRATE_DEFAULT
 # before /usr/share.
 XDG_DATA_DIRS="/usr/local/share:/usr/share/kite/xdg:${XDG_DATA_DIRS:-/usr/share}"
 export XDG_DATA_DIRS
+# Autostart entries KiteOS switches off (Debian's plain picom: KiteOS starts
+# its own) live in /usr/share/kite/xdg-config, found before /etc/xdg.
+XDG_CONFIG_DIRS="/usr/share/kite/xdg-config:${XDG_CONFIG_DIRS:-/etc/xdg}"
+export XDG_CONFIG_DIRS

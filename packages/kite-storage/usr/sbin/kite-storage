@@ -8,7 +8,8 @@
 #
 #   kite-storage status
 #   kite-storage setup DEVICE [--format] [--label NAME]
-#   kite-storage install [--app-ext] [--data-ext] [--user USER] PKG...
+#   kite-storage install [--app-ext] [--data-ext] [--user USER]
+#                        [--reinstall] [--allow-downgrades] PKG|FILE.deb...
 #   kite-storage move-app PKG...            kite-storage restore-app PKG...
 #   kite-storage move-data PKG --user USER  kite-storage restore-data PKG --user USER
 #   kite-storage move-dir DIR [--user USER] kite-storage restore-dir DIR
@@ -513,21 +514,39 @@ parse_user() {
 
 cmd_install() {
     need_root
-    local app_ext=0 data_ext=0 user pkgs=()
+    # pkgs: what apt installs (package names or .deb files); names: the
+    # package names, for moving to the external disk. A .deb file (opened in
+    # Files) is copied to a folder apt's sandbox user can read.
+    local app_ext=0 data_ext=0 user pkgs=() names=() extra=() debdir="" f
     user=$(parse_user)
     while [ $# -gt 0 ]; do
         case "$1" in
             --app-ext) app_ext=1 ;;
             --data-ext) data_ext=1 ;;
             --user) shift; user=${1:?} ;;
+            --reinstall|--allow-downgrades) extra+=("$1") ;;
             -*) die "unknown option: $1" ;;
-            *) pkgs+=("$1") ;;
+            *.deb)
+                [ -f "$1" ] || die "no such file: $1"
+                f=$(dpkg-deb -f "$1" Package 2>/dev/null) || die "not a package file: $1"
+                [ -n "$f" ] || die "not a package file: $1"
+                if [ -z "$debdir" ]; then
+                    debdir=$(mktemp -d)
+                    chmod 755 "$debdir"
+                fi
+                cp -- "$1" "$debdir/$f.deb"
+                chmod 644 "$debdir/$f.deb"
+                pkgs+=("$debdir/$f.deb")
+                names+=("$f") ;;
+            *) pkgs+=("$1"); names+=("$1") ;;
         esac
         shift
     done
     (( ${#pkgs[@]} > 0 )) || die "which package(s)?"
     if (( app_ext || data_ext )); then require_ext; fi
     if (( data_ext )) && [ -z "$user" ]; then die "--data-ext needs --user USER"; fi
+    # shellcheck disable=SC2064
+    [ -n "$debdir" ] && trap "rm -rf '$debdir'" EXIT
 
     local aptopts=()
     if ext_ready; then
@@ -549,20 +568,20 @@ cmd_install() {
 
     local before after new
     before=$(dpkg-query -W -f='${Package}\n' | sort)
-    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" "${DPKG_KEEP[@]}" -y install "${pkgs[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get "${aptopts[@]}" "${DPKG_KEEP[@]}" -y "${extra[@]}" install "${pkgs[@]}"
     after=$(dpkg-query -W -f='${Package}\n' | sort)
     new=$(comm -13 <(echo "$before") <(echo "$after") | tr '\n' ' ')
     if ext_ready; then apt-get "${aptopts[@]}" clean || true; fi
 
     local p
     if (( app_ext )); then
-        for p in "${pkgs[@]}"; do
+        for p in "${names[@]}"; do
             # shellcheck disable=SC2086
             move_app_dirs "$p" "$p" $new
         done
     fi
     if (( data_ext )); then
-        for p in "${pkgs[@]}"; do move_data "$p" "$user"; done
+        for p in "${names[@]}"; do move_data "$p" "$user"; done
     fi
     log "done."
 }

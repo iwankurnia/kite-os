@@ -391,6 +391,37 @@ for name, body in (("blueman", "Name=Blueman Applet\nExec=blueman-applet"),
                    ("gnome-only", "Name=GNOME thing\nExec=x\nOnlyShowIn=GNOME;")):
     open("%s/%s.desktop" % (sysauto, name), "w").write("[Desktop Entry]\nType=Application\n" + body + "\n")
 TASKS_FIXTURE
+# Drives for the Performance tab: the eMMC (system), a USB stick, an SD card,
+# and devices that are not drives (loop, zram, an eMMC boot area, a CD
+# drive, an empty card reader).
+python3 - "$FP" "$T/tasks/sys" <<'DISKS_FIXTURE'
+import os, sys
+proc, sysd = sys.argv[1:3]
+def drive(path, dev, size, files=None, parts=()):
+    d = os.path.join(sysd, "devices", path, dev)
+    os.makedirs(os.path.join(d, "device"), exist_ok=True)
+    open(d + "/size", "w").write(str(size))
+    for k, v in (files or {}).items():
+        open(os.path.join(d, "device", k), "w").write(v + "\n")
+    for p in parts:
+        os.makedirs(os.path.join(d, p), exist_ok=True)
+        open(os.path.join(d, p, "partition"), "w").write("1")
+        os.makedirs(os.path.join(sysd, "class/block"), exist_ok=True)
+        os.symlink(os.path.join(d, p), os.path.join(sysd, "class/block", p))
+    os.makedirs(os.path.join(sysd, "block"), exist_ok=True)
+    os.symlink(d, os.path.join(sysd, "block", dev))
+drive("platform/mmc0", "mmcblk0", 61071360, {"type": "MMC", "name": "DA4032"}, ("mmcblk0p1", "mmcblk0p2"))
+drive("pci0/usb1/1-1/host0/target0", "sda", 30310400, {"vendor": "Kingston", "model": "DataTraveler 3.0"}, ("sda1",))
+drive("platform/mmc1", "mmcblk1", 3000000, {"type": "SD", "name": "SD32G"})
+drive("platform/mmc2", "mmcblk2", 0, {"type": "SD"})                # empty reader
+drive("virtual", "loop0", 1000)
+drive("virtual", "zram0", 1000)
+drive("platform/mmc0", "mmcblk0boot0", 8192)
+drive("pci0/ata1", "sr0", 1000)
+os.makedirs(os.path.join(proc, "self"), exist_ok=True)
+open(os.path.join(proc, "self/mounts"), "w").write(
+    "/dev/mmcblk0p2 / ext4 rw 0 0\n/dev/sda1 /media/kite/USB\\040STICK vfat rw 0 0\nproc /proc proc rw 0 0\n")
+DISKS_FIXTURE
 kt_py() { KITE_PROC=$FP KITE_SYS=$T/tasks/sys KITE_APP_DIRS=$FA KITE_AUTOSTART_SYSTEM=$FS KITE_AUTOSTART_USER=$FU python3 - "$KT" <<TASKS_PY
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("kt", sys.argv[1])
@@ -433,6 +464,20 @@ check "and the list shows it off" kt_py \
     'assert not {x["file"]: x for x in kt.startup_entries()}["blueman.desktop"]["enabled"]'
 kt_py 'kt.set_startup("blueman.desktop", True)' >/dev/null
 check "on again: Hidden=false, written once" bash -c "[ \"\$(grep -c '^Hidden=' '$FU/blueman.desktop')\" = 1 ] && grep -qx 'Hidden=false' '$FU/blueman.desktop'"
+# Debian's plain picom autostart entry is switched off by KiteOS's copy
+# (start-compositor runs picom): not a startup app, not started twice.
+printf '[Desktop Entry]\nType=Application\nName=picom\nExec=picom\n' > "$FS/picom.desktop"
+check "KiteOS's switched-off entries are not listed (Debian's plain picom)" bash -c \
+    "KITE_AUTOSTART_KITE='$REPO/packages/kite-desktop/usr/share/kite/xdg-config/autostart' KITE_PROC=$FP KITE_SYS=$T/tasks/sys KITE_APP_DIRS=$FA KITE_AUTOSTART_SYSTEM=$FS KITE_AUTOSTART_USER=$FU python3 -c 'import importlib.machinery, importlib.util, sys; l = importlib.machinery.SourceFileLoader(\"kt\", \"$KT\"); s = importlib.util.spec_from_loader(\"kt\", l); kt = importlib.util.module_from_spec(s); l.exec_module(kt); sys.exit(0 if \"picom.desktop\" not in {x[\"file\"] for x in kt.startup_entries()} else 1)'"
+rm -f "$FS/picom.desktop"
+check "the session finds KiteOS's autostart copies first" bash -c \
+    "grep -q '^XDG_CONFIG_DIRS=\"/usr/share/kite/xdg-config:' '$REPO/packages/kite-desktop/etc/X11/Xsession.d/45kite-user-init' && grep -qx 'Hidden=true' '$REPO/packages/kite-desktop/usr/share/kite/xdg-config/autostart/picom.desktop'"
+check "Task Manager opens compact (720 x 500)" grep -q 'self.set_default_size(720, 500)' "$KT"
+check "Performance: every drive, system disk first, USB stick and SD card named" kt_py \
+    'd = kt.disks(); assert [(x["dev"], x["kind"], x["name"]) for x in d] == [("mmcblk0", "system", "Disk (system)"), ("mmcblk1", "sd", "SD card"), ("sda", "usb", "USB drive")], d'
+check "Performance: a drive's mount points (spaces decoded) and model" kt_py \
+    'd = {x["dev"]: x for x in kt.disks()}; assert d["mmcblk0"]["mounts"] == ["/"] and d["sda"]["mounts"] == ["/media/kite/USB STICK"] and d["sda"]["model"] == "Kingston DataTraveler 3.0" and d["mmcblk1"]["mounts"] == [], d'
+check "processes: one list, no Apps / Background / System sections" bash -c "! grep -q 'SECTIONS\|section:' '$KT'"
 check "Ctrl+Shift+Esc opens it" grep -q '"<Primary><Shift>Escape": "kite-tasks"' "$REPO/packages/kite-desktop/usr/bin/kite-layout"
 check "administrator mode through pkexec, with a window" bash -c "grep -q 'exec.allow_gui\">true' '$REPO/packages/kite-desktop/usr/share/polkit-1/actions/org.kiteos.tasks.policy' && grep -q '/usr/bin/kite-tasks' '$REPO/packages/kite-desktop/usr/share/polkit-1/actions/org.kiteos.tasks.policy'"
 check "xfce4-taskmanager replaced" bash -c "! grep -q xfce4-taskmanager '$REPO/packages/kite-desktop/DEBIAN/control' '$REPO/live/config/package-lists/kite-desktop.list.chroot'"
@@ -545,6 +590,21 @@ $1
 PYEOF
 }
 check "loads without GTK" ac_py 'assert ac.Gtk is None and ac.WM_CLASS == "kite-apps"'
+# A .deb file double-clicked in Files or a download
+check ".deb: dpkg-deb fields read, long description left out" ac_py \
+    'f = ac.parse_deb_fields("Package: foo\nVersion: 1.2-1\nArchitecture: amd64\nInstalled-Size: 2048\nDescription: Foo tool\n Long text.\n .\n More.\n"); assert f == {"Package": "foo", "Version": "1.2-1", "Architecture": "amd64", "Installed-Size": "2048", "Description": "Foo tool"}, f'
+check ".deb: install / upgrade / reinstall / downgrade" ac_py \
+    'n = lambda a, b: a > b; assert [ac.deb_action(i, "2", n) for i in (None, "1", "2", "3")] == ["install", "upgrade", "reinstall", "downgrade"]'
+check ".deb: architecture must match (or all)" ac_py \
+    'assert ac.deb_arch_ok("amd64", "amd64") and ac.deb_arch_ok("all", "amd64") and not ac.deb_arch_ok("arm64", "amd64")'
+check ".deb: apt's simulation gives extra packages, removals and errors" ac_py \
+    's = "Inst libbar (1.0 Debian:13 [amd64])\nInst foo (1.2-1 local-deb [amd64])\nRemv oldfoo [0.9]\nConf foo (1.2-1)\n"; assert ac.parse_simulated_install(s, "foo") == (["libbar"], ["oldfoo"], []); e = " foo : Depends: libqux (>= 3) but it is not installable\nE: Unable to correct problems, you have held broken packages.\n"; assert len(ac.parse_simulated_install(e, "foo")[2]) == 2'
+check ".deb: the question names the change, the extras and the trust warning" ac_py \
+    'q, v = ac.deb_question({"Package": "foo", "Version": "2", "Description": "Foo & co", "Installed-Size": "2048"}, "upgrade", "1", ["libbar"], []); assert v == "Upgrade" and "from 1 to 2" in q and "Foo &amp; co" in q and "2.0 MB" in q and "libbar" in q and "trust" in q, q'
+check ".deb: reinstall and downgrade pass apt the right option" ac_py \
+    'assert ac.install_steps("/home/u/foo.deb", "u", False, False, ["--reinstall"])[0][-4:] == ["--reinstall", "--user", "u", "/home/u/foo.deb"]'
+check ".deb: double-click opens App Centre's installer, and it is the default" bash -c \
+    "grep -qx 'Exec=kite-app-centre --install-file %f' '$REPO/packages/kite-storage/usr/share/applications/kite-install-package.desktop' && grep -q 'application/vnd.debian.binary-package' '$REPO/packages/kite-storage/usr/share/applications/kite-install-package.desktop' && grep -qx 'application/vnd.debian.binary-package=kite-install-package.desktop' '$REPO/packages/kite-desktop/etc/xdg/mimeapps.list'"
 check "status: external disk connected" ac_py \
     'e = ac.parse_status(status)["external"]; assert e == {"configured": True, "connected": True, "uuid": "1234-abcd", "mount": "/mnt/kite-external"}, e'
 check "status: moved entries, path with a space and state kept" ac_py \

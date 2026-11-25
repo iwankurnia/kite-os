@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=picom
+Exec=picom
+# Off: KiteOS starts picom itself, with its own settings and xfwm4's
+# compositor as the fallback (/usr/lib/kite/desktop/start-compositor). This
+# copy hides Debian's /etc/xdg/autostart/picom.desktop, which would start a
+# second, plain picom at login. Found first through XDG_CONFIG_DIRS
+# (/etc/X11/Xsession.d/45kite-user-init).
+Hidden=true

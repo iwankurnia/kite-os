@@ -7,8 +7,10 @@
 Processes are grouped the way Windows does it: an app with everything it
 started (Brave's or VS Code's many processes are one row), found by walking
 up each process's parents until a desktop process (the panel, the session,
-the settings daemon) that launched it. A group is an app when one of its
-processes has a window; the rest are background processes. Memory is each
+the settings daemon) that launched it. All groups are in one list (no Apps /
+Background / System sections), so every column sorts all of it. The
+Performance tab has a graph for every drive, and drives plugged in or removed
+while it is open come and go within 2 seconds. Memory is each
 process's private memory (RssAnon, like Windows' "private working set": a
 shared library is not counted again for every process), readable for every
 process without root. CPU is the share of the whole machine, as on Windows.
@@ -35,6 +37,10 @@ APP_DIRS = [d for d in os.environ.get("KITE_APP_DIRS", "").split(":") if d] or [
     os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "applications"),
     "/usr/local/share/applications", "/usr/share/applications"]
 AUTOSTART_SYSTEM = os.environ.get("KITE_AUTOSTART_SYSTEM", "/etc/xdg/autostart")
+# KiteOS's own copies of system entries, found before /etc/xdg (the session
+# puts /usr/share/kite/xdg-config first in XDG_CONFIG_DIRS); one with
+# Hidden=true is an entry KiteOS switches off (Debian's plain picom).
+AUTOSTART_KITE = os.environ.get("KITE_AUTOSTART_KITE", "/usr/share/kite/xdg-config/autostart")
 AUTOSTART_USER = os.environ.get("KITE_AUTOSTART_USER") or os.path.join(
     os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "autostart")
 
@@ -123,6 +129,63 @@ def root_disk():
                 return os.path.basename(os.path.realpath(parent))
             return dev
     return None
+
+
+def disks():
+    """Every drive, system disk first: [{dev, name, kind, mounts}], kind
+    "system", "usb", "sd" or "disk"; mounts are the mount points of its
+    partitions (or of the disk itself). Loop, RAM, zram, device-mapper and
+    optical devices are left out, and so are empty card readers."""
+    root = root_disk()
+    mounts = {}
+    for line in read(os.path.join(PROC, "self/mounts")).splitlines():
+        f = line.split()
+        if len(f) > 1 and f[0].startswith("/dev/"):
+            mounts.setdefault(os.path.basename(os.path.realpath(f[0])), []).append(f[1].replace("\\040", " "))
+    out = []
+    base = os.path.join(SYS, "block")
+    for dev in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        if dev.startswith(("loop", "ram", "zram", "dm-", "sr", "fd", "nbd")) or "boot" in dev or "rpmb" in dev:
+            continue
+        d = os.path.join(base, dev)
+        if (read(os.path.join(d, "size"), "0").strip() or "0") == "0":
+            continue
+        path = os.path.realpath(d)
+        if dev == root:
+            kind = "system"
+        elif "/usb" in path:
+            kind = "usb"
+        elif dev.startswith("mmcblk") and read(os.path.join(d, "device/type")).strip() == "SD":
+            kind = "sd"
+        else:
+            kind = "disk"
+        model = " ".join((read(os.path.join(d, "device/vendor")).strip() + " " +
+                          read(os.path.join(d, "device/model")).strip()).split()) or \
+            read(os.path.join(d, "device/name")).strip()
+        name = {"system": "Disk (system)", "usb": "USB drive", "sd": "SD card"}.get(kind, "Disk")
+        parts = [p for p in sorted(os.listdir(d)) if p.startswith(dev)] if os.path.isdir(d) else []
+        mp = [m for p in [dev] + parts for m in mounts.get(p, [])]
+        out.append({"dev": dev, "name": name, "model": model, "kind": kind, "mounts": mp})
+    out.sort(key=lambda x: (x["kind"] != "system", x["dev"]))
+    return out
+
+
+def disk_space(mount_points):
+    """(size, free) in bytes over the given mount points (each file system once)."""
+    size = free = 0
+    seen = set()
+    for m in mount_points:
+        try:
+            st = os.statvfs(m)
+        except OSError:
+            continue
+        key = (st.f_blocks, st.f_frsize, st.f_files, st.f_fsid if hasattr(st, "f_fsid") else m)
+        if key in seen:
+            continue
+        seen.add(key)
+        size += st.f_blocks * st.f_frsize
+        free += st.f_bavail * st.f_frsize
+    return size, free
 
 
 def disk_stats(dev):
@@ -433,11 +496,14 @@ def window_pids():
 def startup_entries():
     """Autostart entries for XFCE: [{file, name, comment, icon, enabled}]."""
     files = {}
-    for d in (AUTOSTART_SYSTEM, AUTOSTART_USER):
+    for d in (AUTOSTART_SYSTEM, AUTOSTART_KITE, AUTOSTART_USER):
         for path in glob.glob(os.path.join(d, "*.desktop")):
             files[os.path.basename(path)] = path            # the user's copy wins
     out = []
     for name, path in sorted(files.items()):
+        if os.path.dirname(path) == AUTOSTART_KITE and \
+                (desktop_entry(path) or {}).get("Hidden", "false") == "true":
+            continue                    # switched off by KiteOS: not a startup app here
         e = desktop_entry(path)
         sysfile = os.path.join(AUTOSTART_SYSTEM, name)
         base = desktop_entry(sysfile) if path != sysfile and os.path.exists(sysfile) else None
@@ -514,16 +580,18 @@ def dump():
 
 # ===================================================================== UI ==
 CSS = b"""
+/* Compact (720 x 500 by default, owner's request 2026-11-25): small paddings,
+   16 px icons in the process list, short graphs. */
 /* Toolbar, macOS style: a segmented control for the tabs */
 .kite-tasks .toolbar-row {
-  padding: 8px 12px; background-color: #f6f6f6; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 4px 8px; background-color: #f6f6f6; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 .kite-tasks .tabs {
   background-color: rgba(0, 0, 0, 0.07); border-radius: 8px; padding: 2px;
 }
 .kite-tasks .tabs button {
   background: transparent; border: none; box-shadow: none; border-radius: 6px;
-  min-height: 0; padding: 4px 22px; color: #1b1b1b; font-weight: 500;
+  min-height: 0; padding: 3px 14px; color: #1b1b1b; font-weight: 500;
 }
 .kite-tasks .tabs button:hover { background-color: rgba(255, 255, 255, 0.45); }
 .kite-tasks .tabs button:checked {
@@ -539,25 +607,25 @@ CSS = b"""
 .kite-tasks .badge {
   color: #8a5a00; background-color: #fff4ce; border-radius: 6px; padding: 2px 8px; font-size: 9pt;
 }
-.kite-tasks .search { border-radius: 7px; min-height: 28px; }
+.kite-tasks .search { border-radius: 7px; min-height: 26px; }
 .kite-tasks .subtitle { color: rgba(0, 0, 0, 0.6); }
 .kite-tasks .content { background-color: #fafafa; }
 .kite-tasks treeview.view { background-color: #ffffff; }
 .kite-tasks treeview.view header button {
   background: #ffffff; border: none; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-  padding: 6px 8px; font-weight: 600; color: rgba(0, 0, 0, 0.7);
+  padding: 3px 6px; font-weight: 600; color: rgba(0, 0, 0, 0.7);
 }
-.kite-tasks .tiles row { border-radius: 8px; margin: 3px 8px; padding: 8px 10px; }
+.kite-tasks .tiles row { border-radius: 8px; margin: 2px 4px; padding: 5px 8px; }
 .kite-tasks .tiles row:selected { background-color: rgba(0, 0, 0, 0.06); color: #1b1b1b; }
 .kite-tasks .tiles row:selected label { color: #1b1b1b; }
 .kite-tasks .tile-name { font-weight: 600; }
 .kite-tasks .tile-value { color: rgba(0, 0, 0, 0.6); font-size: 9pt; }
 .kite-tasks .stat-label { color: rgba(0, 0, 0, 0.6); font-size: 9pt; }
-.kite-tasks .stat-value { font-size: 13pt; }
+.kite-tasks .stat-value { font-size: 11pt; }
 .kite-tasks .card {
   background-color: #ffffff; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 8px;
 }
-.kite-tasks .startup row { padding: 8px 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
+.kite-tasks .startup row { padding: 5px 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
 """
 
 # Resource colours (Windows 11 Task Manager's hues)
@@ -644,12 +712,11 @@ def main_ui():
     # Tree columns
     (C_KEY, C_ICON, C_NAME, C_CPU, C_CPU_T, C_CPU_BG, C_MEM, C_MEM_T, C_MEM_BG, C_WEIGHT, C_HEADER, C_ORDER,
      C_DISK, C_DISK_T, C_DISK_BG, C_NET, C_NET_T, C_NET_BG) = range(18)
-    SECTIONS = (("app", "Apps"), ("background", "Background processes"), ("system", "System processes"))
 
     class TaskManager(Gtk.Window):
         def __init__(self):
             super().__init__(title="Task Manager")
-            self.set_default_size(980, 640)
+            self.set_default_size(720, 500)
             self.set_icon_name("utilities-system-monitor")
             self.get_style_context().add_class("kite-tasks")
             prov = Gtk.CssProvider()
@@ -699,7 +766,7 @@ def main_ui():
             self.tabs = Gtk.StackSwitcher(stack=self.stack, halign=Gtk.Align.CENTER)
             self.tabs.get_style_context().add_class("tabs")
             top.set_center_widget(self.tabs)
-            self.search = Gtk.SearchEntry(placeholder_text="Search", width_chars=22)
+            self.search = Gtk.SearchEntry(placeholder_text="Search", width_chars=14)
             self.search.get_style_context().add_class("search")
             self.search.connect("search-changed", self.on_search)
             top.pack_end(self.search, False, False, 0)
@@ -765,10 +832,10 @@ def main_ui():
             tv = Gtk.TreeView(model=self.sorted, enable_search=False, activate_on_single_click=False)
             self.tree = tv
             name_col = Gtk.TreeViewColumn("Name")
-            pix = Gtk.CellRendererPixbuf(stock_size=Gtk.IconSize.LARGE_TOOLBAR, xpad=4)
+            pix = Gtk.CellRendererPixbuf(stock_size=Gtk.IconSize.SMALL_TOOLBAR, xpad=4)
             name_col.pack_start(pix, False)
             name_col.add_attribute(pix, "icon-name", C_ICON)
-            txt = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=5)
+            txt = Gtk.CellRendererText(ellipsize=Pango.EllipsizeMode.END, ypad=2)
             name_col.pack_start(txt, True)
             name_col.add_attribute(txt, "text", C_NAME)
             name_col.add_attribute(txt, "weight", C_WEIGHT)
@@ -783,45 +850,37 @@ def main_ui():
                     ("Network", C_NET_T, C_NET_BG, C_NET,
                      "TCP traffic. QUIC (UDP) traffic, which Brave uses for YouTube and Google, cannot be "
                      "counted per app on Linux: Performance > Wi-Fi shows all traffic")):
-                r = Gtk.CellRendererText(xalign=1.0, xpad=10)
+                r = Gtk.CellRendererText(xalign=1.0, xpad=6)
                 c = Gtk.TreeViewColumn(title, r, text=tcol, cell_background=bgcol, weight=C_WEIGHT)
-                c.set_min_width(100)
+                c.set_min_width(72)
                 c.set_alignment(1.0)
                 c.set_sort_column_id(scol)
                 tv.append_column(c)
                 c.get_button().set_tooltip_text(tip)
             tv.get_selection().connect("changed", self.on_select)
             tv.connect("button-press-event", self.on_tree_click)
-            sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, margin_start=16, margin_end=16,
-                                    margin_bottom=16, margin_top=12)
+            sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, margin_start=8, margin_end=8,
+                                    margin_bottom=8, margin_top=6)
             sw.get_style_context().add_class("card")
             sw.add(tv)
-            self.sections = {}
-            for i, (kind, label) in enumerate(SECTIONS):
-                it = self.store.append(None, ["section:" + kind, None, label, 0.0, "", None, 0.0, "", None,
-                                              Pango.Weight.BOLD, True, i, 0.0, "", None, 0.0, "", None])
-                self.sections[kind] = (Gtk.TreeRowReference.new(self.store, self.store.get_path(it)), label)
             return sw
 
         def sort_func(self, model, a, b, col):
-            ha, hb = model[a][C_HEADER], model[b][C_HEADER]
-            if ha and hb:                       # sections keep their order
-                order = model[a][C_ORDER] - model[b][C_ORDER]
-                _, direction = self.sorted.get_sort_column_id()
-                return order if direction == Gtk.SortType.ASCENDING else -order
+            # One list, no Apps / Background / System sections (owner's
+            # request 2026-11-25): every column sorts all of it; an app's own
+            # processes, under its row, sort the same way.
             va, vb = model[a][col], model[b][col]
             if col == C_NAME:
                 va, vb = (va or "").lower(), (vb or "").lower()
             return (va > vb) - (va < vb)
 
         def visible(self, model, it, _data):
-            if not self.filter_text or model[it][C_HEADER]:
+            if not self.filter_text:
                 return True
             if self.filter_text in (model[it][C_NAME] or "").lower():
                 return True
             parent = model.iter_parent(it)
-            if parent is not None and not model[parent][C_HEADER] and \
-                    self.filter_text in (model[parent][C_NAME] or "").lower():
+            if parent is not None and self.filter_text in (model[parent][C_NAME] or "").lower():
                 return True
             child = model.iter_children(it)
             while child is not None:
@@ -847,7 +906,7 @@ def main_ui():
 
         def target(self, key):
             """The group (or the single process) a row stands for."""
-            if not key or key.startswith("section:"):
+            if not key:
                 return None
             if key in self.groups:
                 return self.groups[key]
@@ -938,9 +997,7 @@ def main_ui():
             self.groups = {g["key"]: g for g in groups}
             total_mem = meminfo().get("MemTotal", 1)
             seen = set()
-            counts = {k: 0 for k, _ in SECTIONS}
             for g in groups:
-                counts[g["kind"]] += 1
                 gcpu = sum(cpu.get(p, 0.0) for p in g["pids"])
                 gmem = sum(procs[p].mem for p in g["pids"])
                 known = [disk[p] for p in g["pids"] if p in disk]
@@ -948,8 +1005,7 @@ def main_ui():
                 gnet = sum(net.get(p, 0.0) for p in g["pids"])
                 name = g["name"] + (" (%d)" % len(g["pids"]) if len(g["pids"]) > 1 else "")
                 icon = g["icon"] or ("application-x-executable" if g["kind"] != "system" else "system-run")
-                parent = self.store.get_iter(self.sections[g["kind"]][0].get_path())
-                git = self.upsert(g["key"], parent, icon, name, gcpu, gmem, total_mem, gdisk, gnet)
+                git = self.upsert(g["key"], None, icon, name, gcpu, gmem, total_mem, gdisk, gnet)
                 seen.add(g["key"])
                 if len(g["pids"]) > 1:
                     for pid in g["pids"]:
@@ -963,15 +1019,6 @@ def main_ui():
                     ref = self.rows.pop(k)
                     if ref.valid():
                         self.store.remove(self.store.get_iter(ref.get_path()))
-            for kind, (ref, label) in self.sections.items():
-                self.store[ref.get_path()][C_NAME] = "%s (%d)" % (label, counts[kind])
-            if not getattr(self, "expanded", False):
-                for kind in ("app", "background"):
-                    path = self.sorted.convert_child_path_to_path(
-                        self.filter.convert_child_path_to_path(self.sections[kind][0].get_path()))
-                    if path:
-                        self.tree.expand_row(path, False)
-                self.expanded = True
             self.on_select(None)
             return True
 
@@ -1020,7 +1067,8 @@ def main_ui():
             if ref and ref.valid():
                 it = self.store.get_iter(ref.get_path())
                 cur = self.store.iter_parent(it)
-                if cur is not None and self.store.get_path(cur) == self.store.get_path(parent):
+                if (cur is None and parent is None) or (cur is not None and parent is not None and
+                                                        self.store.get_path(cur) == self.store.get_path(parent)):
                     for col, v in vals.items():
                         if self.store[it][col] != v:
                             self.store.set_value(it, col, v)
@@ -1035,8 +1083,8 @@ def main_ui():
 
         # ------------------------------------------------- performance --
         def build_performance(self):
-            box = Gtk.Box(spacing=0, margin_start=8, margin_end=16, margin_bottom=16, margin_top=12)
-            self.tiles = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE, width_request=230)
+            box = Gtk.Box(spacing=0, margin_start=4, margin_end=8, margin_bottom=8, margin_top=6)
+            self.tiles = Gtk.ListBox(selection_mode=Gtk.SelectionMode.BROWSE, width_request=190)
             self.tiles.get_style_context().add_class("tiles")
             box.pack_start(self.tiles, False, False, 0)
             self.detail = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE, transition_duration=120)
@@ -1046,96 +1094,119 @@ def main_ui():
             box.pack_start(card, True, True, 0)
 
             model, self.ncpu = cpu_info()
-            self.disk = root_disk()
             self.iface = net_iface()
-            self.prev_disk = disk_stats(self.disk) if self.disk else None
             self.prev_net = net_bytes(self.iface) if self.iface else None
             self.prev_t = time.monotonic()
             self.res = {}
+            self.prev_disks = {}
+            self.disks_checked = time.monotonic()
             mx = cpu_speed_ghz()[1]
-            subtitle = {"cpu": model, "memory": fmt_bytes(meminfo().get("MemTotal", 0)) + " RAM",
-                        "disk": "%s (system disk)" % self.disk if self.disk else "",
-                        "network": self.iface or "", "battery": ""}
-            names = [("cpu", "CPU"), ("memory", "Memory")]
-            if self.disk:
-                names.append(("disk", "Disk"))
+            self.add_resource("cpu", "CPU", "%s   (up to %.2f GHz)" % (model, mx) if mx else model)
+            self.add_resource("memory", "Memory", fmt_bytes(meminfo().get("MemTotal", 0)) + " RAM")
+            self.sync_disks()
             if self.iface:
-                names.append(("network", "Wi-Fi" if self.iface.startswith("wl") else "Ethernet"))
+                self.add_resource("network", "Wi-Fi" if self.iface.startswith("wl") else "Ethernet", self.iface)
             if battery():
-                names.append(("battery", "Battery"))
-            for key, label in names:
-                colour = COLOURS[key]
-                row = Gtk.ListBoxRow()
-                h = Gtk.Box(spacing=10)
-                spark = Graph(colour, small=True)
-                spark.set_size_request(64, 40)
-                h.pack_start(spark, False, False, 0)
-                v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-                n = Gtk.Label(label=label, xalign=0)
-                n.get_style_context().add_class("tile-name")
-                # a fixed width: changing text must not resize the list (that
-                # moved the edge of the graph card every second)
-                val = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, width_chars=22, max_width_chars=22)
-                val.get_style_context().add_class("tile-value")
-                v.pack_start(n, False, False, 0)
-                v.pack_start(val, False, False, 0)
-                h.pack_start(v, True, True, 0)
-                row.add(h)
-                row.key = key
-                self.tiles.add(row)
-                # detail page
-                page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin=18)
-                head = Gtk.Box()
-                t = Gtk.Label(xalign=0)
-                t.set_markup("<span size='x-large' weight='600'>%s</span>" % GLib.markup_escape_text(label))
-                head.pack_start(t, False, False, 0)
-                st = Gtk.Label(label=mx and key == "cpu" and "%s   (up to %.2f GHz)" % (subtitle[key], mx)
-                               or subtitle[key], xalign=1, ellipsize=Pango.EllipsizeMode.END)
-                st.get_style_context().add_class("subtitle")
-                head.pack_end(st, True, True, 0)
-                page.pack_start(head, False, False, 0)
-                cap = Gtk.Box()
-                left = Gtk.Label(xalign=0)
-                left.get_style_context().add_class("stat-label")
-                right = Gtk.Label(xalign=1)
-                right.get_style_context().add_class("stat-label")
-                cap.pack_start(left, True, True, 0)
-                cap.pack_end(right, False, False, 0)
-                page.pack_start(cap, False, False, 0)
-                graph = Graph(colour)
-                graph.set_size_request(-1, 200 if key == "memory" else 260)
-                page.pack_start(graph, True, True, 0)
-                swap = None
-                if key == "memory":
-                    scap = Gtk.Box(margin_top=6)
-                    sl = Gtk.Label(label="Swap in use (also holds the hibernation image)", xalign=0)
-                    sl.get_style_context().add_class("stat-label")
-                    sr = Gtk.Label(xalign=1)
-                    sr.get_style_context().add_class("stat-label")
-                    scap.pack_start(sl, True, True, 0)
-                    scap.pack_end(sr, False, False, 0)
-                    page.pack_start(scap, False, False, 0)
-                    swap = Graph(COLOURS["swap"])
-                    swap.set_size_request(-1, 70)
-                    page.pack_start(swap, False, False, 0)
-                foot = Gtk.Box()
-                fl = Gtk.Label(label="60 seconds", xalign=0)
-                fl.get_style_context().add_class("stat-label")
-                fr = Gtk.Label(label="0", xalign=1)
-                fr.get_style_context().add_class("stat-label")
-                foot.pack_start(fl, True, True, 0)
-                foot.pack_end(fr, False, False, 0)
-                page.pack_start(foot, False, False, 0)
-                grid = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
-                                   min_children_per_line=2, column_spacing=28, row_spacing=12, margin_top=10)
-                page.pack_start(grid, False, False, 0)
-                self.detail.add_named(page, key)
-                self.res[key] = {"spark": spark, "value": val, "graph": graph, "grid": grid, "stats": {},
-                                 "cap_left": left, "cap_right": right, "swap": swap,
-                                 "swap_cap": sr if swap else None}
+                self.add_resource("battery", "Battery", "")
             self.tiles.connect("row-selected", lambda _l, r: r and self.detail.set_visible_child_name(r.key))
             self.tiles.select_row(self.tiles.get_row_at_index(0))
             return box
+
+        def sync_disks(self):
+            """A tile for every drive (the system disk, USB sticks, SD cards):
+            plugged-in ones are added after the others, removed ones go."""
+            now = {"disk:" + d["dev"]: d for d in disks()}
+            for key in [k for k in self.res if k.startswith("disk:") and k not in now]:
+                self.remove_resource(key)
+                self.prev_disks.pop(key, None)
+            for i, (key, d) in enumerate(now.items()):          # system disk first, then by name
+                if key not in self.res:
+                    label = d["name"] if d["kind"] == "system" else "%s (%s)" % (d["name"], d["dev"])
+                    sub = "  ·  ".join(x for x in (d["model"], d["dev"]) if x)
+                    self.add_resource(key, label, sub, position=2 + i)   # after CPU and Memory
+                    self.prev_disks[key] = disk_stats(d["dev"])
+                self.res[key]["mounts"] = d["mounts"]
+
+        def remove_resource(self, key):
+            r = self.res.pop(key)
+            if self.tiles.get_selected_row() is r["row"]:
+                self.tiles.select_row(self.tiles.get_row_at_index(0))
+            self.tiles.remove(r["row"])
+            self.detail.remove(r["page"])
+
+        def add_resource(self, key, label, subtitle, position=-1):
+            """A tile on the left and its page (graph, figures) on the right.
+            Drives come and go, so this also runs while the window is open."""
+            colour = COLOURS[key.split(":")[0]]
+            row = Gtk.ListBoxRow()
+            h = Gtk.Box(spacing=8)
+            spark = Graph(colour, small=True)
+            spark.set_size_request(48, 30)
+            h.pack_start(spark, False, False, 0)
+            v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+            n = Gtk.Label(label=label, xalign=0)
+            n.get_style_context().add_class("tile-name")
+            # a fixed width: changing text must not resize the list (that
+            # moved the edge of the graph card every second)
+            val = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, width_chars=18, max_width_chars=18)
+            val.get_style_context().add_class("tile-value")
+            v.pack_start(n, False, False, 0)
+            v.pack_start(val, False, False, 0)
+            h.pack_start(v, True, True, 0)
+            row.add(h)
+            row.key = key
+            self.tiles.insert(row, position)
+            # detail page
+            page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin=10)
+            head = Gtk.Box()
+            t = Gtk.Label(xalign=0)
+            t.set_markup("<span size='large' weight='600'>%s</span>" % GLib.markup_escape_text(label))
+            head.pack_start(t, False, False, 0)
+            st = Gtk.Label(label=subtitle, xalign=1, ellipsize=Pango.EllipsizeMode.END)
+            st.get_style_context().add_class("subtitle")
+            head.pack_end(st, True, True, 0)
+            page.pack_start(head, False, False, 0)
+            cap = Gtk.Box()
+            left = Gtk.Label(xalign=0)
+            left.get_style_context().add_class("stat-label")
+            right = Gtk.Label(xalign=1)
+            right.get_style_context().add_class("stat-label")
+            cap.pack_start(left, True, True, 0)
+            cap.pack_end(right, False, False, 0)
+            page.pack_start(cap, False, False, 0)
+            graph = Graph(colour)
+            graph.set_size_request(-1, 110 if key == "memory" else 150)
+            page.pack_start(graph, True, True, 0)
+            swap = None
+            if key == "memory":
+                scap = Gtk.Box(margin_top=4)
+                sl = Gtk.Label(label="Swap in use (also holds the hibernation image)", xalign=0)
+                sl.get_style_context().add_class("stat-label")
+                sr = Gtk.Label(xalign=1)
+                sr.get_style_context().add_class("stat-label")
+                scap.pack_start(sl, True, True, 0)
+                scap.pack_end(sr, False, False, 0)
+                page.pack_start(scap, False, False, 0)
+                swap = Graph(COLOURS["swap"])
+                swap.set_size_request(-1, 40)
+                page.pack_start(swap, False, False, 0)
+            foot = Gtk.Box()
+            fl = Gtk.Label(label="60 seconds", xalign=0)
+            fl.get_style_context().add_class("stat-label")
+            fr = Gtk.Label(label="0", xalign=1)
+            fr.get_style_context().add_class("stat-label")
+            foot.pack_start(fl, True, True, 0)
+            foot.pack_end(fr, False, False, 0)
+            page.pack_start(foot, False, False, 0)
+            grid = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
+                               min_children_per_line=2, column_spacing=16, row_spacing=4, margin_top=4)
+            page.pack_start(grid, False, False, 0)
+            self.detail.add_named(page, key)
+            row.show_all()
+            page.show_all()
+            self.res[key] = {"spark": spark, "value": val, "graph": graph, "grid": grid, "stats": {},
+                             "cap_left": left, "cap_right": right, "swap": swap,
+                             "swap_cap": sr if swap else None, "row": row, "page": page, "mounts": []}
 
         def stats(self, key, pairs):
             """Show (label, value) pairs under the graph, updating in place."""
@@ -1146,7 +1217,7 @@ def main_ui():
                     b = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
                     l1 = Gtk.Label(label=label, xalign=0)
                     l1.get_style_context().add_class("stat-label")
-                    lab = Gtk.Label(xalign=0, width_chars=16, max_width_chars=16,
+                    lab = Gtk.Label(xalign=0, width_chars=12, max_width_chars=12,
                                     ellipsize=Pango.EllipsizeMode.END)
                     lab.get_style_context().add_class("stat-value")
                     b.pack_start(l1, False, False, 0)
@@ -1195,27 +1266,29 @@ def main_ui():
                                   ("Swap (for hibernation)", "%s of %s" % (fmt_bytes(swap_used), fmt_bytes(m.get("SwapTotal", 0)))),
                                   ("Compressed in RAM (zswap)", "%s in %s" % (fmt_bytes(zs), fmt_bytes(zd)) if zs else "nothing")])
 
-            if self.disk and "disk" in self.res:
-                d = disk_stats(self.disk)
-                r = self.res["disk"]
-                if d and self.prev_disk:
-                    rd = (d[0] - self.prev_disk[0]) * 512 / dt
-                    wr = (d[1] - self.prev_disk[1]) * 512 / dt
-                    act = min(100.0, (d[2] - self.prev_disk[2]) / (dt * 10))
+            # Drives: look for plugged-in or removed ones every 2 seconds
+            if now - self.disks_checked >= 2:
+                self.disks_checked = now
+                self.sync_disks()
+            for key in [k for k in self.res if k.startswith("disk:")]:
+                d = disk_stats(key[5:])
+                prev = self.prev_disks.get(key)
+                r = self.res[key]
+                if d and prev:
+                    rd = (d[0] - prev[0]) * 512 / dt
+                    wr = (d[1] - prev[1]) * 512 / dt
+                    act = min(100.0, (d[2] - prev[2]) / (dt * 10))
                     r["graph"].push(act)
                     r["spark"].push(act)
                     r["value"].set_text("%.0f%% active" % act)
                     r["cap_left"].set_text("Active time")
                     r["cap_right"].set_text("100%")
-                    try:
-                        st = os.statvfs("/")
-                        cap, free = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
-                    except OSError:
-                        cap = free = 0
-                    self.stats("disk", [("Active time", "%.0f%%" % act), ("Read", fmt_bytes(rd, True)),
-                                        ("Write", fmt_bytes(wr, True)), ("Used", "%s of %s" % (fmt_bytes(cap - free), fmt_bytes(cap))),
-                                        ("Free", fmt_bytes(free))])
-                self.prev_disk = d
+                    cap, free = disk_space(r["mounts"])
+                    self.stats(key, [("Active time", "%.0f%%" % act), ("Read", fmt_bytes(rd, True)),
+                                     ("Write", fmt_bytes(wr, True)),
+                                     ("Used", "%s of %s" % (fmt_bytes(cap - free), fmt_bytes(cap)) if cap else "not mounted"),
+                                     ("Free", fmt_bytes(free) if cap else "—")])
+                self.prev_disks[key] = d
 
             if self.iface and "network" in self.res:
                 n = net_bytes(self.iface)
@@ -1251,14 +1324,14 @@ def main_ui():
 
         # ------------------------------------------------------ startup --
         def build_startup(self):
-            sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, margin_start=16, margin_end=16,
-                                    margin_bottom=16, margin_top=12)
+            sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, margin_start=8, margin_end=8,
+                                    margin_bottom=8, margin_top=6)
             sw.get_style_context().add_class("card")
             v = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
             note = Gtk.Label(label="Apps that start when you log in. Fewer leaves more memory for your work."
                              + ("  (Open Task Manager without administrator rights to change these: they are"
                                 " your own settings.)" if os.geteuid() == 0 else ""),
-                             xalign=0, margin=12, wrap=True)
+                             xalign=0, margin=8, wrap=True)
             note.get_style_context().add_class("subtitle")
             v.pack_start(note, False, False, 0)
             self.startup = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
@@ -1272,8 +1345,8 @@ def main_ui():
                 self.startup.remove(child)
             for e in startup_entries():
                 row = Gtk.ListBoxRow(activatable=False)
-                h = Gtk.Box(spacing=12)
-                h.pack_start(Gtk.Image.new_from_icon_name(e["icon"], Gtk.IconSize.DND), False, False, 0)
+                h = Gtk.Box(spacing=10)
+                h.pack_start(Gtk.Image.new_from_icon_name(e["icon"], Gtk.IconSize.LARGE_TOOLBAR), False, False, 0)
                 t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
                 t.pack_start(Gtk.Label(label=e["name"], xalign=0), False, False, 0)
                 if e["comment"]:

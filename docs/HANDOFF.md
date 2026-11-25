@@ -219,6 +219,39 @@ kite-desktop 1.4.0, kite-system 1.2.3, kite-storage 1.1.3:
   rules (every duration < 0.16 s, scale ≥ 0.96, no geometry trigger).
 - `kite-layout windows` / `keys` with picom running leave xfwm4's compositor
   off (the layout's xfwm4.xml says `use_compositing` true for the fallback).
+- **Task Manager, compact and flatter** (after 77102ba, owner's requests):
+  opens at 720 x 500 (was 980 x 640, really 980 x 691 because of the graph
+  heights), 16 px icons and tight rows, smaller paddings, graphs and figures
+  on every tab. No Apps / Background / System sections: one list of groups,
+  every column sorts all of it. Performance: a tile and graph for every drive
+  (`disks()`: /sys/block without loop, zram, ram, dm, optical, eMMC boot
+  areas or empty readers; system disk first, "USB drive (sda)", "SD card
+  (mmcblk1)"), re-checked every 2 s so a USB stick appears and disappears
+  while the window is open (tested on a fake /sys); used/free over each
+  drive's mounted partitions. kite-desktop now depends on python3-gi-cairo:
+  the graphs need it (until now it came in through another package).
+- **Double-clicking a .deb installs it through App Centre** (owner's request):
+  `kite-install-package.desktop` (kite-storage, NoDisplay, the default for
+  `application/vnd.debian.binary-package` and `application/x-deb` in
+  `/etc/xdg/mimeapps.list`) runs `kite-app-centre --install-file FILE`. App
+  Centre (now `HANDLES_OPEN`, so a file reaches an already-open window) reads
+  the file with `dpkg-deb -f`, refuses another architecture, compares with
+  the installed version (install / upgrade / reinstall / downgrade), runs a
+  non-root `apt-get -s install FILE` for extra packages, removals (a kite-*
+  removal is refused) and unmet dependencies, then asks with a trust warning;
+  the external-disk choice as for other apps. `kite-storage install` takes
+  `.deb` files (copied to a 755 temp folder for apt's sandbox user, removed
+  afterwards; moves use the package name) and `--reinstall` /
+  `--allow-downgrades`. Tried in the container: install, upgrade 1.0 → 1.1,
+  reinstall, arm64 refused, all in one App Centre window.
+- **Debian's own picom autostart is switched off**: picom's
+  `/etc/xdg/autostart/picom.desktop` would start a second, plain picom at
+  login (racing start-compositor; it lost in tests but could win). KiteOS
+  hides it with `/usr/share/kite/xdg-config/autostart/picom.desktop`
+  (Hidden=true), found first because `45kite-user-init` puts that folder
+  before /etc/xdg in XDG_CONFIG_DIRS (startxfce4 keeps a pre-set value);
+  Task Manager's Startup list leaves such entries out. A conffile in /etc is
+  not edited or diverted.
 - **VLC** on the ISO (Debian, no Recommends; VA-API through
   intel-media-va-driver) and the default for audio and video files
   (`/etc/xdg/mimeapps.list`). It is in the ISO list only, not a kite-desktop

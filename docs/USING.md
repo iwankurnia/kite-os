@@ -42,13 +42,15 @@ Coast. Open
 **Settings → Desktop** and pick one from `/usr/share/backgrounds/kite` (the
 desktop itself has no right-click menu).
 
-**Task Manager** (Ctrl + Shift + Esc, or Task Manager in the menu): your apps
-with everything each one started on one row, background and system processes,
-CPU, memory, disk and network shaded by load, and **End task**. (Network per
+**Task Manager** (Ctrl + Shift + Esc, or Task Manager in the menu): one list
+of everything running, each app with everything it started on one row, with
+CPU, memory, disk and network shaded by load; click a column to sort the whole
+list by it; **End task** quits one. (Network per
 app counts TCP traffic: QUIC, which Brave uses for YouTube and Google, cannot
 be counted per app on Linux; Performance > Wi-Fi shows all of it.)
 **Performance** has live graphs for CPU, memory (with a swap graph and zswap's
-compressed memory), the disk, Wi-Fi and the battery; **Startup apps** switches login apps on and off.
+compressed memory), every drive (a USB stick or SD card gets its own graph
+while it is plugged in), Wi-Fi and the battery; **Startup apps** switches login apps on and off.
 **Run as administrator** asks for your password and can then end system
 processes too.
 
@@ -107,6 +109,12 @@ and, at the bottom, how full the internal and external disks are.
    are kept).
 4. **Storage → Move a folder to the external disk** keeps a folder (Downloads,
    Videos, …) there; moved folders are listed with **Bring back**.
+5. **A downloaded `.deb` file:** double-click it in Files (or open it from
+   Brave's downloads). App Centre says what it is, whether it is a new app,
+   an upgrade, a reinstall or an older version, what else it brings along,
+   and that it does not come from KiteOS's or Debian's app sources; **Install**
+   asks for your password. A package made for another kind of computer (such
+   as arm64) is refused before anything changes.
 
 Long tasks run at the bottom of the window with a **Details** log; you can
 keep browsing meanwhile.
