@@ -348,7 +348,7 @@ kite-desktop 1.4.0, kite-system 1.2.3, kite-storage 1.1.3:
   window no `popup` class, so `window.popup …` rules never matched; the patch
   gives it `.docklike-popup`.
 - **kite-docklike**: Debian's xfce4-docklike-plugin 0.4.3-1 with
-  `patches/xfce4-docklike-plugin/kite-preview-height.patch` (new setting
+  `patches/xfce4-docklike-plugin/01-kite-preview-height.patch` (new setting
   `previewHeight`; the pop-up's style class), built from Debian's source by
   `scripts/build-patched.sh` (in `build.sh`, so in the ISO build), as the
   binary package `kite-docklike` 0.4.3-1+kite1 that Provides, Conflicts with
@@ -406,6 +406,25 @@ are upstream 3.3.14's, because the file replaces Debian's whole) and a
 3.3-format `fstab.conf`. The VM test checks both on the installed system.
 Systems installed before 1.5.2 keep their `/etc/fstab`; this device's was
 fixed by hand. No kite package changed, so `kite-update` has nothing new.
+
+**Taskbar pop-up peek (kite-docklike 0.4.3-1+kite2, tried on the device
+2026-11-25).** `patches/xfce4-docklike-plugin/02-kite-hover-peek.patch`:
+hovering a preview 300 ms brings its window forward, leaving without a click
+puts the previous window back (and re-minimises), a click keeps it and closes
+the pop-up. Things that only showed on the device: xfwm4 raises the peeked
+window over the (unmanaged) pop-up, which sent docklike a false "leave" and
+closed it, so the pop-up is re-raised and leaves while the pointer is still
+inside it are ignored; and docklike hides every other button's pop-up when one
+opens, so a peek belongs to the pop-up it started in (that cancelled the first
+hover). Patches are now numbered (`01-`, `02-`): `build-patched.sh` applies
+them in name order. Built on the device itself (build toolchain installed
+2026-11-25, ~400 MB; remove with his word).
+
+**App Centre pin did nothing (kite-storage 1.1.4).** The .deb handler
+`kite-install-package.desktop` also had `StartupWMClass=kite-apps`, and
+docklike resolves a pin by window class before the launcher id, so the pin ran
+`kite-app-centre --install-file` with no file. The handler has no window class
+now; a test fails if two KiteOS launchers share one.
 
 **Lid dead after hibernation (fixed in kite-chromebook 1.0.2, tested on the
 device 2026-11-25).** After a resume from hibernation the lid did nothing

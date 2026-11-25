@@ -77,6 +77,12 @@ python3 "$GEN" --physmap /nonexistent -o "$T/default.conf"
 check "falls back to the classic 10-key row" grep -q '^forward = forward' "$T/default.conf"
 check "every section header is known to keyd" bash -c "! grep -E '^\[' '$T/kite.conf' | grep -vxE '\[(ids|main|meta|alt|control\+alt)\]'"
 
+echo "== patches to Debian packages"
+check "patches are numbered, so they apply in the order they were made" bash -c \
+    "! ls '$REPO'/patches/*/*.patch | xargs -n1 basename | grep -vE '^[0-9]{2}-'"
+check "every patch says what it does (Description, for the changelog)" bash -c \
+    "for f in '$REPO'/patches/*/*.patch; do grep -q '^Description: ' \"\$f\" || exit 1; done"
+
 echo "== EC event masks (lid after hibernate)"
 EC=$REPO/packages/kite-chromebook/usr/lib/kite/chromebook/kite-ec-events
 ecfake() { printf '{"SMI": %d, "SCI": %d, "WAKE": %d}\n' "$1" "$2" "$3" > "$T/ec.json"; }
@@ -756,6 +762,10 @@ check ".deb: reinstall and downgrade pass apt the right option" ac_py \
     'assert ac.install_steps("/home/u/foo.deb", "u", False, False, ["--reinstall"])[0][-4:] == ["--reinstall", "--user", "u", "/home/u/foo.deb"]'
 check ".deb: double-click opens App Centre's installer, and it is the default" bash -c \
     "grep -qx 'Exec=kite-app-centre --install-file %f' '$REPO/packages/kite-storage/usr/share/applications/kite-install-package.desktop' && grep -q 'application/vnd.debian.binary-package' '$REPO/packages/kite-storage/usr/share/applications/kite-install-package.desktop' && grep -qx 'application/vnd.debian.binary-package=kite-install-package.desktop' '$REPO/packages/kite-desktop/etc/xdg/mimeapps.list'"
+check ".deb handler claims no window class (the taskbar pin must find App Centre's launcher)" bash -c \
+    "! grep -q '^StartupWMClass=' '$REPO/packages/kite-storage/usr/share/applications/kite-install-package.desktop'"
+check "no two KiteOS launchers share a window class (docklike matches pins by it first)" bash -c \
+    "! grep -h '^StartupWMClass=' '$REPO'/packages/*/usr/share/applications/*.desktop | sort | uniq -d | grep -q ."
 check "status: external disk connected" ac_py \
     'e = ac.parse_status(status)["external"]; assert e == {"configured": True, "connected": True, "uuid": "1234-abcd", "mount": "/mnt/kite-external"}, e'
 check "status: moved entries, path with a space and state kept" ac_py \

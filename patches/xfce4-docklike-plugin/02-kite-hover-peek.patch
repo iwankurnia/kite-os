@@ -1,0 +1,258 @@
+Description: Peek at a window from its preview in the taskbar pop-up
+ Like Windows 11: resting the pointer on a window's preview for 300 ms brings
+ that window to the front (un-minimising it if needed). Moving to another
+ preview peeks that one instead and puts a peeked minimised window back down.
+ Leaving the pop-up, or it closing, without a click activates the window that
+ was active before and minimises the peeked window again if it was minimised.
+ A click keeps the window and closes the pop-up.
+ .
+ The pop-up stays open while the pointer is on it: a peeked window that the
+ window manager raises over the pop-up (an unmanaged window) no longer counts
+ as the pointer leaving, the pop-up is raised back on top, and moving onto a
+ preview inside the pop-up (an "inferior" crossing) is not a leave either.
+ A peek belongs to the pop-up it started in, because docklike hides every
+ other button's pop-up whenever one opens.
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-25
+---
+
+--- a/src/GroupMenu.cpp
++++ b/src/GroupMenu.cpp
+@@ -13,6 +13,144 @@
+ #include "GroupMenu.hpp"
+ #include "GroupMenuItem.hpp"
+ #include "Plugin.hpp"
++#include "Xfw.hpp"
++
++#ifdef ENABLE_X11
++#include <gdk/gdkx.h>
++#endif
++
++namespace Peek
++{
++	static const guint DELAY_MS = 300;
++
++	static XfwWindow* sBefore = nullptr; // active before the first peek
++	static XfwWindow* sPeeked = nullptr; // the window brought forward
++	static bool sPeekedWasMinimized = false;
++	static bool sOpen = false; // a peek has happened since the pop-up opened
++	static GroupWindow* sPending = nullptr;
++	static GtkWidget* sPopup = nullptr;
++	static guint sTimer = 0;
++
++	// Weak pointers: a window closed mid-peek clears its slot.
++	static void track(XfwWindow** slot, XfwWindow* window)
++	{
++		if (*slot != nullptr)
++			g_object_remove_weak_pointer(G_OBJECT(*slot), (gpointer*)slot);
++		*slot = window;
++		if (window != nullptr)
++			g_object_add_weak_pointer(G_OBJECT(window), (gpointer*)slot);
++	}
++
++	// The window manager ignores activation with no timestamp.
++	static guint32 now()
++	{
++#ifdef ENABLE_X11
++		GdkWindow* gdkWindow = sPopup != nullptr ? gtk_widget_get_window(sPopup) : nullptr;
++		if (gdkWindow != nullptr && GDK_IS_X11_WINDOW(gdkWindow))
++			return gdk_x11_get_server_time(gdkWindow);
++#endif
++		return gtk_get_current_event_time();
++	}
++
++	static gboolean raisePopup(gpointer)
++	{
++		GdkWindow* gdkWindow = sPopup != nullptr ? gtk_widget_get_window(sPopup) : nullptr;
++		if (gdkWindow != nullptr && gtk_widget_get_visible(sPopup))
++			gdk_window_raise(gdkWindow);
++		return G_SOURCE_REMOVE;
++	}
++
++	static void keepPopupOnTop()
++	{
++		raisePopup(nullptr);
++		g_timeout_add(100, raisePopup, nullptr);
++		g_timeout_add(250, raisePopup, nullptr);
++	}
++
++	static void putBackPeeked()
++	{
++		if (sPeeked != nullptr && sPeekedWasMinimized)
++			xfw_window_set_minimized(sPeeked, TRUE, nullptr);
++		track(&sPeeked, nullptr);
++		sPeekedWasMinimized = false;
++	}
++
++	static void show(GroupWindow* groupWindow)
++	{
++		XfwWindow* window = groupWindow->mXfwWindow;
++		if (window == sPeeked)
++			return;
++		if (!sOpen)
++		{
++			sOpen = true;
++			track(&sBefore, Xfw::getActiveWindow());
++		}
++		putBackPeeked();
++		track(&sPeeked, window);
++		sPeekedWasMinimized = xfw_window_is_minimized(window);
++		if (sPeekedWasMinimized || window != Xfw::getActiveWindow())
++		{
++			xfw_window_activate(window, nullptr, now(), nullptr);
++			// The window manager raises the peeked window above the pop-up
++			// (an unmanaged window) a moment later: put the pop-up back on top.
++			keepPopupOnTop();
++		}
++	}
++
++	void cancel()
++	{
++		if (sTimer != 0)
++			g_source_remove(sTimer);
++		sTimer = 0;
++		sPending = nullptr;
++	}
++
++	void schedule(GroupWindow* groupWindow, GtkWidget* popup)
++	{
++		cancel();
++		sPopup = popup;
++		sPending = groupWindow;
++		sTimer = g_timeout_add(DELAY_MS, +[](gpointer) -> gboolean {
++			sTimer = 0;
++			GroupWindow* pending = sPending;
++			sPending = nullptr;
++			if (pending != nullptr)
++				show(pending);
++			return G_SOURCE_REMOVE;
++		},
++			nullptr);
++	}
++
++	void forget(GroupWindow* groupWindow)
++	{
++		if (sPending == groupWindow)
++			cancel();
++	}
++
++	void commit()
++	{
++		cancel();
++		track(&sPeeked, nullptr);
++		track(&sBefore, nullptr);
++		sPeekedWasMinimized = false;
++		sOpen = false;
++	}
++
++	void restore(GtkWidget* popup)
++	{
++		if (popup != sPopup)
++			return;
++		cancel();
++		if (!sOpen)
++			return;
++		bool peeked = sPeeked != nullptr;
++		putBackPeeked();
++		if (peeked && sBefore != nullptr && !xfw_window_is_minimized(sBefore))
++			xfw_window_activate(sBefore, nullptr, now(), nullptr);
++		track(&sBefore, nullptr);
++		sOpen = false;
++	}
++} // namespace Peek
+ 
+ static GtkWidget*
+ create_window()
+@@ -68,8 +206,13 @@ GroupMenu::GroupMenu(Group* dockButton)
+ 
+ 	g_signal_connect(G_OBJECT(mWindow), "leave-notify-event",
+ 		G_CALLBACK(+[](GtkWidget* widget, GdkEvent* event, GroupMenu* me) {
++			// A peeked window raised over the pop-up sends a leave while the
++			// pointer has not moved off it: the pop-up stays open.
++			if (((GdkEventCrossing*)event)->detail == GDK_NOTIFY_INFERIOR || me->getPointerDistance() == 0)
++				return true;
+ 			me->mGroup->setMouseLeaveTimeout();
+ 			me->mMouseHover = false;
++			Peek::restore(me->mWindow);
+ 
+ 			return true;
+ 		}),
+@@ -206,6 +349,7 @@ void GroupMenu::updatePosition(gint wx, gint wy)
+ 
+ void GroupMenu::hide()
+ {
++	Peek::restore(mWindow);
+ 	mVisible = false;
+ 	gtk_widget_hide(mWindow);
+ }
+
+--- a/src/GroupMenu.hpp
++++ b/src/GroupMenu.hpp
+@@ -16,6 +16,22 @@
+ 
+ class Group;
+ class GroupMenuItem;
++class GroupWindow;
++
++// KiteOS: peek at a window from its preview in the pop-up, like Windows 11.
++// Hovering a preview for a moment brings its window to the front; leaving the
++// pop-up (or it closing) without a click puts back the window that was active
++// before, and minimises a peeked window again if it was minimised. Only the
++// pop-up a peek started in can end it: docklike hides every other button's
++// pop-up whenever one opens.
++namespace Peek
++{
++	void schedule(GroupWindow* groupWindow, GtkWidget* popup);
++	void cancel();
++	void forget(GroupWindow* groupWindow);
++	void commit();
++	void restore(GtkWidget* popup);
++} // namespace Peek
+ 
+ class GroupMenu
+ {
+
+--- a/src/GroupMenuItem.cpp
++++ b/src/GroupMenuItem.cpp
+@@ -101,7 +101,15 @@ GroupMenuItem::GroupMenuItem(GroupWindow* groupWindow)
+ 	g_signal_connect(G_OBJECT(mItem), "button-press-event",
+ 		G_CALLBACK(+[](GtkWidget* widget, GdkEventButton* event, GroupMenuItem* me) {
+ 			if (event->button == GDK_BUTTON_PRIMARY)
++			{
++				Peek::commit();
+ 				me->mGroupWindow->activate((event)->time);
++				// The choice is made: close the pop-up (and forget the
++				// pointer was over it, or the next one would not close).
++				GroupMenu& menu = me->mGroupWindow->mGroup->mGroupMenu;
++				menu.mMouseHover = false;
++				menu.hide();
++			}
+ 			return true;
+ 		}),
+ 		this);
+@@ -110,6 +118,8 @@ GroupMenuItem::GroupMenuItem(GroupWindow* groupWindow)
+ 		G_CALLBACK(+[](GtkWidget* widget, GdkEventCrossing* event, GroupMenuItem* me) {
+ 			if (event->state & GDK_BUTTON1_MASK)
+ 				me->mGroupWindow->activate(event->time);
++			else
++				Peek::schedule(me->mGroupWindow, me->mGroupWindow->mGroup->mGroupMenu.mWindow);
+ 			Help::Gtk::cssClassAdd(widget, "hover_menu_item");
+ 			gtk_widget_queue_draw(widget);
+ 			return true;
+@@ -118,6 +128,7 @@ GroupMenuItem::GroupMenuItem(GroupWindow* groupWindow)
+ 
+ 	g_signal_connect(G_OBJECT(mItem), "leave-notify-event",
+ 		G_CALLBACK(+[](GtkWidget* widget, GdkEvent* event, GroupMenuItem* me) {
++			Peek::forget(me->mGroupWindow);
+ 			Help::Gtk::cssClassRemove(widget, "hover_menu_item");
+ 			gtk_widget_queue_draw(widget);
+ 			gtk_widget_queue_draw(me->mGroupWindow->mGroup->mButton);
+@@ -134,6 +145,7 @@ GroupMenuItem::GroupMenuItem(GroupWindow* groupWindow)
+ 
+ GroupMenuItem::~GroupMenuItem()
+ {
++	Peek::forget(mGroupWindow);
+ 	mPreviewTimeout.stop();
+ 	g_object_unref(mItem);
+ }

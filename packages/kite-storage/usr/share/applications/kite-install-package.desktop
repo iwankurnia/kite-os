@@ -6,5 +6,4 @@ Exec=kite-app-centre --install-file %f
 Icon=system-software-install
 MimeType=application/vnd.debian.binary-package;application/x-deb;
 NoDisplay=true
-StartupWMClass=kite-apps
 Terminal=false
