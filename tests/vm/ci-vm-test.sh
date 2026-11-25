@@ -93,8 +93,11 @@ wait_desktop() {  # until the window manager and the panel run
 # ------------------------------------------------------------ boot menu --
 qemu-img create -q -f qcow2 "$KITEVM_DIR/emmc.qcow2" 32G
 k start "$VM" --iso "$ISO" --disk "$KITEVM_DIR/emmc.qcow2" || die "QEMU did not start"
+# GRUB boots after 5 s, so a fresh screenshot after the OCR match is often
+# already black: keep the frame the OCR read instead.
 if k wait "$VM" 'Try or install KiteOS|install KiteOS' 120 >/dev/null; then
-    shot 01-boot-menu; row PASS "boot menu" "KiteOS entries shown (01-boot-menu.png)"
+    cp "$KITEVM_DIR/$VM.ocr.png" "$OUT/01-boot-menu.png" 2>/dev/null || shot 01-boot-menu
+    row PASS "boot menu" "KiteOS entries shown (01-boot-menu.png)"
 else shot 01-boot-menu; row FAIL "boot menu" "no 'Try or install KiteOS' entry (01-boot-menu.png)"; fi
 k keys "$VM" ret; sleep 2; shot 02-boot-loading
 row INFO "boot: screen while Linux loads" "02-boot-loading.png (a black rectangle in 1.3.0)"

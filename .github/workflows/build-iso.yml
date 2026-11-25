@@ -64,3 +64,13 @@ jobs:
             gh release create "$TAG" $files --verify-tag \
               --title "KiteOS ${TAG#v}" --generate-notes
           fi
+
+  # Once the release has its ISO, boot it in QEMU, install it and check the
+  # installed system (tests/vm/ci-vm-test.sh, ~10 min). Screenshots and
+  # report.md are on the run page; a failed check fails this job, not the release.
+  vm-test:
+    needs: iso
+    if: startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/vm-test.yml
+    with:
+      tag: ${{ github.ref_name }}

@@ -32,17 +32,17 @@ Follow-up requests, all done:
 | | |
 |---|---|
 | Last commit | see `git log` |
-| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds picom fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device); **v1.3.0** (Latest) replaces the shelf and rofi with the windows and mac layouts, and its `xfwm4.xml` (xfwm4's own compositor, no picom) replaces 1.2.4's fades and shadows; **v1.3.1** (2026-11-24) fixes everything the 1.3.0 VM test and code review found (installer Desktop choice, live switch without restarting xfwm4, `/boot` move guard, light login screen, Chromebook/standard window keys); **v1.3.2** (2026-11-24, newest) fixes what the 1.3.1 VM test found (US keyboard kept, live switch really changes the window theme, `kite-layout keys` applies at once, panel plugins back inside the panel for RAM, App Centre chooser and blank USB sticks, plain menu names, windows moved out from under the mac menu bar). v1.3.2 was released without a re-test and has NOT been flashed. Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
+| Releases | v1.0 cloud-built (VM-tested); v1.1 Brave VA-API; v1.2 has a vivid white-screen bug (use 1.2.1+); v1.2.2 skipped; **v1.2.3 boots and works on the HP Chromebook 11 G8 EE** from USB (animations, Bluetooth audio, drive icons, vivid colours); v1.2.4 adds picom fades, stronger shadows and touchpad tap-to-click/natural scrolling (not yet on the device); **v1.3.0** (Latest) replaces the shelf and rofi with the windows and mac layouts, and its `xfwm4.xml` (xfwm4's own compositor, no picom) replaces 1.2.4's fades and shadows; **v1.3.1** (2026-11-24) fixes everything the 1.3.0 VM test and code review found (installer Desktop choice, live switch without restarting xfwm4, `/boot` move guard, light login screen, Chromebook/standard window keys); **v1.3.2** (2026-11-24, newest) fixes what the 1.3.1 VM test found (US keyboard kept, live switch really changes the window theme, `kite-layout keys` applies at once, panel plugins back inside the panel for RAM, App Centre chooser and blank USB sticks, plain menu names, windows moved out from under the mac menu bar). v1.3.2 was released without a re-test; it was installed on the device on 2026-11-24. **v1.4.0** (2026-11-24, Latest, newest) is the `laptop-fixes` branch below (windows layout only, Papirus icons, lightdm-gtk-greeter login and lock screen, Task Manager, VS Code and git, keyring); VM test 34/34 passed, not yet on the device. Every release from 1.2.3 carries the kite-*.deb files for `kite-update` |
 | Base | Debian 13.8, kernel 6.12.117, XFCE 4.20, Calamares 3.3.14, Brave 1.100.58, ONLYOFFICE 10.0.0 |
 | Tests | `sudo tests/run-all.sh`: 38 scripts lint-clean, 35 system and 31 storage checks pass |
-| Verified in a VM | 1.2 shelf build: everything in [TEST-REPORT.md](TEST-REPORT.md). 1.3.0 and 1.3.1: full VM runs by a cloud Claude session (live, every installer page, Mac-style install, installed boot, layout switches, keys, App Centre, kite-storage safety) and by the GitHub "VM test" workflow (below). 1.3.2: not VM-tested yet |
+| Verified in a VM | 1.2 shelf build: everything in [TEST-REPORT.md](TEST-REPORT.md). 1.3.0 and 1.3.1: full VM runs by a cloud Claude session (live, every installer page, Mac-style install, installed boot, layout switches, keys, App Centre, kite-storage safety) and by the GitHub "VM test" workflow (below). 1.3.2: not VM-tested. 1.4.0: GitHub VM test passed, 34 of 34 checks (run 45430760357, 2026-11-24); screenshots of the live desktop, installer Summary, login screen and installed desktop looked right |
 | **Not verified** | Anything needing the real Chromebook: keyboard map (Search key, top row), SOF audio, Wi-Fi, brightness keys, lid suspend, real hibernate timing, and the ONLYOFFICE editor (crashes under QEMU emulation only; works natively) |
 
 ## Changes carried over from the installed laptop (2026-11-24)
 
 KiteOS v1.3.2 was installed on the HP Chromebook 11 G8 EE that morning. The fixes
 made on the device were brought into the repository (kite-desktop 1.3.0,
-kite-system 1.2.2, branch `laptop-fixes`), not yet released:
+kite-system 1.2.2, branch `laptop-fixes`), released as **v1.4.0** the same day:
 
 - **The mac layout is gone** (owner's call, 2026-11-24: focus on the windows
   layout). Removed: `layouts/mac`, the `KiteOS-Tray-Mac` icons, the
@@ -192,14 +192,17 @@ Layout files reach an account only at first login or on `kite-layout windows`, s
 
 ## Open to-do list
 
-0. **Next session:** release the `laptop-fixes` branch (v1.3.3 or 1.4: it
-   drops the mac layout), then run the GitHub VM test on it
-   (`gh workflow run vm-test.yml -f tag=<tag>`, ~10 min, report on the run
-   page; its install flow has no Desktop page now, so check it still reaches
-   the Summary) and look at its screenshots. v1.3.2 is installed on the device
-   already. Things only a person can see: new keys work right after
-   `kite-layout keys chromebook`, the second account's name on the Frosted
-   login screen.
+0. **Next session:** bring the device from v1.3.2 to v1.4.0 (`sudo
+   kite-update`, then `kite-layout windows` for the new layout files, `sudo apt
+   install code git` if missing, and `sudo apt purge slick-greeter` only after
+   `sudo lightdm --show-config | grep greeter-session` names
+   lightdm-gtk-greeter), or flash the 1.4.0 ISO and do the eMMC install (to-do 3).
+   Things only a person can see: new keys work right after `kite-layout keys
+   chromebook`, the second account's name on the Frosted login screen, the
+   keyring in VS Code at the first login (known gap above).
+   Done 2026-11-24/25: `laptop-fixes` released as v1.4.0; its GitHub VM test
+   passed 34/34 (the install flow reaches the Summary without a Desktop page)
+   and the screenshots were checked.
 
 1. ~~Push to GitHub and release v1.0~~: done 2026-11-23.
 2. ~~Commit email~~: the owner kept the history as it is; new commits in this
@@ -231,9 +234,13 @@ Layout files reach an account only at first login or on `kite-layout windows`, s
 8. **GitHub VM test** (`.github/workflows/vm-test.yml`,
    `tests/vm/ci-vm-test.sh`): KVM on the runner, a full live + install +
    installed-system run takes ~7 min (the install itself 161 s; 38 min in an
-   emulated cloud VM). Run by hand for now; chain it after the ISO build on
-   tags once it has passed on a release. It checks settings, not pixels, so a
-   look at its screenshots is still needed.
+   emulated cloud VM). Since 2026-11-25 it runs on its own after the ISO build
+   on every `v*` tag (the `vm-test` job in `build-iso.yml`); it can still be
+   run by hand with `gh workflow run vm-test.yml -f tag=<tag>`. A failed check
+   fails that job, not the release. It checks settings, not pixels, so a look
+   at its screenshots is still needed. The boot-menu screenshot is the frame the
+   OCR matched (GRUB boots after 5 s, so a fresh shot was black); `03-splash`
+   usually shows the desktop already under KVM.
 9. ~~Installer Summary cannot show the Desktop choice~~: the Desktop page is gone.
 
 ## How it was built and tested (so you can repeat it)
@@ -367,10 +374,10 @@ git config user.email "6760806+iwankurnia@users.noreply.github.com"   # repo onl
 claude                             # reads CLAUDE.md, which points here
 ```
 
-Where things stand (2026-11-24): v1.3.2 is the newest release (build started
-unwatched; check it finished with `gh run list --limit 3`). v1.2.3 is the
-release proven on the device from USB. Next: to-do 0 (VM-test v1.3.2, then
-flash and the real-hardware run), then the Brave video check (to-do 4).
+Where things stand (2026-11-25): v1.4.0 is the newest release, VM-tested
+(34/34); v1.3.2 is installed on the device. The Windows laptop has a clone in
+`Code\Personal\kite-os`. Next: to-do 0 (the device to 1.4.0 and what only a
+person can see), the eMMC run (to-do 3), then the Brave video check (to-do 4).
 
 To pick up in Claude Code on the other laptop, start a **fresh** session in the
 cloned folder (not a moved one) and say: "Read CLAUDE.md and docs/HANDOFF.md,
