@@ -32,13 +32,19 @@ apt-get install -y -q --no-install-recommends dpkg-dev build-essential
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
+# apt downloads as its unprivileged _apt user: give it a folder it can write,
+# or it falls back to downloading as root ("Permission denied" warning).
+chmod 755 "$WORK"
+SRC=$WORK/src
+mkdir "$SRC"
+chown _apt "$SRC" 2>/dev/null || true
 for p in "${PATCHED[@]}"; do
     IFS='|' read -r pkg ver rev bin <<< "$p"
     new="$ver+kite$rev"
     echo "==> $bin $new (Debian's $pkg $ver, patched)"
     apt-get build-dep -y -q --only-source "$pkg=$ver"
-    (cd "$WORK" && apt-get source -q --only-source "$pkg=$ver")
-    dir=$(find "$WORK" -mindepth 1 -maxdepth 1 -type d -name "$pkg-*" | head -n1)
+    (cd "$SRC" && apt-get source -q --only-source "$pkg=$ver")
+    dir=$(find "$SRC" -mindepth 1 -maxdepth 1 -type d -name "$pkg-*" | head -n1)
     mkdir -p "$dir/debian/patches"
     for f in "$REPO/patches/$pkg"/*.patch; do
         cp "$f" "$dir/debian/patches/"
@@ -60,6 +66,6 @@ for p in "${PATCHED[@]}"; do
     [ -f "$dir/debian/lintian-overrides" ] && sed -i "s/^$pkg:/$bin:/" "$dir/debian/lintian-overrides"
     (cd "$dir" && dpkg-buildpackage -b -us -uc -j"$(nproc)" >"$WORK/$pkg.log" 2>&1) \
         || { tail -n 40 "$WORK/$pkg.log" >&2; exit 1; }
-    cp "$WORK/${bin}_${new}_"*.deb "$OUT/"
-    echo "built $OUT/$(cd "$WORK" && ls "${bin}_${new}_"*.deb)"
+    cp "$SRC/${bin}_${new}_"*.deb "$OUT/"
+    echo "built $OUT/$(cd "$SRC" && ls "${bin}_${new}_"*.deb)"
 done
