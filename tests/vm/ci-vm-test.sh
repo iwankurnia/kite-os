@@ -264,6 +264,9 @@ has   "installed: window manager + picom kept in memory (kite-ui scope)" 'sleep 
 has   "installed: MGLRU working-set guard 1 s" 'cat /sys/kernel/mm/lru_gen/min_ttl_ms' '^1000$'
 has   "installed: xfwm4 compositor off while picom runs" "$GUI"' xfconf-query -c xfwm4 -p /general/use_compositing' '^false'
 has   "installed: hibernation ready" 'grep -o "resume=[^ ]*" /proc/cmdline' 'resume='
+# Calamares 3.3 reads mount options from mount.conf; up to v1.5.1 they sat in fstab.conf and were ignored.
+has   "installed: / mounted noatime (eMMC)" 'findmnt -no OPTIONS /' '(^|,)noatime(,|$)'
+has   "installed: ESP mounted umask=0077" 'findmnt -no OPTIONS /boot/efi' 'fmask=0077,dmask=0077'
 has   "installed: login screen = lightdm-gtk-greeter, KiteOS-Login theme" 'grep -h "^theme-name" /usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf' 'KiteOS-Login'
 vm 'tail -n 80 ~/.xsession-errors 2>/dev/null' 30 > "$OUT/installed-xsession-errors.txt"
 k stop "$VM"

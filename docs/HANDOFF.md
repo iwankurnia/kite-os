@@ -394,6 +394,19 @@ kite-desktop 1.4.0, kite-system 1.2.3, kite-storage 1.1.3:
   library path; VLC brings the system Qt 5). Not built into an ISO or
   VM-tested yet.
 
+## v1.5.2 (2026-11-25, from the device itself)
+
+The session now runs on the Chromebook (installed on the eMMC, Claude Code
+in `~/Project/kite-os`). Its first look at the checklist found that the
+installer had **never applied our mount options**: `/` was `relatime` and the
+ESP was world-readable. `fstab.conf` used the Calamares 3.2 `mountOptions`
+key, which 3.3 ignores; 3.3 reads them from `mount.conf`. v1.5.2 ships a
+`mount.conf` (`noatime` for ext4, `umask=0077` for the ESP; its `extraMounts`
+are upstream 3.3.14's, because the file replaces Debian's whole) and a
+3.3-format `fstab.conf`. The VM test checks both on the installed system.
+Systems installed before 1.5.2 keep their `/etc/fstab`; this device's was
+fixed by hand. No kite package changed, so `kite-update` has nothing new.
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;
@@ -582,7 +595,7 @@ git config user.email "6760806+iwankurnia@users.noreply.github.com"   # repo onl
 claude                             # reads CLAUDE.md, which points here
 ```
 
-Where things stand (2026-11-25): v1.4.0 is the newest release, VM-tested
+Where things stand (2026-11-25): v1.5.2 is the newest release (see above). Before it: v1.4.0, VM-tested
 (34/34); v1.3.2 is installed on the device. The Windows laptop has a clone in
 `Code\Personal\kite-os`. Next: to-do 0 (the device to 1.4.0 and what only a
 person can see), the eMMC run (to-do 3), then the Brave video check (to-do 4).
