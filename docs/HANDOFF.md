@@ -420,6 +420,22 @@ hover). Patches are now numbered (`01-`, `02-`): `build-patched.sh` applies
 them in name order. Built on the device itself (build toolchain installed
 2026-11-25, ~400 MB; remove with his word).
 
+**Window guard, 2026-11-26 (kite-desktop 1.4.1, tried on the device).**
+Brave restored a window from history maximised but laid out for its
+un-maximised size (`_NET_WM_OPAQUE_REGION` 1398x774 in a 1366x732 window):
+tab strip and window buttons above the screen, no way to move it. The owner
+asked for a general fix for any app whose title bar is off screen.
+`/usr/lib/kite/desktop/kite-window-guard` (Python, GTK + Wnck, ~40 MB; he
+chose Python over a ~2 MB C helper; XDG autostart): rule 1 moves a normal
+window or dialog back if less than 100 px of its title bar is inside the
+work area (centred if it is entirely off screen, never resized, not while a
+mouse button is held, at most 3 moves per window in 10 s); rule 2
+un-maximises and maximises once a maximised window whose opaque region is
+bigger than the window. Found on the device: xfwm4 puts a moved frame at the
+requested spot plus `_NET_FRAME_EXTENTS` (2 px left, 34 px top) whatever the
+gravity, so the guard subtracts it; `Gdk.property_get` cannot be called from
+Python, so it reads properties with `xprop`.
+
 **Swap sizing, 2026-11-26 (kite-system 1.2.6, tried on the device).** With
 Brave open the device had 2.9 GiB of its 5.75 GiB swap in use: systemd
 refuses to hibernate once free swap < Active(anon) / 0.98, and then logind

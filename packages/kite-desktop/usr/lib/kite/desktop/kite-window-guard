@@ -1,0 +1,195 @@
+#!/usr/bin/python3 -I
+"""KiteOS window guard: keep every window's title bar where the mouse can reach it.
+
+Two rules, checked when a window appears, moves or resizes, and when the
+screen layout changes (a monitor unplugged, another resolution):
+
+1. A normal window or dialog whose title bar has less than 100 px inside the
+   usable screen (above it, under the taskbar, off a side, or on a monitor
+   that is gone) is moved back: the title bar to the top edge if it was
+   above, pulled in sideways to 100 px, or centred if the window was
+   entirely off screen. Windows are never resized. Maximised, full-screen
+   and minimised windows are left alone, and so is a window while a mouse
+   button is held (being dragged).
+2. A maximised window whose own idea of its size (_NET_WM_OPAQUE_REGION) is
+   bigger than the real window is un-maximised and maximised again, once.
+   Brave does this when it restores a window from history: its tab strip
+   and window buttons end up above the screen.
+
+Started by /etc/xdg/autostart/kite-window-guard.desktop.
+"""
+import subprocess
+import sys
+import time
+
+BAND = 32          # height of a title bar (or a browser's tab strip), px
+MIN_VISIBLE = 100  # this much of the title bar must stay on screen, px
+SETTLE_MS = 200    # wait for a window to settle before checking it
+RETRY_MS = 400     # a mouse button is held: check again after this
+
+
+def _reachable(rect, workareas):
+    x, y, w, _ = rect
+    need = min(MIN_VISIBLE, w)
+    for ax, ay, aw, ah in workareas:
+        if y >= ay and y + BAND <= ay + ah:
+            if min(x + w, ax + aw) - max(x, ax) >= need:
+                return True
+    return False
+
+
+def _overlap(rect, area):
+    x, y, w, h = rect
+    ax, ay, aw, ah = area
+    return max(0, min(x + w, ax + aw) - max(x, ax)) * max(0, min(y + h, ay + ah) - max(y, ay))
+
+
+def place(rect, workareas):
+    """New (x, y) for the visible window rect (x, y, w, h) so its title bar
+    can be reached, or None if it already can."""
+    if not workareas or _reachable(rect, workareas):
+        return None
+    x, y, w, h = rect
+    area = max(workareas, key=lambda a: _overlap(rect, a))
+    ax, ay, aw, ah = area
+    if _overlap(rect, area) == 0:
+        # Nowhere on screen (a monitor that is gone): centre it.
+        area = workareas[0]
+        ax, ay, aw, ah = area
+        return (ax + max(0, (aw - w) // 2), ay + max(0, (ah - h) // 2))
+    need = min(MIN_VISIBLE, w)
+    y = min(max(y, ay), ay + ah - BAND)
+    x = min(max(x, ax - (w - need)), ax + aw - need)
+    return (x, y)
+
+
+def size_mismatch(real, own, tolerance=8):
+    """True if a window's own idea of its size is clearly bigger than the real one."""
+    return own[0] - real[0] > tolerance or own[1] - real[1] > tolerance
+
+
+def _cardinals(xid, name):
+    try:
+        out = subprocess.run(["xprop", "-id", str(xid), "-notype", name],
+                             capture_output=True, text=True, timeout=2).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if "=" not in out:
+        return None
+    try:
+        return [int(v) for v in out.split("=", 1)[1].split(",")]
+    except ValueError:
+        return None
+
+
+def main():
+    import gi
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Wnck", "3.0")
+    from gi.repository import Gdk, GLib, Gtk, Wnck
+
+    Wnck.set_client_type(Wnck.ClientType.PAGER)
+    screen = Wnck.Screen.get_default()
+    display = Gdk.Display.get_default()
+    pending = {}      # xid -> GLib source id
+    toggled = {}      # xid -> time of the last un-maximise/maximise
+    moves = {}        # xid -> times of recent moves
+    checked_types = (Wnck.WindowType.NORMAL, Wnck.WindowType.DIALOG)
+
+    def workareas():
+        out = []
+        for i in range(display.get_n_monitors()):
+            r = display.get_monitor(i).get_workarea()
+            out.append((r.x, r.y, r.width, r.height))
+        return out
+
+    def button_held():
+        seat = display.get_default_seat()
+        pointer = seat.get_pointer() if seat else None
+        if pointer is None:
+            return False
+        _, _, _, mask = Gdk.get_default_root_window().get_device_position(pointer)
+        return bool(mask & (Gdk.ModifierType.BUTTON1_MASK | Gdk.ModifierType.BUTTON2_MASK
+                            | Gdk.ModifierType.BUTTON3_MASK))
+
+    def check(win):
+        xid = win.get_xid()
+        pending.pop(xid, None)
+        if win.get_window_type() not in checked_types or win.is_minimized():
+            return False
+        if button_held():
+            schedule(win, RETRY_MS)
+            return False
+
+        if win.is_maximized():
+            own = _cardinals(xid, "_NET_WM_OPAQUE_REGION")
+            _, _, cw, ch = win.get_client_window_geometry()
+            if own and len(own) >= 4 and size_mismatch((cw, ch), (own[2], own[3])):
+                if time.monotonic() - toggled.get(xid, 0) > 1:
+                    toggled[xid] = time.monotonic()
+                    win.unmaximize()
+                    GLib.timeout_add(150, lambda: (win.maximize(), False)[1])
+            return False
+        if win.is_fullscreen():
+            return False
+
+        fx, fy, fw, fh = win.get_geometry()
+        # Apps that draw their own title bar keep an invisible margin around
+        # the window: the visible window starts inside it.
+        ext = _cardinals(xid, "_GTK_FRAME_EXTENTS") or [0, 0, 0, 0]
+        left, right, top, bottom = (ext + [0, 0, 0, 0])[:4]
+        visible = (fx + left, fy + top, fw - left - right, fh - top - bottom)
+        target = place(visible, workareas())
+        if target is None or (abs(target[0] - visible[0]) < 2 and abs(target[1] - visible[1]) < 2):
+            return False
+        # Never fight a window: at most 3 moves per window in 10 seconds.
+        now = time.monotonic()
+        recent = [t for t in moves.get(xid, []) if now - t < 10] + [now]
+        moves[xid] = recent
+        if len(recent) > 3:
+            return False
+        # xfwm4 puts the frame at the requested spot plus its own border and
+        # title bar (_NET_FRAME_EXTENTS), whatever the gravity: take them off.
+        wm = _cardinals(xid, "_NET_FRAME_EXTENTS") or [0, 0, 0, 0]
+        wm_left, _, wm_top, _ = (wm + [0, 0, 0, 0])[:4]
+        win.set_geometry(Wnck.WindowGravity.NORTHWEST,
+                         Wnck.WindowMoveResizeMask.X | Wnck.WindowMoveResizeMask.Y,
+                         target[0] - left - wm_left, target[1] - top - wm_top, 0, 0)
+        return False
+
+    def schedule(win, delay=SETTLE_MS):
+        xid = win.get_xid()
+        if xid in pending:
+            GLib.source_remove(pending[xid])
+        pending[xid] = GLib.timeout_add(delay, check, win)
+
+    def watch(win):
+        win.connect("geometry-changed", lambda w: schedule(w))
+        win.connect("state-changed", lambda w, *_: schedule(w))
+        schedule(win)
+
+    def check_all(*_):
+        for win in screen.get_windows():
+            schedule(win)
+
+    def closed(_screen, win):
+        source = pending.pop(win.get_xid(), None)
+        if source:
+            GLib.source_remove(source)
+        toggled.pop(win.get_xid(), None)
+        moves.pop(win.get_xid(), None)
+
+    screen.connect("window-opened", lambda s, w: watch(w))
+    screen.connect("window-closed", closed)
+    gdk_screen = Gdk.Screen.get_default()
+    gdk_screen.connect("monitors-changed", check_all)
+    gdk_screen.connect("size-changed", check_all)
+    screen.force_update()
+    for win in screen.get_windows():
+        watch(win)
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KiteOS window guard
+Comment=Keeps every window's title bar on screen
+Exec=/usr/lib/kite/desktop/kite-window-guard
+NoDisplay=true
+OnlyShowIn=XFCE;
+X-XFCE-Autostart-Override=true

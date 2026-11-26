@@ -888,6 +888,29 @@ D=$REPO/packages/kite-storage/usr/share/applications/kite-apps.desktop
 check "launcher: App Centre, grouped as kite-apps" bash -c "grep -qx 'Name=App Centre' '$D' && grep -qx 'Exec=kite-app-centre' '$D' && grep -qx 'StartupWMClass=kite-apps' '$D'"
 check "kite-storage depends on Python GTK 3" grep -qE '^Depends:.*python3-gi, gir1.2-gtk-3.0' "$REPO/packages/kite-storage/DEBIAN/control"
 
+echo "== window guard (title bars kept on screen)"
+WG=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard
+wg_py() { python3 - "$WG" <<PYEOF
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("wg", sys.argv[1])
+spec = importlib.util.spec_from_loader("wg", loader); wg = importlib.util.module_from_spec(spec); loader.exec_module(wg)
+wa = [(0, 0, 1366, 700)]
+$1
+PYEOF
+}
+check "window fully on screen: left alone" wg_py 'assert wg.place((100, 100, 800, 600), wa) is None'
+check "title bar above the screen: moved down to the top" wg_py 'assert wg.place((100, -40, 800, 600), wa) == (100, 0)'
+check "title bar under the taskbar: moved up" wg_py 'assert wg.place((100, 690, 800, 600), wa) == (100, 668)'
+check "partly off the left with 150 px of title bar showing: left alone" wg_py 'assert wg.place((-650, 100, 800, 600), wa) is None'
+check "only 50 px of title bar showing: pulled in to 100 px" wg_py 'assert wg.place((-750, 100, 800, 600), wa) == (-700, 100)'
+check "off the right edge: pulled in to 100 px" wg_py 'assert wg.place((1300, 100, 800, 600), wa) == (1266, 100)'
+check "entirely off screen (monitor unplugged): centred" wg_py 'assert wg.place((2000, 300, 800, 600), wa) == (283, 50)'
+check "bigger than the screen and off it: top-left corner" wg_py 'assert wg.place((3000, 50, 1600, 900), wa) == (0, 0)'
+check "on the second monitor: left alone" wg_py 'assert wg.place((1500, 100, 800, 600), wa + [(1366, 0, 1920, 1050)]) is None'
+check "window that thinks it is bigger than it is (Brave restore bug)" wg_py 'assert wg.size_mismatch((1366, 732), (1398, 774)) and not wg.size_mismatch((1366, 732), (1366, 732))'
+check "window guard starts with the XFCE session" grep -qx 'Exec=/usr/lib/kite/desktop/kite-window-guard' "$REPO/packages/kite-desktop/etc/xdg/autostart/kite-window-guard.desktop"
+check "kite-desktop depends on Wnck for the window guard" grep -q 'gir1.2-wnck-3.0' "$REPO/packages/kite-desktop/DEBIAN/control"
+
 echo "== touchpad defaults"
 TP=$REPO/packages/kite-desktop/etc/X11/xorg.conf.d/50-kite-touchpad.conf
 check "tap to click" grep -q 'Option "Tapping" "on"' "$TP"
