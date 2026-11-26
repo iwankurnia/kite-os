@@ -16,10 +16,21 @@ echo "== kite-hibernate-setup helpers"
 # shellcheck source=/dev/null
 . "$REPO/packages/kite-system/usr/sbin/kite-hibernate-setup"
 set +e
-check "4 GB machine (3800 MiB visible) -> 5888 MiB swap (RAM + half)" test "$(target_swap_mib 3800)" = 5888
-check "8 GB machine -> 12288 MiB swap (RAM + 4 GiB)" test "$(target_swap_mib 8192)" = 12288
-check "16 GB machine -> 20480 MiB swap (extra capped at 4 GiB)" test "$(target_swap_mib 16384)" = 20480
-check "never below 2 GiB" test "$(target_swap_mib 512)" = 2048
+# swap = RAM (room to hibernate) + max(10 GiB - RAM, 2 GiB) (room for apps)
+check "4 GB machine (3800 MiB visible) -> 10 GiB swap (RAM + apps up to 10 GiB)" test "$(target_swap_mib 3800 28906)" = 10240
+check "8 GB machine -> 10 GiB swap (apps keep at least 2 GiB)" test "$(target_swap_mib 8192 200000)" = 10240
+check "16 GB machine -> 18 GiB swap (RAM + 2 GiB)" test "$(target_swap_mib 16384 400000)" = 18432
+check "small machine -> 10 GiB swap" test "$(target_swap_mib 1024 28906)" = 10240
+check "disk guard: at most 40 % of the root disk, app swap trimmed first" test "$(target_swap_mib 3800 16000)" = 6400
+check "disk guard never cuts the hibernation room (RAM + 1 GiB at least)" test "$(target_swap_mib 3800 8000)" = 4864
+check "no disk size given: no guard" test "$(target_swap_mib 3800)" = 10240
+check "earlyoom keeps the hibernation room free: 3783 MiB of 10 GiB -> 37 %" test "$(earlyoom_swap_pct 3783 10240)" = 37
+check "earlyoom share rounds up (never below the room needed)" test "$(earlyoom_swap_pct 3800 10240)" = 38
+check "too-full swap is refused before swapoff: 2900 MiB in swap, 330 MiB RAM free" bash -c ". '$REPO/packages/kite-system/usr/sbin/kite-hibernate-setup'; ! swapoff_fits 2900 330"
+check "new swap file built beside the old one when the disk has room (no apps to close)" can_build_beside 11464 10240
+check "too little disk for both: replace in place (needs RAM for the old swap)" bash -c ". '$REPO/packages/kite-system/usr/sbin/kite-hibernate-setup'; ! can_build_beside 8000 10240"
+check "swapoff allowed when RAM can take the swap back (with 256 MiB spare)" bash -c ". '$REPO/packages/kite-system/usr/sbin/kite-hibernate-setup'; swapoff_fits 200 600"
+check "earlyoom reads the floor written by kite-hibernate-setup (10 % without it)" bash -c "f='$REPO/packages/kite-system/usr/lib/systemd/system/earlyoom.service.d/kite.conf'; grep -qx 'Environment=KITE_EARLYOOM_SWAP=10' \"\$f\" && grep -qx 'EnvironmentFile=-/etc/kite/earlyoom.env' \"\$f\" && grep -q -- '-s \${KITE_EARLYOOM_SWAP}' \"\$f\""
 
 sample='Filesystem type is: ef53
 File size of /swapfile is 5100273664 (1245184 blocks of 4096 bytes)
@@ -35,6 +46,13 @@ check "root fs type from fstab" test "$(root_fstype)" = ext4
 SWAPFILE=/swapfile ensure_fstab_swapfile
 check "exactly one swapfile line" test "$(grep -c '^/swapfile ' "$FSTAB")" = 1
 check "other fstab lines untouched" grep -q '^UUID=AAAA /boot/efi' "$FSTAB"
+printf 'UUID=CCCC none swap sw 0 0\n/swapfile.new none swap sw 0 0\n' >> "$FSTAB"
+SWAPFILE=/swapfile2 ensure_fstab_swapfile
+check "a resized swap file replaces every older swap-file line" bash -c "test \"\$(awk '\$3 == \"swap\" && \$1 ~ /^\\// { print \$1 }' '$FSTAB')\" = /swapfile2"
+check "swap partitions in fstab are left alone" grep -q '^UUID=CCCC none swap' "$FSTAB"
+check "the new file takes the other name: /swapfile -> /swapfile2" test "$(other_swapfile /swapfile)" = /swapfile2
+check "and back: /swapfile2 -> /swapfile" test "$(other_swapfile /swapfile2)" = /swapfile
+check "any other name -> /swapfile" test "$(other_swapfile /swapfile.new)" = /swapfile
 
 RESUME_CONF=$T/initramfs/resume
 GRUB_DROPIN=$T/grub.d/kite-resume.cfg

@@ -420,6 +420,21 @@ hover). Patches are now numbered (`01-`, `02-`): `build-patched.sh` applies
 them in name order. Built on the device itself (build toolchain installed
 2026-11-25, ~400 MB; remove with his word).
 
+**Swap sizing, 2026-11-26 (kite-system 1.2.6, tried on the device).** With
+Brave open the device had 2.9 GiB of its 5.75 GiB swap in use: systemd
+refuses to hibernate once free swap < Active(anon) / 0.98, and then logind
+ignores the lid ("operation not supported") and critical-battery hibernate
+fails. Now swap = RAM (room to hibernate) + max(10 GiB - RAM, 2 GiB) for apps
+(owner's formula; 10 GiB here), at most 40 % of the root disk, and earlyoom's
+swap floor (`/etc/kite/earlyoom.env`, written by kite-hibernate-setup) keeps
+the RAM-sized part free (37 % here). A resize builds the new file beside the
+old one and switches the old one off, so its pages move to the new file
+instead of RAM; a swap file in use cannot be renamed, so the names alternate
+`/swapfile` / `/swapfile2` (this device is on `/swapfile.new` from the first
+try; the next resize goes back to `/swapfile`). Upgrades never resize:
+installed systems run `sudo kite-hibernate-setup` themselves. Hibernate and
+resume from the 10 GiB file confirmed.
+
 **Taskbar, 2026-11-26 (kite-docklike 0.4.3-1+kite3, tried on the device).**
 `03-kite-webapp-buttons.patch`: docklike groups a window by its first class
 id, and Brave web-app windows are class `Brave-browser` (instance

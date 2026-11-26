@@ -2,10 +2,11 @@
 # kite-hibernate-setup — make hibernation (suspend-to-disk) work on KiteOS.
 #
 # What it does:
-#   1. Makes sure there is swap space for hibernation: RAM plus half of RAM
-#      (at most 4 GiB) for what is already swapped out when it hibernates.
-#      Uses an existing swap partition if it is big enough, otherwise creates
-#      (or grows) /swapfile on the root file system.
+#   1. Makes sure there is swap space for hibernation: RAM (room to save the
+#      memory image) plus max(10 GiB - RAM, 2 GiB) for apps, and tells earlyoom
+#      to keep the RAM-sized part free. Uses an existing swap partition if it
+#      is big enough, otherwise creates (or grows) /swapfile on the root file
+#      system.
 #   2. Points the kernel at it: resume=/resume_offset= on the GRUB command line
 #      (in /etc/default/grub.d/kite-resume.cfg) and RESUME= in the initramfs.
 #   3. Only once all of that is in place, switches lid-close to
@@ -19,7 +20,10 @@
 set -euo pipefail
 
 PROG=kite-hibernate-setup
-SWAPFILE=${KITE_SWAPFILE:-/swapfile}
+# The swap file is /swapfile or /swapfile2: a resize builds the new file under
+# the other name, because a swap file in use cannot be renamed.
+SWAP_BASE=${KITE_SWAPFILE:-/swapfile}
+SWAPFILE=$SWAP_BASE
 GRUB_DROPIN=/etc/default/grub.d/kite-resume.cfg
 RESUME_CONF=/etc/initramfs-tools/conf.d/resume
 # 70-* so these sort after the package defaults in /usr/lib/.../60-kite.conf
@@ -28,6 +32,7 @@ SLEEP_DROPIN=/etc/systemd/sleep.conf.d/70-kite-hibernate.conf
 UPOWER_CONF=/etc/UPower/UPower.conf
 FSTAB=${KITE_FSTAB:-/etc/fstab}
 HIBERNATE_DELAY=${KITE_HIBERNATE_DELAY:-60min}
+EARLYOOM_ENV=${KITE_EARLYOOM_ENV:-/etc/kite/earlyoom.env}
 
 log()  { printf '%s: %s\n' "$PROG" "$*"; }
 warn() { printf '%s: warning: %s\n' "$PROG" "$*" >&2; }
@@ -41,7 +46,7 @@ Usage: $PROG [--apply] [--no-update] [--size MiB]
   --apply       Create/resize swap and write the resume configuration (default).
   --no-update   Do not run update-initramfs / update-grub afterwards
                 (the installer regenerates both itself).
-  --size MiB    Swap file size to use instead of RAM + min(RAM / 2, 4 GiB).
+  --size MiB    Swap file size to use instead of RAM + max(10 GiB - RAM, 2 GiB).
   --check       Report whether hibernation is ready; changes nothing.
 EOF
 }
@@ -52,17 +57,81 @@ ram_mib() {
     awk '/^MemTotal:/ { printf "%d\n", $2 / 1024 }' /proc/meminfo
 }
 
-# RAM + half of RAM (at most 4 GiB), rounded up to a multiple of 256 MiB,
-# never below 2 GiB. RAM + 1 GiB was too little on a 4 GB machine: with 2 GB
-# already in swap, the hibernation image no longer fitted beside it.
+# Swap = H + P, rounded up to 256 MiB:
+#   H = RAM: room to hibernate. systemd refuses to hibernate unless free swap
+#       >= Active(anon) / 0.98, and Active(anon) never exceeds RAM; the image
+#       and what is pushed out to make it fit in that too.
+#   P = max(10 GiB - RAM, 2 GiB): room for apps, so RAM + app swap is about
+#       10 GiB on small machines (5.75 GiB was too little on a 4 GB laptop with
+#       Brave: 2.9 GiB in swap left hibernation about 1 GiB from refusing).
+# With the root disk size (MiB) given, the file takes at most 40 % of it:
+# P shrinks first, never below RAM + 1 GiB in total.
 target_swap_mib() {
-    local ram=$1 t extra
-    extra=$(( ram / 2 ))
-    (( extra > 4096 )) && extra=4096
-    t=$(( ram + extra ))
-    t=$(( (t + 255) / 256 * 256 ))
-    (( t < 2048 )) && t=2048
-    echo "$t"
+    local ram=$1 root=${2:-0} p t cap
+    p=$(( 10240 - ram ))
+    (( p < 2048 )) && p=2048
+    t=$(( ram + p ))
+    if (( root > 0 )); then
+        cap=$(( root * 40 / 100 ))
+        (( t > cap )) && t=$cap
+        (( t < ram + 1024 )) && t=$(( ram + 1024 ))
+    fi
+    echo $(( (t + 255) / 256 * 256 ))
+}
+
+# earlyoom's swap floor (percent free): H's share of the swap, rounded up,
+# so apps can never use the room hibernation needs.
+earlyoom_swap_pct() {
+    local ram=$1 swap=$2
+    echo $(( (ram * 100 + swap - 1) / swap ))
+}
+
+# swapoff pulls everything in swap back into RAM: only if it fits, with
+# 256 MiB to spare (MiB in swap, MiB of RAM available).
+swapoff_fits() {
+    local used=$1 avail=$2
+    (( used + 256 <= avail ))
+}
+
+other_swapfile() {
+    if [ "$1" = "$SWAP_BASE" ]; then echo "${SWAP_BASE}2"; else echo "$SWAP_BASE"; fi
+}
+
+# The swap file in use: the active one, else the one in fstab, else /swapfile.
+current_swapfile() {
+    local f
+    if ! in_chroot; then
+        f=$(awk 'NR > 1 && $2 == "file" { print $1; exit }' /proc/swaps)
+        [ -n "$f" ] && [ -f "$f" ] && { echo "$f"; return; }
+    fi
+    f=$(awk '$3 == "swap" && $1 ~ /^\// && $1 !~ /^\/dev\// { print $1; exit }' "$FSTAB" 2>/dev/null)
+    [ -n "$f" ] && [ -f "$f" ] && { echo "$f"; return; }
+    echo "$SWAP_BASE"
+}
+
+# A new swap file can go beside the active one (MiB free on disk, MiB wanted):
+# switching the old one off then moves its pages to the new file, not into RAM.
+can_build_beside() {
+    local avail=$1 size=$2
+    (( avail > size + 1024 ))
+}
+
+root_mib() {
+    df --output=size -BM / | tail -n1 | tr -dc '0-9'
+}
+
+write_earlyoom_floor() {
+    local ram=$1 swap=$2 pct
+    pct=$(earlyoom_swap_pct "$ram" "$swap")
+    mkdir -p "$(dirname "$EARLYOOM_ENV")"
+    cat > "$EARLYOOM_ENV" <<EOF
+# Written by $PROG: earlyoom ends the biggest browser tab before free swap
+# drops below this, so the room to hibernate (RAM, ${ram} MiB of ${swap} MiB
+# swap) is always there.
+KITE_EARLYOOM_SWAP=$pct
+EOF
+    log "earlyoom keeps ${pct} % of swap free for hibernating"
+    in_chroot || systemctl try-restart earlyoom.service 2>/dev/null || true
 }
 
 in_chroot() {
@@ -140,25 +209,21 @@ parse_filefrag_offset() {
     awk '$1 == "0:" { sub(/\.\.$/, "", $4); print $4; exit }'
 }
 
-create_swapfile() {
-    local size=$1 fstype=$2
-    if swap_active "$SWAPFILE"; then
-        in_chroot || swapoff "$SWAPFILE"
-    fi
-    rm -f "$SWAPFILE"
-    log "creating ${size} MiB swap file at $SWAPFILE (this can take a minute)"
+make_swap_at() {
+    local path=$1 size=$2 fstype=$3
+    rm -f "$path"
     case "$fstype" in
         btrfs)
             warn "btrfs: the swap file must not live in a snapshotted subvolume"
-            btrfs filesystem mkswapfile --size "${size}m" "$SWAPFILE"
+            btrfs filesystem mkswapfile --size "${size}m" "$path"
             ;;
         ext4|ext3|ext2|xfs)
-            ( umask 077; : > "$SWAPFILE" )
-            if ! fallocate -l "${size}MiB" "$SWAPFILE" 2>/dev/null; then
-                dd if=/dev/zero of="$SWAPFILE" bs=1M count="$size" status=none
+            ( umask 077; : > "$path" )
+            if ! fallocate -l "${size}MiB" "$path" 2>/dev/null; then
+                dd if=/dev/zero of="$path" bs=1M count="$size" status=none
             fi
-            chmod 600 "$SWAPFILE"
-            mkswap -L kite-swap "$SWAPFILE" >/dev/null
+            chmod 600 "$path"
+            mkswap -L kite-swap "$path" >/dev/null
             ;;
         *)
             die "root file system '$fstype' is not supported for a hibernation swap file (use ext4)"
@@ -166,10 +231,44 @@ create_swapfile() {
     esac
 }
 
+create_swapfile() {
+    local size=$1 fstype=$2
+    if swap_active "$SWAPFILE" && ! in_chroot; then
+        local disk new
+        new=$(other_swapfile "$SWAPFILE")
+        disk=$(df --output=avail -BM / | tail -n1 | tr -dc '0-9')
+        if can_build_beside "$disk" "$size"; then
+            # Build the new file first and switch it on: switching the old one
+            # off then moves its pages there, so no app has to be closed.
+            log "creating ${size} MiB swap file beside the current one (this can take a minute)"
+            make_swap_at "$new" "$size" "$fstype"
+            swapon "$new"
+            log "moving what is in the old swap file to the new one"
+            if ! swapoff "$SWAPFILE"; then
+                swapoff "$new" || true
+                rm -f "$new"
+                die "could not switch the old swap file off; nothing was changed"
+            fi
+            rm -f "$SWAPFILE"
+            SWAPFILE=$new   # fstab and the resume offset follow it
+            return 0
+        fi
+        local used avail
+        used=$(awk -v f="$SWAPFILE" '$1 == f { printf "%d", $4 / 1024 }' /proc/swaps)
+        avail=$(awk '/^MemAvailable:/ { printf "%d", $2 / 1024 }' /proc/meminfo)
+        swapoff_fits "${used:-0}" "$avail" ||
+            die "${used} MiB are in swap and only ${avail} MiB of RAM is free to take them back: close some apps (Brave) and run it again"
+        swapoff "$SWAPFILE"
+    fi
+    log "creating ${size} MiB swap file at $SWAPFILE (this can take a minute)"
+    make_swap_at "$SWAPFILE" "$size" "$fstype"
+}
+
 ensure_fstab_swapfile() {
     local tmp
     tmp=$(mktemp)
-    awk -v f="$SWAPFILE" '$1 != f' "$FSTAB" > "$tmp"
+    # Drop every swap-file line (an older or renamed swap file); keep partitions.
+    awk '!($3 == "swap" && $1 ~ /^\// && $1 !~ /^\/dev\//)' "$FSTAB" > "$tmp"
     printf '%s none swap defaults,pri=0 0 0\n' "$SWAPFILE" >> "$tmp"
     cat "$tmp" > "$FSTAB"
     rm -f "$tmp"
@@ -237,7 +336,7 @@ do_apply() {
 
     local ram target fstype uuid dev size
     ram=$(ram_mib)
-    target=${size_override:-$(target_swap_mib "$ram")}
+    target=${size_override:-$(target_swap_mib "$ram" "$(root_mib)")}
     log "RAM: ${ram} MiB — hibernation swap needed: ${target} MiB"
 
     # Prefer an existing, big-enough swap partition.
@@ -247,6 +346,7 @@ do_apply() {
             uuid=$(blkid -s UUID -o value "$dev")
             log "using swap partition $dev (${size} MiB)"
             write_resume_config "$uuid" ""
+            write_earlyoom_floor "$ram" "$size"
             enable_hibernate_power_policy
             [ "$update" = 1 ] && regenerate_boot_files
             log "done — reboot once, then hibernate from the power menu"
@@ -258,6 +358,7 @@ do_apply() {
     uuid=$(root_uuid)
     [ -n "$uuid" ] || die "could not determine the UUID of the root file system"
 
+    SWAPFILE=$(current_swapfile)
     local have=0
     if [ -f "$SWAPFILE" ]; then
         have=$(( $(stat -c %s "$SWAPFILE") / 1048576 ))
@@ -276,6 +377,7 @@ do_apply() {
     local offset
     offset=$(swapfile_offset "$SWAPFILE" "$fstype")
     write_resume_config "$uuid" "$offset"
+    write_earlyoom_floor "$ram" "$(( $(stat -c %s "$SWAPFILE") / 1048576 ))"
     enable_hibernate_power_policy
 
     if ! in_chroot && ! swap_active "$SWAPFILE"; then
@@ -303,6 +405,17 @@ do_check() {
     if (( best < ram )); then
         printf '  ✗ no active disk swap at least as large as RAM\n'; ok=0
     fi
+
+    # systemd hibernates only if free swap >= Active(anon) / 0.98.
+    local anon free_kib need
+    anon=$(awk '/^Active\(anon\):/ { print $2 }' /proc/meminfo)
+    free_kib=$(awk 'NR > 1 && $1 !~ /zram/ { f += $3 - $4 } END { printf "%d", f }' /proc/swaps)
+    need=$(( anon * 100 / 98 ))
+    printf 'Room to hibernate:   %s MiB free in swap, %s MiB needed now\n' $(( free_kib / 1024 )) $(( need / 1024 ))
+    if (( free_kib < need )); then
+        printf '  ✗ not enough free swap right now: close some apps, or the lid will do nothing\n'; ok=0
+    fi
+    [ -f "$EARLYOOM_ENV" ] && printf 'earlyoom keeps free: %s %%\n' "$(sed -n 's/^KITE_EARLYOOM_SWAP=//p' "$EARLYOOM_ENV")"
 
     line=$(tr ' ' '\n' < /proc/cmdline | grep -E '^resume(_offset)?=' | tr '\n' ' ' || true)
     printf 'Kernel resume args:  %s\n' "${line:-<none>}"
