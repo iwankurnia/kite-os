@@ -220,6 +220,24 @@ def net_bytes(iface):
     return None
 
 
+def net_total():
+    """Bytes received + sent on every interface but loopback (what really
+    went over the network card)."""
+    total = 0
+    for line in read(os.path.join(PROC, "net/dev")).splitlines()[2:]:
+        name, _, rest = line.partition(":")
+        f = rest.split()
+        if name.strip() and name.strip() != "lo" and len(f) >= 9:
+            total += int(f[0]) + int(f[8])
+    return total
+
+
+def uncounted(total_rate, per_app):
+    """Network traffic no app can be credited with (QUIC/UDP has no per-socket
+    byte counts): the card's total minus what was counted per app."""
+    return max(0.0, total_rate - sum(per_app.values()))
+
+
 def io_bytes(pid):
     """Bytes a process has read from and written to storage, or None when the
     kernel does not let us see it (another user's process)."""
@@ -244,6 +262,9 @@ def parse_ss(text):
             f = line.split()
             m = re.search(r"pid=(\d+)", line)
             cur = (f[2], f[3]) if len(f) >= 4 and m else None
+            # Inside the laptop (loopback): not network traffic.
+            if cur and all(a.startswith(("127.", "[::1]", "[::ffff:127.")) for a in cur):
+                cur = None
             pid = int(m.group(1)) if m else None
         elif cur:
             s = re.search(r"bytes_sent:(\d+)", line)
@@ -560,6 +581,11 @@ def fmt_bytes(n, rate=False):
         i += 1
     s = ("%.0f" if v >= 100 or i == 0 else "%.1f") % v
     return "%s %s%s" % (s, units[i], "/s" if rate else "")
+
+
+def fmt_net(rate):
+    """A network rate (bytes/s) in the memory column's units."""
+    return "0 KB/s" if rate < 1 else fmt_bytes(rate, True)
 
 
 def fmt_uptime(s):
@@ -1014,6 +1040,13 @@ def main_ui():
                         self.upsert(k, git, None, display_name(p) + "  ·  %d" % pid, cpu.get(pid, 0.0), p.mem,
                                     total_mem, disk.get(pid), net.get(pid, 0.0))
                         seen.add(k)
+            # Traffic Linux cannot credit to an app (QUIC/UDP, e.g. Brave on
+            # YouTube or Google): its own row, so the column adds up.
+            it = self.upsert("net:other", None, "network-transmit-receive", "Not per app (QUIC/UDP)",
+                             0.0, 0, total_mem, None, getattr(self, "net_other", 0.0))
+            for col in (C_CPU_T, C_MEM_T, C_DISK_T):
+                self.store.set_value(it, col, "")
+            seen.add("net:other")
             for k in list(self.rows):
                 if k not in seen:
                     ref = self.rows.pop(k)
@@ -1052,6 +1085,11 @@ def main_ui():
                         rate[pid] = rate.get(pid, 0.0) + max(0, sent - prev[1] + recv - prev[2]) / el
                 self.prev_socks = socks
                 self.net_rate = rate
+                # What the card carried that no app is credited with (QUIC/UDP).
+                card = net_total()
+                prev_card = getattr(self, "prev_card", None)
+                self.prev_card = card
+                self.net_other = uncounted((card - prev_card) / el, rate) if prev_card is not None else 0.0
             proc.communicate_utf8_async(None, None, done)
 
         def upsert(self, key, parent, icon, name, cpu, mem, total_mem, disk=None, net=0.0):
@@ -1061,7 +1099,7 @@ def main_ui():
                     C_DISK: disk if disk is not None else -1.0,
                     C_DISK_T: "—" if disk is None else ("0 MB/s" if disk < 50e3 else "%.1f MB/s" % (disk / 1e6)),
                     C_DISK_BG: heat(disk / 10e6) if disk else None,
-                    C_NET: net, C_NET_T: "0 Mbps" if net < 1250 else "%.1f Mbps" % (net * 8 / 1e6),
+                    C_NET: net, C_NET_T: fmt_net(net),
                     C_NET_BG: heat(net / 2e6) if net else None}
             ref = self.rows.get(key)
             if ref and ref.valid():

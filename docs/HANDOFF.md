@@ -420,6 +420,16 @@ hover). Patches are now numbered (`01-`, `02-`): `build-patched.sh` applies
 them in name order. Built on the device itself (build toolchain installed
 2026-11-25, ~400 MB; remove with his word).
 
+**Task Manager network column, 2026-11-27 (kite-desktop 1.4.2, tried on the device).**
+Every app showed "0 Mbps": background traffic is bytes to a few KB per
+second (under the 1,250 B/s the Mbps display rounded to 0), and Brave's
+bulk traffic is QUIC (UDP), which has no per-socket byte counters. Now the
+column uses the memory column's units (`fmt_net`: "942 B/s", "1.5 KB/s"),
+connections inside the laptop (loopback) are not counted, and a row "Not
+per app (QUIC/UDP)" shows the network card's total minus what was credited
+to apps (`net_total`, `uncounted`). Crediting UDP per app would need a root
+packet tracer (eBPF/nethogs); the owner chose not to.
+
 **Window guard, 2026-11-26 (kite-desktop 1.4.1, tried on the device).**
 Brave restored a window from history maximised but laid out for its
 un-maximised size (`_NET_WM_OPAQUE_REGION` 1398x774 in a 1366x732 window):

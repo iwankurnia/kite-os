@@ -629,6 +629,14 @@ check "disk counters: read + written, unknown when not readable" kt_py \
     'assert kt.io_bytes(200) == 12288 and kt.io_bytes(201) is None'
 check "TCP traffic per process from ss (QUIC/UDP has no counters)" kt_py \
     's = "0  0  10.0.0.2:5000  1.2.3.4:443 users:((\"brave\",pid=301,fd=68))\n\t cubic bytes_sent:500 bytes_acked:400 bytes_received:7000 segs_out:9\n0  0  10.0.0.2:5001  5.6.7.8:443 users:((\"code\",pid=200,fd=3))\n\t cubic bytes_received:10\n"; assert kt.parse_ss(s) == {("10.0.0.2:5000", "1.2.3.4:443"): (301, 500, 7000), ("10.0.0.2:5001", "5.6.7.8:443"): (200, 0, 10)}, kt.parse_ss(s)'
+check "connections inside the laptop (127.0.0.1, ::1) are not network traffic" kt_py \
+    's = "0 0 127.0.0.1:5000 127.0.0.1:6000 users:((\"claude\",pid=9,fd=1))\n\t bytes_sent:500 bytes_received:70\n0 0 [::1]:80 [::1]:5555 users:((\"x\",pid=8,fd=1))\n\t bytes_sent:5\n"; assert kt.parse_ss(s) == {}, kt.parse_ss(s)'
+check "network rates in readable units (small traffic no longer shows as 0)" kt_py \
+    'assert [kt.fmt_net(v) for v in (0, 0.4, 93, 942, 1536, 2.5e6)] == ["0 KB/s", "0 KB/s", "93 B/s", "942 B/s", "1.5 KB/s", "2.4 MB/s"], [kt.fmt_net(v) for v in (0, 0.4, 93, 942, 1536, 2.5e6)]'
+check "traffic not counted per app (QUIC/UDP) = card total minus the apps, never negative" kt_py \
+    'assert kt.uncounted(5000.0, {1: 1200.0, 2: 800.0}) == 3000.0 and kt.uncounted(100.0, {1: 400.0}) == 0.0'
+check "card total: every interface but loopback, received + sent" kt_py \
+    'import os; os.makedirs(os.path.join(kt.PROC, "net"), exist_ok=True); open(os.path.join(kt.PROC, "net/dev"), "w").write("h1\nh2\n    lo: 900 0 0 0 0 0 0 0 900 0 0 0 0 0 0 0\n wlan0: 1000 0 0 0 0 0 0 0 300 0 0 0 0 0 0 0\n  eth0: 50 0 0 0 0 0 0 0 7 0 0 0 0 0 0 0\n"); assert kt.net_total() == 1357, kt.net_total()'
 check "sizes read well" kt_py \
     'assert (kt.fmt_bytes(500), kt.fmt_bytes(1536 * 1024), kt.fmt_bytes(3 * 1024 ** 3)) == ("500 B", "1.5 MB", "3.0 GB")'
 check "startup apps: XFCE ones only, essentials marked" kt_py \
