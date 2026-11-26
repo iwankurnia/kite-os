@@ -7,19 +7,35 @@ Description: Peek at a window from its preview in the taskbar pop-up
  A click keeps the window and closes the pop-up.
  .
  The pop-up stays open while the pointer is on it: a peeked window that the
- window manager raises over the pop-up (an unmanaged window) no longer counts
- as the pointer leaving, the pop-up is raised back on top, and moving onto a
- preview inside the pop-up (an "inferior" crossing) is not a leave either.
- A peek belongs to the pop-up it started in, because docklike hides every
- other button's pop-up whenever one opens.
+ window manager raises over the pop-up (an unmanaged window) sends a "leave"
+ that is ignored for 600 ms after the raise if the pointer is still on the
+ pop-up, the pop-up is raised back on top, and moving onto a preview inside
+ the pop-up (an "inferior" crossing) is not a leave either. Hovering another
+ button closes every other pop-up even if it missed its leave. A peek belongs
+ to the pop-up it started in, because docklike hides every other button's
+ pop-up whenever one opens.
 Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
 Forwarded: no
-Last-Update: 2026-11-25
+Last-Update: 2026-11-26
 ---
-
+--- a/src/Group.cpp
++++ b/src/Group.cpp
+@@ -750,7 +750,12 @@ void Group::onMouseEnter()
+ {
+ 	Dock::mGroups.forEach([this](std::pair<std::shared_ptr<AppInfo>, std::shared_ptr<Group>> g) -> void {
+ 		if (&(g.second->mGroupMenu) != &(this->mGroupMenu))
++		{
++			// KiteOS: the pointer is on this button, so not on any other
++			// button's pop-up: close those even if they missed the leave.
++			g.second->mGroupMenu.mMouseHover = false;
+ 			g.second->mGroupMenu.mGroup->onMouseLeave();
++		}
+ 	});
+ 
+ 	mGroupMenu.popup();
 --- a/src/GroupMenu.cpp
 +++ b/src/GroupMenu.cpp
-@@ -13,6 +13,144 @@
+@@ -13,6 +13,152 @@
  #include "GroupMenu.hpp"
  #include "GroupMenuItem.hpp"
  #include "Plugin.hpp"
@@ -40,6 +56,7 @@ Last-Update: 2026-11-25
 +	static GroupWindow* sPending = nullptr;
 +	static GtkWidget* sPopup = nullptr;
 +	static guint sTimer = 0;
++	static gint64 sRaisedAt = 0; // when a peek last raised a window (µs)
 +
 +	// Weak pointers: a window closed mid-peek clears its slot.
 +	static void track(XfwWindow** slot, XfwWindow* window)
@@ -101,10 +118,17 @@ Last-Update: 2026-11-25
 +		if (sPeekedWasMinimized || window != Xfw::getActiveWindow())
 +		{
 +			xfw_window_activate(window, nullptr, now(), nullptr);
++			sRaisedAt = g_get_monotonic_time();
 +			// The window manager raises the peeked window above the pop-up
 +			// (an unmanaged window) a moment later: put the pop-up back on top.
 +			keepPopupOnTop();
 +		}
++	}
++
++	// The false "leave" a peek causes comes within moments of the raise.
++	bool justRaised()
++	{
++		return g_get_monotonic_time() - sRaisedAt < 600 * 1000;
 +	}
 +
 +	void cancel()
@@ -164,13 +188,14 @@ Last-Update: 2026-11-25
  
  static GtkWidget*
  create_window()
-@@ -68,8 +206,13 @@ GroupMenu::GroupMenu(Group* dockButton)
+@@ -68,8 +214,14 @@ GroupMenu::GroupMenu(Group* dockButton)
  
  	g_signal_connect(G_OBJECT(mWindow), "leave-notify-event",
  		G_CALLBACK(+[](GtkWidget* widget, GdkEvent* event, GroupMenu* me) {
 +			// A peeked window raised over the pop-up sends a leave while the
-+			// pointer has not moved off it: the pop-up stays open.
-+			if (((GdkEventCrossing*)event)->detail == GDK_NOTIFY_INFERIOR || me->getPointerDistance() == 0)
++			// pointer has not moved off it: the pop-up stays open. Only then:
++			// a real leave can also report the pointer on the pop-up's edge.
++			if (((GdkEventCrossing*)event)->detail == GDK_NOTIFY_INFERIOR || (Peek::justRaised() && me->getPointerDistance() == 0))
 +				return true;
  			me->mGroup->setMouseLeaveTimeout();
  			me->mMouseHover = false;
@@ -178,7 +203,7 @@ Last-Update: 2026-11-25
  
  			return true;
  		}),
-@@ -206,6 +349,7 @@ void GroupMenu::updatePosition(gint wx, gint wy)
+@@ -206,6 +358,7 @@ void GroupMenu::updatePosition(gint wx, gint wy)
  
  void GroupMenu::hide()
  {
@@ -186,10 +211,9 @@ Last-Update: 2026-11-25
  	mVisible = false;
  	gtk_widget_hide(mWindow);
  }
-
 --- a/src/GroupMenu.hpp
 +++ b/src/GroupMenu.hpp
-@@ -16,6 +16,22 @@
+@@ -16,6 +16,23 @@
  
  class Group;
  class GroupMenuItem;
@@ -208,11 +232,11 @@ Last-Update: 2026-11-25
 +	void forget(GroupWindow* groupWindow);
 +	void commit();
 +	void restore(GtkWidget* popup);
++	bool justRaised();
 +} // namespace Peek
  
  class GroupMenu
  {
-
 --- a/src/GroupMenuItem.cpp
 +++ b/src/GroupMenuItem.cpp
 @@ -101,7 +101,15 @@ GroupMenuItem::GroupMenuItem(GroupWindow* groupWindow)

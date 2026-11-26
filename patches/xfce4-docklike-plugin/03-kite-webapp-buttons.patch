@@ -1,0 +1,63 @@
+Description: Browser web apps get their own taskbar button
+ A window is grouped by its first class id; Brave/Chromium web-app windows
+ are class "Brave-browser" with the instance name "crx_<app id>", so every
+ installed web app joined the browser's button. Now a window whose other
+ class id (the X11 instance name) is exactly an installed launcher's
+ StartupWMClass goes to that launcher: each web app gets its own button, icon
+ and name (and joins its pin). Normal browser windows, whose instance name is
+ the browser's own StartupWMClass, stay with the browser.
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-26
+---
+--- a/src/AppInfos.cpp
++++ b/src/AppInfos.cpp
+@@ -226,6 +226,11 @@ namespace AppInfos
+ 			groupName = itRenamed->second;
+ 	}
+ 
++	bool hasWMClass(const std::string& wmclass)
++	{
++		return mAppInfoWMClasses.get(wmclass) != nullptr;
++	}
++
+ 	std::shared_ptr<AppInfo> search(std::string id)
+ 	{
+ 		groupNameTransform(id);
+--- a/src/AppInfos.hpp
++++ b/src/AppInfos.hpp
+@@ -38,6 +38,8 @@ namespace AppInfos
+ 	void init();
+ 	void finalize();
+ 	std::shared_ptr<AppInfo> search(std::string id);
++	// KiteOS: true if an installed launcher has this StartupWMClass (lowercase).
++	bool hasWMClass(const std::string& wmclass);
+ } // namespace AppInfos
+ 
+ #endif // APPINFOS_HPP
+--- a/src/Xfw.cpp
++++ b/src/Xfw.cpp
+@@ -10,6 +10,7 @@
+ #endif
+ 
+ #include "Xfw.hpp"
++#include "AppInfos.hpp"
+ 
+ namespace Xfw
+ {
+@@ -23,6 +24,15 @@ namespace Xfw
+ 		{
+ 			// Xfw method const char *
+ 			const gchar* const* class_ids = xfw_window_get_class_ids(xfwWindow);
++
++			// KiteOS: a window whose other class id (the X11 instance name) is
++			// exactly an installed launcher's StartupWMClass belongs to that
++			// launcher. Browser web apps (Brave/Chromium "crx_<id>" windows of
++			// class Brave-browser) then get their own button, not the browser's.
++			for (int i = 0; class_ids != nullptr && class_ids[i] != nullptr; i++)
++				if (i > 0 && !xfce_str_is_empty(class_ids[i]) && AppInfos::hasWMClass(Help::String::toLowercase(class_ids[i])))
++					return class_ids[i];
++
+ 			if (!xfce_str_is_empty(class_ids[0]))
+ 				return class_ids[0];
+ 

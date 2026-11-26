@@ -1,0 +1,51 @@
+Description: "New window" in a taskbar button's right-click menu
+ The first item of the menu starts another instance of the app, as
+ Shift+click does, unless the launcher has its own "New Window" action
+ (Brave), so it is never listed twice.
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-26
+---
+--- a/src/Xfw.cpp
++++ b/src/Xfw.cpp
+@@ -222,6 +222,21 @@ namespace Xfw
+ 					appInfo.get());
+ 			}
+ 
++			// KiteOS: "New window" at the top, like Windows: starts another
++			// instance (as Shift+click does), unless the launcher already
++			// has its own "New Window" action (Brave).
++			bool ownNewWindow = false;
++			GDesktopAppInfo* gAppInfo = g_desktop_app_info_new_from_filename(appInfo->path.c_str());
++			for (int i = 0; gAppInfo != nullptr && actions[i] != nullptr; i++)
++			{
++				gchar* name = g_desktop_app_info_get_action_name(gAppInfo, actions[i]);
++				if (name != nullptr && g_ascii_strcasecmp(name, "New Window") == 0)
++					ownNewWindow = true;
++				g_free(name);
++			}
++			if (gAppInfo != nullptr)
++				g_object_unref(gAppInfo);
++
+ 			if (group != nullptr)
+ 			{
+ 				GtkWidget* pinToggle = gtk_check_menu_item_new_with_label(group->mPinned ? _("Pinned to Dock") : _("Pin to Dock"));
+@@ -269,6 +284,18 @@ namespace Xfw
+ 				}
+ 			}
+ 
++			// Added last so it stays the first item (Pin and Edit are prepended).
++			if (!ownNewWindow)
++			{
++				GtkWidget* newWindow = gtk_menu_item_new_with_label(_("New window"));
++				gtk_menu_shell_prepend(GTK_MENU_SHELL(menu), newWindow);
++				g_signal_connect(G_OBJECT(newWindow), "activate",
++					G_CALLBACK(+[](GtkMenuItem* menuitem, AppInfo* _appInfo) {
++						_appInfo->launch();
++					}),
++					appInfo.get());
++			}
++
+ 			gtk_widget_show_all(menu);
+ 
+ 			return menu;

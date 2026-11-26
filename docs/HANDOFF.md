@@ -420,6 +420,20 @@ hover). Patches are now numbered (`01-`, `02-`): `build-patched.sh` applies
 them in name order. Built on the device itself (build toolchain installed
 2026-11-25, ~400 MB; remove with his word).
 
+**Taskbar, 2026-11-26 (kite-docklike 0.4.3-1+kite3, tried on the device).**
+`03-kite-webapp-buttons.patch`: docklike groups a window by its first class
+id, and Brave web-app windows are class `Brave-browser` (instance
+`crx_<app id>`), so every web app joined Brave's button; now a window whose
+instance name is exactly an installed launcher's `StartupWMClass` goes to that
+launcher. `04-kite-new-window.patch`: "New window" first in the right-click
+menu (as Shift+click), skipped when the launcher has its own "New Window"
+action (Brave). `02-kite-hover-peek.patch` gained two fixes: a "leave" is
+ignored only within 600 ms of a peek raise (a fast real leave reports the
+pointer on the pop-up's edge, which had kept a pop-up open), and hovering
+another button closes every other pop-up. Restarting the panel from a `!`
+shell with `xfce4-panel -r` once left no panel at all; restart it with
+`setsid -f xfce4-panel -r` (detached) instead.
+
 **App Centre pin did nothing (kite-storage 1.1.4).** The .deb handler
 `kite-install-package.desktop` also had `StartupWMClass=kite-apps`, and
 docklike resolves a pin by window class before the launcher id, so the pin ran
