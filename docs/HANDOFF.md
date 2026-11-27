@@ -420,6 +420,22 @@ hover). Patches are now numbered (`01-`, `02-`): `build-patched.sh` applies
 them in name order. Built on the device itself (build toolchain installed
 2026-11-25, ~400 MB; remove with his word).
 
+**Lock screen after a resume, 2026-11-27 (kite-screensaver 4.18.4-1+kite1, tried on the device).**
+After suspend/hibernate the lock screen's top bar (date, time) was missing
+and a black strip sat at the bottom; manual locks were fine. xfce4-screensaver
+stacks the unlock dialog and an info bar in one column; after a resume the
+info bar was shown (empty), took 45 px (33 + 12 spacing, found with debug
+logging of the column), and the 768 px dialog centred in 723 px sat 23 px too
+high. Not the window guard, picom, ShowMessage on D-Bus or its geometry code
+(all ruled out on the device). `patches/xfce4-screensaver/01-kite-lock-info-bar.patch`
+keeps the info bar hidden while the dialog is up; built as kite-screensaver
+by build-patched.sh, Provides/Replaces xfce4-screensaver, so kite-desktop's
+Depends stays `xfce4-screensaver` (an old kite-update would otherwise fail
+on the new dependency). kite-update (kite-system 1.2.7) now re-runs itself
+once after updating kite-system, so a new kite-* replacement is offered in
+the same run; from 1.2.6 it takes two runs. Upstream reports:
+bbs.archlinux.org/viewtopic.php?id=270651, xfce4-screensaver issue 1.
+
 **Task Manager network column, 2026-11-27 (kite-desktop 1.4.2, tried on the device).**
 Every app showed "0 Mbps": background traffic is bytes to a few KB per
 second (under the 1,250 B/s the Mbps display rounded to 0), and Brave's

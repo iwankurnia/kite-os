@@ -713,6 +713,25 @@ def run(fail_on):
     last = err.getvalue().splitlines()[-1]
     assert rc == 1 and last.startswith("Could not reach the KiteOS releases on GitHub: "), (rc, last)
 '
+check "offers kite-screensaver in place of Debian's xfce4-screensaver" ku_py \
+    'release["assets"] += [{"name": "kite-screensaver_4.18.4-1+kite1_amd64.deb"}]
+p = ku.plan(release, {"xfce4-screensaver": "4.18.4-1"}.get, lambda a, b: a != b)
+assert [(x[0], x[1]) for x in p] == [("kite-screensaver", "xfce4-screensaver 4.18.4-1")], p'
+check "after updating kite-system, kite-update runs its new self once (never loops)" ku_py '
+import contextlib, io
+release["assets"] = [dict(a, browser_download_url="https://x/" + a["name"]) for a in release["assets"]]
+ku.plan = lambda r: [("kite-system", "1.0.0", "1.1.0", r["assets"][2])]
+ku.os.geteuid = lambda: 0
+ku.fetch = lambda url, binary=False: __import__("json").dumps(release) if url.startswith("https://api.") else ("a" * 64 + "  kite-system_1.1.0_all.deb" if url.endswith(".sha256") else b"deb")
+ku.hashlib.sha256 = lambda d: type("H", (), {"hexdigest": lambda self: "a" * 64})()
+ku.subprocess.run = lambda *a, **k: type("R", (), {"returncode": 0})()
+calls = []
+ku.os.execv = lambda prog, argv: calls.append(argv)
+with contextlib.redirect_stdout(io.StringIO()):
+    ku.main([]); ku.main(["--again"])
+assert len(calls) == 1 and calls[0][-1] == "--again", calls'
+check "kite-update accepts --again (its own re-run), still rejects other options" bash -c "! python3 '$KU' --bogus 2>/dev/null"
+check "the ISO installs kite-screensaver (kite-desktop accepts either: it Provides xfce4-screensaver)" bash -c "grep -qx kite-screensaver '$REPO/live/config/package-lists/kite-desktop.list.chroot' && grep -q 'xfce4-screensaver|4.18.4-1|1|kite-screensaver' '$REPO/scripts/build-patched.sh'"
 check "a release still building (no packages yet) says so, not up to date" ku_py '
 import contextlib, io
 release["assets"] = []

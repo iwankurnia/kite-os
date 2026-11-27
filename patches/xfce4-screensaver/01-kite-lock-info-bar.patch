@@ -1,0 +1,105 @@
+Description: Lock screen keeps its top bar after a resume from suspend
+ The screensaver window stacks the unlock dialog and an info bar in one
+ column. After a resume the info bar was shown (with no message), took
+ 45 px, and the 768 px dialog, centred in the 723 px left, sat 23 px too
+ high: its top bar (date, time, lock icon) above the screen and a black strip
+ at the bottom. While the unlock dialog is up the info bar is now kept
+ hidden: when the dialog pops up, when its plug is added, and whenever
+ anything shows the bar (logged with --debug).
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-27
+---
+--- a/savers/xfce-floaters.desktop.in
++++ b/savers/xfce-floaters.desktop.in
+@@ -1,8 +1,8 @@
+ [Desktop Entry]
+ Name=Floating Xfce
+ Comment=Bubbles the Xfce logo around the screen
+-Exec=/usr/local/libexec/xfce4-screensaver/floaters /usr/local/share/pixmaps/xfce-logo-white.svg
+-TryExec=/usr/local/libexec/xfce4-screensaver/floaters
++Exec=/usr/libexec/xfce4-screensaver/floaters /usr/share/pixmaps/xfce-logo-white.svg
++TryExec=/usr/libexec/xfce4-screensaver/floaters
+ StartupNotify=false
+ Terminal=false
+ Type=Application
+--- a/savers/xfce-personal-slideshow.desktop.in
++++ b/savers/xfce-personal-slideshow.desktop.in
+@@ -1,8 +1,8 @@
+ [Desktop Entry]
+ Name=Slideshow
+ Comment=Display a slideshow from your Pictures folder
+-Exec=/usr/local/libexec/xfce4-screensaver/slideshow
+-TryExec=/usr/local/libexec/xfce4-screensaver/slideshow
++Exec=/usr/libexec/xfce4-screensaver/slideshow
++TryExec=/usr/libexec/xfce4-screensaver/slideshow
+ StartupNotify=false
+ Terminal=false
+ Type=Application
+--- a/savers/xfce-popsquares.desktop.in
++++ b/savers/xfce-popsquares.desktop.in
+@@ -1,8 +1,8 @@
+ [Desktop Entry]
+ Name=Pop art squares
+ Comment=A pop-art-ish grid of pulsing colors.
+-Exec=/usr/local/libexec/xfce4-screensaver/popsquares
+-TryExec=/usr/local/libexec/xfce4-screensaver/popsquares
++Exec=/usr/libexec/xfce4-screensaver/popsquares
++TryExec=/usr/libexec/xfce4-screensaver/popsquares
+ StartupNotify=false
+ Terminal=false
+ Type=Application
+--- a/src/gs-window-x11.c
++++ b/src/gs-window-x11.c
+@@ -875,6 +875,7 @@ spawn_on_window (GSWindow *window,
+ static void
+ lock_plug_added (GtkWidget *widget,
+                  GSWindow  *window) {
++    gtk_widget_hide (window->priv->info_bar); /* KiteOS: see create_info_bar */
+     gtk_widget_show (widget);
+ }
+ 
+@@ -1416,6 +1417,7 @@ popup_dialog (GSWindow *window) {
+     }
+ 
+     gtk_widget_hide (window->priv->drawing_area);
++    gtk_widget_hide (window->priv->info_bar); /* KiteOS: see create_info_bar */
+ 
+     gtk_widget_queue_draw (GTK_WIDGET (window));
+     set_invisible_cursor (gtk_widget_get_window (GTK_WIDGET (window)), FALSE);
+@@ -1906,11 +1908,35 @@ gs_window_class_init (GSWindowClass *klass) {
+                                                            G_PARAM_READWRITE | G_PARAM_CONSTRUCT));
+ }
+ 
++/* KiteOS: the info bar shares the window's column with the unlock dialog.
++ * Shown while the dialog is up (after a resume from suspend it was, with no
++ * message), it takes 45 px from the dialog, which is centred and then sits
++ * 23 px too high: its top bar off the screen, a black strip at the bottom.
++ * While the dialog is up the info bar stays hidden. */
++static gboolean
++info_bar_hide_idle (gpointer data) {
++    GSWindow *window = GS_WINDOW (data);
++    if (window->priv->info_bar != NULL && window->priv->dialog_up)
++        gtk_widget_hide (window->priv->info_bar);
++    g_object_unref (window);
++    return FALSE;
++}
++
++static void
++info_bar_shown (GtkWidget *info_bar,
++                GSWindow  *window) {
++    if (window->priv->dialog_up) {
++        gs_debug ("Info bar shown while the unlock dialog is up: hiding it");
++        g_idle_add (info_bar_hide_idle, g_object_ref (window));
++    }
++}
++
+ static void
+ create_info_bar (GSWindow *window) {
+     window->priv->info_bar = gtk_info_bar_new ();
+     gtk_widget_set_no_show_all (window->priv->info_bar, TRUE);
+     gtk_box_pack_end (GTK_BOX (window->priv->vbox), window->priv->info_bar, FALSE, FALSE, 0);
++    g_signal_connect (window->priv->info_bar, "show", G_CALLBACK (info_bar_shown), window);
+ }
+ 
+ static gboolean

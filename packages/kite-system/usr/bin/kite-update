@@ -28,7 +28,7 @@ DEB = re.compile(r"^(kite-[a-z0-9-]+)_([^_]+)_(all|amd64)\.deb$")
 # KiteOS packages that take the place of a Debian one (scripts/build-patched.sh
 # builds them patched under a kite-* name): offered when the Debian one is
 # installed, so a system installed before the switch gets them too.
-TAKES_PLACE_OF = {"kite-docklike": "xfce4-docklike-plugin"}
+TAKES_PLACE_OF = {"kite-docklike": "xfce4-docklike-plugin", "kite-screensaver": "xfce4-screensaver"}
 SUMS = "kite-packages.sha256"
 # A dropped or refused connection while downloading. URLError, TimeoutError
 # and ssl.SSLError are all OSErrors; a body cut short is an HTTPException.
@@ -98,7 +98,8 @@ def checksums(text):
 
 def main(args):
     check_only = "--check" in args
-    if any(a not in ("--check",) for a in args):
+    again = "--again" in args   # our own re-run after kite-system was updated
+    if any(a not in ("--check", "--again") for a in args):
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
     try:
@@ -160,6 +161,10 @@ def main(args):
                             "-o", "Dpkg::Options::=--force-confold"] + files, env=env)
     if r.returncode == 0:
         print("KiteOS updated to %s. Log out and in again to see desktop changes." % tag)
+        # A new kite-update may know packages this one did not (a new kite-*
+        # taking the place of a Debian one): run it once more.
+        if not again and any(pkg == "kite-system" for pkg, *_ in todo):
+            os.execv(sys.executable, [sys.executable, os.path.realpath(__file__), "--again"])
     return r.returncode
 
 
