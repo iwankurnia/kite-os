@@ -33,8 +33,8 @@ Ctrl+Alt+(top-row key 2), log in, and check `journalctl -b -u lightdm` and
 `mv ~/.config/xfce4 ~/.config/xfce4.bak && rm -f ~/.config/kite/layout`, then log in again
 (the KiteOS desktop is set up afresh).
 
-**Menu does not open with the Search key.** Check that
-`~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml` has `xfce4-popup-whiskermenu`.
+**Start menu does not open with the Search key.** Check that
+`~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml` has `kite-start`.
 If not, run `kite-layout windows` to reset the desktop's shortcuts.
 
 **External disk app won't start.** `kite-storage status` shows each moved

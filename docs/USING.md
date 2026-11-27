@@ -6,14 +6,21 @@ A Windows-style taskbar at the bottom: the **Start** menu, search and your
 apps on the left; notifications, volume, tray icons, battery and the clock on
 the right. Fluent theme, Papirus-Light icons.
 
-- **Menu:** tap the **Search** key (or click Start). Type to search;
-  Esc closes it. The menu also has lock, log out, restart and shut down.
+- **Start menu:** tap the **Search** key (or click Start). It is an app
+  drawer: just type to search apps and settings (Enter opens the first),
+  Esc closes it. Your most recent apps are on top, then all apps in the
+  order you arrange them: drag an app to move it, drop it on the middle of
+  another to make a folder, hold it over a folder to open it. Settings
+  panels and system tools start in the Settings and System folders. Your
+  name and the power button (lock, sleep, hibernate, restart, shut down,
+  sign out) are at the bottom.
 - **Window list:** the top-row "overview" key (□|| icon) lists all open windows.
 - **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
   Right-click an app to pin or unpin it.
 - Lock the screen with **Search + L**.
-- **Animations:** windows fade in and out with a slight zoom; the Start menu,
-  calendar and menus just fade. They are short on purpose, and resizing,
+- **Animations:** windows fade in and out with a slight zoom; the Start menu
+  slides up from the taskbar and its folders zoom; the calendar and menus
+  just fade. They are short on purpose, and resizing,
   maximising and tiling stay instant. To turn them off (XFCE's own compositor
   keeps the shadows), put `ANIMATIONS=0` in `~/.config/kite/display.conf`
   and log in again.

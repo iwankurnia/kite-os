@@ -1,0 +1,1256 @@
+#!/usr/bin/python3 -I
+"""KiteOS Start: a Start menu that is an app drawer.
+
+Pops up above the Start button: a search box, your apps and folders in the
+order you arranged them, and your name with the power button at the bottom.
+Drag an app onto the middle of another tile to make (or fill) a folder, onto
+its left or right edge to move it there. Settings panels and system tools
+start in the Settings and System folders; new apps of those kinds join them,
+any other new app goes at the end. Nothing is ever re-sorted.
+
+It starts hidden at login (kite-start --background, from autostart) and
+stays in memory, so the Start button and the Search key show it at once;
+running kite-start again while it is open hides it.
+
+    kite-start                show it (hide it if it is open)
+    kite-start --background   start it hidden
+
+/usr/bin/kite-start is a small shell script: it asks the copy in memory over
+D-Bus (the "toggle" action), and starts this program only when none runs.
+
+Your arrangement lives in ~/.config/kite/start.json.
+"""
+import json
+import os
+import sys
+
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+                      "kite", "start.json")
+APP_ID = "org.kiteos.Start"
+# Whisker's favourites, saved here by kite-user-init when it swaps the Whisker
+# menu on the taskbar for kite-start (before kite-start's first run).
+SAVED_FAVOURITES = os.path.join(os.path.dirname(CONFIG), "whisker-favourites")
+# A click on the Start button (or the Search key) that takes the focus away
+# from the open drawer hides it; the same click then asks for it again, which
+# must not show it straight back: asked within this long, it stays hidden.
+REOPEN_S = 0.5
+# App icons drawn once at each size and kept as PNGs: drawing ~40 SVG icons
+# took half a second of every opening on the N4020.
+ICON_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+                          "kite-start", "icons")
+COLUMNS = 5
+WIDTH, HEIGHT = 580, 600
+POWER = [
+    ("Lock", ["xflock4"]),
+    ("Sleep", ["systemctl", "suspend"]),
+    ("Hibernate", ["systemctl", "hibernate"]),
+    ("Restart", ["systemctl", "reboot"]),
+    ("Shut down", ["systemctl", "poweroff"]),
+    ("Sign out", ["xfce4-session-logout", "--logout", "--fast"]),
+]
+FOLDERS = ("Settings", "System")          # first-run folders, in this order
+HIDDEN_EXEC = {"picom", "xfce4-session-logout", "xfce4-appfinder", "kite-start"}
+SETTINGS_EXEC = {"kite-bluetooth"}         # system-category apps that are really settings
+# First run with no Whisker favourites to take over (a fresh install): the
+# favourites Whisker started with on KiteOS (kite-layout), installed ones only.
+DEFAULT_FAVOURITES = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "code", "thunar",
+                      "xfce4-terminal", "org.xfce.mousepad", "mousepad", "org.xfce.ristretto",
+                      "ristretto", "kite-apps", "kite-settings")
+RECENT_KEEP = 10
+
+
+# ----------------------------------------------------------------- model --
+
+def classify(app):
+    """'hidden', 'settings', 'system' or 'app' (yours: stays loose)."""
+    cats = set(app["categories"])
+    exe = os.path.basename(app.get("exec") or "")
+    if exe in HIDDEN_EXEC or "Screensaver" in cats:
+        return "hidden"
+    if "PackageManager" in cats:
+        return "app"                       # App Centre is how you get apps
+    if exe in SETTINGS_EXEC or cats & {"Settings", "X-XFCE-SettingsDialog", "DesktopSettings", "HardwareSettings"}:
+        return "settings"
+    if cats & {"Development", "IDE", "WebBrowser", "Office", "Player", "Graphics", "Game"}:
+        return "app"
+    if cats & {"System", "Utility", "Monitor", "TerminalEmulator", "Core", "Archiving", "Mixer", "TextEditor"}:
+        return "system"
+    return "app"
+
+
+def visible(apps):
+    return [a for a in apps if classify(a) != "hidden"]
+
+
+def fkey(name):
+    return "folder:" + name
+
+
+def load_config(path=CONFIG):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        if isinstance(data.get("order"), list) and isinstance(data.get("folders"), dict):
+            return data
+    except (OSError, ValueError, AttributeError):
+        pass
+    return None
+
+
+def save_config(data, path=CONFIG):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=1)
+    os.replace(tmp, path)
+
+
+def sync_config(cfg, apps, favourites=None):
+    """Bring the arrangement up to date with the installed apps: new apps are
+    placed (settings and system ones in their folder, the rest at the end),
+    removed ones dropped, one-app folders dissolved. Never re-sorts.
+    First run: FAVOURITES (Whisker's, in its order; else KiteOS's defaults)
+    come first, then your other apps, then the Settings and System folders;
+    a favourite that is a settings or system app is only in All apps, not
+    also in its folder."""
+    shown = visible(apps)
+    ids = [a["id"] for a in shown]
+    kind = {a["id"]: classify(a) for a in shown}
+    if cfg is None:
+        if favourites is None:
+            favourites = [f + ".desktop" for f in DEFAULT_FAVOURITES]
+        have = set(ids)
+        first = []
+        for f in favourites:
+            if f in have and f not in first:
+                first.append(f)
+        loose = sorted((a for a in shown if kind[a["id"]] == "app" and a["id"] not in first),
+                       key=lambda a: a["name"].lower())
+        folders = {}
+        for name, k in zip(FOLDERS, ("settings", "system")):
+            members = sorted((a for a in shown if kind[a["id"]] == k and a["id"] not in first),
+                             key=lambda a: a["name"].lower())
+            if members:
+                folders[name] = [a["id"] for a in members]
+        cfg = {"order": first + [a["id"] for a in loose] + [fkey(n) for n in folders],
+               "folders": folders, "known": ids, "recent": []}
+        return tidy(cfg)
+    order = list(cfg.get("order", []))
+    folders = {n: list(v) for n, v in cfg.get("folders", {}).items()}
+    known = set(cfg.get("known", []))
+    placed = {i for v in folders.values() for i in v} | {k for k in order if not k.startswith("folder:")}
+    for i in ids:
+        if i in placed:
+            continue
+        target = {"settings": "Settings", "system": "System"}.get(kind[i]) if i not in known else None
+        if target and target in folders:
+            folders[target].append(i)
+        else:
+            order.append(i)
+    live = set(ids)
+    order = [k for k in order if (k.startswith("folder:") and k[7:] in folders) or k in live]
+    folders = {n: [i for i in v if i in live] for n, v in folders.items()}
+    for n in folders:
+        if fkey(n) not in order:
+            order.append(fkey(n))
+    return tidy({"order": order, "folders": folders, "known": sorted(known | live),
+                 "recent": [i for i in cfg.get("recent", []) if i in live]})
+
+
+def tidy(cfg):
+    """A folder with one app left becomes that app, in the folder's place;
+    an empty one goes."""
+    order, folders = list(cfg["order"]), dict(cfg["folders"])
+    for name in list(folders):
+        members = folders[name]
+        if len(members) >= 2:
+            continue
+        pos = order.index(fkey(name)) if fkey(name) in order else len(order)
+        if fkey(name) in order:
+            order.remove(fkey(name))
+        if members:
+            order.insert(pos, members[0])
+        del folders[name]
+    return dict(cfg, order=order, folders=folders)
+
+
+def grid(apps, cfg):
+    """The drawer in your order: ('folder', name) or ('app', id)."""
+    have = {a["id"] for a in apps}
+    out = []
+    for k in cfg["order"]:
+        if k.startswith("folder:") and k[7:] in cfg["folders"]:
+            out.append(("folder", k[7:]))
+        elif k in have:
+            out.append(("app", k))
+    return out
+
+
+def move_item(seq, key, target, after):
+    """KEY moved next to TARGET (before it, or AFTER it)."""
+    out = [k for k in seq if k != key]
+    if target not in out:
+        return out + [key]
+    pos = out.index(target) + (1 if after else 0)
+    return out[:pos] + [key] + out[pos:]
+
+
+def new_folder_name(folders, base="Folder"):
+    if base not in folders:
+        return base
+    n = 2
+    while "%s %d" % (base, n) in folders:
+        n += 1
+    return "%s %d" % (base, n)
+
+
+def make_folder(cfg, app_id, target_id):
+    """APP_ID dropped on TARGET_ID: a new folder with both, where the target was."""
+    folders = {n: [i for i in v if i != app_id] for n, v in cfg["folders"].items()}
+    name = new_folder_name(folders)
+    order = [k for k in cfg["order"] if k != app_id]
+    pos = order.index(target_id) if target_id in order else len(order)
+    order = [k for k in order if k != target_id]
+    order.insert(pos, fkey(name))
+    folders[name] = [target_id, app_id]
+    return tidy(dict(cfg, order=order, folders=folders))
+
+
+def add_to_folder(cfg, name, app_id):
+    folders = {n: [i for i in v if i != app_id] for n, v in cfg["folders"].items()}
+    order = [k for k in cfg["order"] if k != app_id]
+    folders.setdefault(name, []).append(app_id)
+    if fkey(name) not in order:
+        order.append(fkey(name))
+    return tidy(dict(cfg, order=order, folders=folders))
+
+
+def remove_from_folder(cfg, name, app_id):
+    """The app leaves the folder and goes right after it in the drawer."""
+    folders = dict(cfg["folders"])
+    folders[name] = [i for i in folders.get(name, []) if i != app_id]
+    order = list(cfg["order"])
+    if app_id not in order:              # already loose as well: no second copy
+        pos = order.index(fkey(name)) + 1 if fkey(name) in order else len(order)
+        order.insert(pos, app_id)
+    return dict(cfg, order=order, folders=folders)
+
+
+def commit_drop(cfg, src, src_folder, dest_folder, live):
+    """SRC was dropped in DEST_FOLDER (None: All apps), whose order is now
+    LIVE (SRC at its new place). It leaves SRC_FOLDER (None: All apps) when
+    it came from elsewhere."""
+    order = [k for k in cfg["order"]]
+    folders = {n: list(v) for n, v in cfg["folders"].items()}
+    if dest_folder is None:
+        for n in folders:
+            folders[n] = [i for i in folders[n] if i != src]
+        known = set(order) | {src}
+        order = [k for k in live if k in known]
+    else:
+        order = [k for k in order if k != src]
+        for n in folders:
+            if n != dest_folder:
+                folders[n] = [i for i in folders[n] if i != src]
+        members = set(folders.get(dest_folder, [])) | {src}
+        folders[dest_folder] = [i for i in live if i in members]
+    return tidy(dict(cfg, order=order, folders=folders))
+
+
+def record_use(cfg, app_id):
+    """APP_ID was just opened: first in the recently used list."""
+    recent = [app_id] + [i for i in cfg.get("recent", []) if i != app_id]
+    return dict(cfg, recent=recent[:RECENT_KEEP])
+
+
+def recent_row(cfg, installed, n=COLUMNS):
+    """The recently used row: the last N apps opened that are still installed."""
+    return [i for i in cfg.get("recent", []) if i in installed][:n]
+
+
+def parse_xfconf_array(text):
+    """xfconf-query's printout of an array: its values, one per line."""
+    lines = text.splitlines()
+    if lines and lines[0].startswith("Value is an array"):
+        lines = lines[1:]
+    return [l.strip() for l in lines if l.strip()]
+
+
+def saved_favourites(path=SAVED_FAVOURITES):
+    """The Whisker favourites kite-user-init saved, or None."""
+    try:
+        with open(path) as f:
+            return [line.strip() for line in f if line.strip()]
+    except OSError:
+        return None
+
+
+def whisker_favourites():
+    """The favourites of the Whisker menu on the panel (xfconf), or None."""
+    import subprocess
+    run = lambda *a: subprocess.run(["xfconf-query", "-c", "xfce4-panel"] + list(a),
+                                    capture_output=True, text=True, timeout=3)
+    try:
+        props = run("-l").stdout.split()
+        for prop in props:
+            if prop.count("/") == 2 and prop.startswith("/plugins/plugin-") \
+                    and run("-p", prop).stdout.strip() == "whiskermenu":
+                fav = run("-p", prop + "/favorites")
+                if fav.returncode == 0:
+                    return parse_xfconf_array(fav.stdout)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def search(apps, query, settings_ids):
+    """(best matches, settings) for QUERY: name starts with it, then a word of
+    the name does, then the name contains it, then keywords or command."""
+    q = query.strip().lower()
+    if not q:
+        return [], []
+    ranked = []
+    for a in apps:
+        name = a["name"].lower()
+        if name.startswith(q):
+            rank = 0
+        elif any(w.startswith(q) for w in name.replace("-", " ").split()):
+            rank = 1
+        elif q in name:
+            rank = 2
+        elif q in " ".join([a.get("generic", ""), " ".join(a.get("keywords", [])), a.get("exec", "")]).lower():
+            rank = 3
+        else:
+            continue
+        ranked.append((rank, name, a["id"]))
+    ids = [i for _, _, i in sorted(ranked)]
+    return [i for i in ids if i not in settings_ids], [i for i in ids if i in settings_ids]
+
+
+# -------------------------------------------------------------------- UI --
+
+FOLDER_PREVIEW = 4      # a folder's icon always shows a 2x2 grid, empty cells included
+MINI = 17               # px of each icon in that grid
+HOLD_OPEN_MS = 700      # an app held over a folder this long opens it
+BAR_HIDE_MS = 600       # the scroll bar fades this long after scrolling stops
+SEARCH_HINT = "Search apps and settings"
+FOLDER_COLUMNS = 4      # an open folder shows 4 x 3 apps, then scrolls
+FOLDER_SPACING = (8, 14)  # px between rows, columns of apps in an open folder
+PANEL_W, PANEL_H = 480, 370
+FOLDER_ICON = 36        # app icons in an open folder (compact tiles)
+FOLDER_SHADOW = 28      # px round an open folder for its own soft shadow
+
+
+def main():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GdkPixbuf", "2.0")
+    gi.require_version("GdkX11", "3.0")
+    from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk
+    import cairo
+    import hashlib
+    import time
+
+    def cached_icon(theme, gicon, size, scale):
+        """GICON drawn at SIZE (x SCALE), from ICON_CACHE when the icon file
+        is no newer than the cached copy; None if the theme has no such icon."""
+        info = theme.lookup_by_gicon_for_scale(gicon, size, scale, Gtk.IconLookupFlags.FORCE_SIZE)
+        if info is None:
+            return None
+        src = info.get_filename()
+        path = None
+        if src:
+            key = hashlib.sha1(("%s|%d|%d" % (src, size, scale)).encode()).hexdigest()
+            path = os.path.join(ICON_CACHE, key + ".png")
+            try:
+                if os.path.getmtime(path) >= os.path.getmtime(src):
+                    return GdkPixbuf.Pixbuf.new_from_file(path)
+            except (OSError, GLib.Error):
+                pass
+        try:
+            pb = info.load_icon()
+        except GLib.Error:
+            return None
+        if path is not None:
+            try:
+                os.makedirs(ICON_CACHE, exist_ok=True)
+                pb.savev(path + ".tmp", "png", [], [])
+                os.replace(path + ".tmp", path)
+            except (OSError, GLib.Error):
+                pass
+        return pb
+
+    def load_apps():
+        apps, seen = [], set()
+        for info in Gio.AppInfo.get_all():
+            if not info.should_show() or not isinstance(info, Gio.DesktopAppInfo):
+                continue
+            aid = info.get_id()
+            if aid in seen:
+                continue
+            seen.add(aid)
+            apps.append({"id": aid, "name": info.get_display_name() or info.get_name(),
+                         "generic": info.get_generic_name() or "",
+                         "keywords": list(info.get_keywords() or []),
+                         "categories": [c for c in (info.get_categories() or "").split(";") if c],
+                         "exec": info.get_executable() or "", "info": info})
+        return apps
+
+    css = Gtk.CssProvider()
+    css.load_from_data(b"""
+    .kite-start { background: #f3f3f3; }
+    .kite-start .search { border-radius: 18px; min-height: 34px; padding: 0 14px; background: #ffffff; }
+    .kite-start .search-head { background: rgba(0, 0, 0, 0.035); border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
+    .kite-start .hint { color: alpha(#1b1b1b, 0.55); }
+    .kite-start .tile { border-radius: 8px; padding: 10px 4px 8px; }
+    .kite-start flowboxchild { padding: 0; background: none; outline: none; }
+    .kite-start .tile.hover { background: rgba(0, 0, 0, 0.06); }
+    .kite-start flowboxchild:selected .tile, .kite-start flowboxchild:focus .tile { background: rgba(0, 103, 192, 0.1); }
+    .kite-start .tile label { font-size: 9pt; color: #1b1b1b; }
+    .kite-start .tile.dragged { opacity: 0.25; }
+    .kite-start .tile.ghost { opacity: 0.45; }
+    .kite-start .tile.drop-into { background: rgba(0, 103, 192, 0.16); }
+    .kite-start .folder-icon { background: rgba(0, 0, 0, 0.07); border-radius: 12px; padding: 4px; }
+    .kite-start .heading { font-weight: 600; font-size: 12pt; color: #1b1b1b; }
+    .kite-start .dim { background: rgba(255, 255, 255, 0.6); }
+    /* An open folder: a solid white panel over the washed-out drawer. */
+    .kite-folder { background: #ffffff; }
+    /* With a compositor the folder window is clear round a white card that
+       draws its own soft shadow: picom's is one strength for every window. */
+    .kite-folder.clear { background: transparent; }
+    .kite-folder .folder-head { background: rgba(0, 0, 0, 0.035); border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
+    .kite-folder.clear .folder-head { border-radius: 20px 20px 0 0; }
+    .kite-folder.clear .card { background: #ffffff; border-radius: 20px;
+                               box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.05); }
+    .kite-folder .tile { border-radius: 8px; padding: 10px 4px 8px; }
+    .kite-folder flowboxchild { padding: 0; background: none; outline: none; }
+    .kite-folder .tile.hover { background: rgba(0, 0, 0, 0.05); }
+    .kite-folder .tile label { font-size: 9pt; color: #1b1b1b; }
+    .kite-folder flowboxchild:selected .tile, .kite-folder flowboxchild:focus .tile { background: rgba(0, 0, 0, 0.07); }
+    .kite-folder .tile.dragged { opacity: 0.25; }
+    .kite-folder .tile.ghost { opacity: 0.45; }
+    .kite-folder .folder-title { font-weight: 600; font-size: 12pt; background: none; border: none;
+                                 box-shadow: none; color: #1b1b1b; caret-color: #0067c0; }
+    /* Thin scroll bars: a 4 px rounded slider on a clear track. */
+    .kite-start scrollbar, .kite-folder scrollbar,
+    .kite-start scrollbar trough, .kite-folder scrollbar trough { background: none; border: none; }
+    .kite-start scrollbar slider, .kite-folder scrollbar slider {
+        min-width: 4px; min-height: 24px; border: none; border-radius: 2px; margin: 2px;
+        background: rgba(0, 0, 0, 0.25); }
+    .kite-start scrollbar slider:hover, .kite-folder scrollbar slider:hover { background: rgba(0, 0, 0, 0.4); }
+    .kite-start .folder-title { font-weight: 600; font-size: 12pt; background: none; border: none;
+                                box-shadow: none; }
+    .kite-start .footer { background: rgba(0, 0, 0, 0.035); border-top: 1px solid rgba(0, 0, 0, 0.08);
+                          border-radius: 0 0 10px 10px; padding: 10px 18px; }
+    .kite-start .empty { color: #5f5f5f; }
+    """)
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    class Start(Gtk.Application):
+        def __init__(self):
+            super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+            self.win = None
+            self.hidden_by_focus = 0.0   # when focus leaving it last hid it (monotonic)
+            self.apps_dirty = False      # apps installed or removed since the list was read
+            self.prepare_id = 0
+            toggle = Gio.SimpleAction.new("toggle", None)    # what /usr/bin/kite-start calls
+            toggle.connect("activate", lambda *_: self.toggle())
+            self.add_action(toggle)
+            self.busy = 0        # a menu, popover or drag is open: losing focus is not "outside"
+            self.drag = None     # {"src", "from" (None: All apps, else a folder), "zone", "target"}
+            self.hold_timer = 0
+
+        def do_command_line(self, cmdline):
+            background = "--background" in cmdline.get_arguments()[1:]
+            if self.win is None:
+                self.hold()             # stays running while the drawer is hidden
+                self.load(first_run=True)
+                self.build()
+                # An app installed or removed (a .desktop file added, changed
+                # or deleted) shows in the drawer without a restart.
+                self.monitor = Gio.AppInfoMonitor.get()
+                self.monitor.connect("changed", self.on_apps_changed)
+                self.prepare()
+                if not background:
+                    self.show_drawer()
+            elif not background:
+                self.toggle()
+            return 0
+
+        def toggle(self):
+            if self.win is None:
+                return
+            if self.win.get_visible():
+                self.hide_drawer()
+            elif time.monotonic() - self.hidden_by_focus >= REOPEN_S:
+                self.show_drawer()
+
+        def load(self, first_run=False):
+            """The installed apps, and the arrangement brought up to date."""
+            self.apps = load_apps()
+            self.by_id = {a["id"]: a for a in self.apps}
+            self.shown = visible(self.apps)
+            self.settings_ids = {a["id"] for a in self.shown if classify(a) == "settings"}
+            if not first_run:
+                old = self.cfg
+                self.cfg = sync_config(old, self.apps)
+                if self.cfg != old:
+                    self.save()
+                return
+            old = load_config()
+            first = None
+            if old is None:
+                first = whisker_favourites()
+                if first is None:
+                    first = saved_favourites()
+            self.cfg = sync_config(old, self.apps, first)
+            if self.cfg != old:
+                self.save()
+            if old is None and os.path.exists(SAVED_FAVOURITES) and load_config() is not None:
+                try:
+                    os.remove(SAVED_FAVOURITES)        # in start.json now
+                except OSError:
+                    pass
+            self.folder = None
+
+        def prepare(self, *_):
+            """Get the hidden drawer ready for the next opening: search box
+            empty, no folder open, at the top, the app list up to date. Done
+            while hidden, so opening only has to show it."""
+            self.prepare_id = 0
+            if self.win.get_visible():
+                return False
+            if self.apps_dirty:
+                self.apps_dirty = False
+                self.load()
+            self.folder = None
+            if self.entry.get_text():
+                self.entry.set_text("")
+            self.refresh()
+            self.scroll.get_vadjustment().set_value(0)
+            return False
+
+        def prepare_later(self, ms=0):
+            if self.prepare_id:
+                GLib.source_remove(self.prepare_id)
+            self.prepare_id = GLib.timeout_add(ms, self.prepare)
+
+        def on_apps_changed(self, *_):
+            self.apps_dirty = True
+            if not self.win.get_visible():
+                self.prepare_later(1000)     # an install changes many files at once
+            elif self.drag is None and self.busy == 0 and self.folder is None \
+                    and not self.entry.get_text():
+                self.apps_dirty = False
+                self.load()
+                self.refresh()
+
+        def show_drawer(self):
+            if self.prepare_id or self.apps_dirty:
+                if self.prepare_id:
+                    GLib.source_remove(self.prepare_id)
+                self.prepare()
+            self.was_active = False
+            self.busy = 0
+            self.place(self.win)
+            self.win.show()
+            # A window shown again by an app that is already running needs a
+            # fresh timestamp, or xfwm4's focus stealing prevention keeps the
+            # focus where it was.
+            self.win.present_with_time(GdkX11.x11_get_server_time(self.win.get_window()))
+            self.entry.grab_focus()
+
+        def hide_drawer(self, by_focus=False):
+            if self.folder is not None:
+                self.rename_folder()
+                self.folder = None
+            if self.fwin is not None:
+                self.fwin.hide()
+            self.layer.hide()
+            self.win.hide()
+            self.hidden_by_focus = time.monotonic() if by_focus else 0.0
+            self.prepare_later(300)          # after the slide-out
+
+        def save(self):
+            try:
+                save_config(self.cfg)
+            except OSError as e:
+                print("kite-start: cannot save: %s" % e, file=sys.stderr)
+
+        def busy_add(self, n):
+            self.busy = max(0, self.busy + n)
+
+        # ------------------------------------------------------- window --
+        def build(self):
+            win = Gtk.ApplicationWindow(application=self, decorated=False, resizable=False,
+                                        skip_taskbar_hint=True, skip_pager_hint=True)
+            win.set_type_hint(Gdk.WindowTypeHint.POPUP_MENU)
+            win.set_keep_above(True)
+            win.set_default_size(WIDTH, HEIGHT)
+            win.get_style_context().add_class("kite-start")
+            # Opaque on purpose: an RGBA window shows straight through its
+            # scrolled grid. picom rounds the corners (corner-radius rule).
+            self.win = win
+
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            win.add(box)
+            self.entry = Gtk.SearchEntry()
+            self.entry.get_style_context().add_class("search")
+            self.entry.get_accessible().set_name(SEARCH_HINT)
+            self.entry.connect("search-changed", lambda *_: self.refresh())
+            self.entry.connect("activate", self.open_first)
+            # GTK 3 hides an entry's placeholder while it has the focus, and
+            # the search box has it whenever the drawer is open; so the hint
+            # is a label over the empty box instead, shown focused or not.
+            self.hint = Gtk.Label(label=SEARCH_HINT, halign=Gtk.Align.START)
+            self.hint.get_style_context().add_class("hint")
+            search = Gtk.Overlay(margin_start=22, margin_end=22, margin_top=16, margin_bottom=16)
+            search.add(self.entry)
+            search.add_overlay(self.hint)
+            search.set_overlay_pass_through(self.hint, True)
+            # The search box on a strip with a line under it, like the footer.
+            head = Gtk.Box()
+            head.get_style_context().add_class("search-head")
+            head.pack_start(search, True, True, 0)
+            self.entry.connect("changed", lambda e: self.hint.set_visible(not e.get_text()))
+            self.entry.connect("size-allocate", lambda e, _a: self.hint.set_margin_start(e.get_text_area().x))
+            box.pack_start(head, False, False, 0)
+
+            # The drawer, with the folder panel as an overlay on top of it.
+            self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6,
+                                   margin_start=16, margin_end=16, margin_top=18, margin_bottom=28)
+            area = Gtk.EventBox()          # drop on empty space: the end of All apps
+            area.add(self.content)
+            self.dest(area, "main-end")
+            scroll = Gtk.ScrolledWindow()
+            self.quick_scrollbar(scroll)
+            scroll.add(area)
+            self.scroll = scroll
+            overlay = Gtk.Overlay()
+            overlay.add(scroll)
+            overlay.add_overlay(self.build_layer())
+            box.pack_start(overlay, True, True, 0)
+            box.pack_start(self.footer(), False, False, 0)
+            box.show_all()
+            self.layer.hide()
+            # While a folder is open, a click anywhere else in the drawer (the
+            # search box and the footer too) only closes the folder.
+            self.outside = Gtk.GestureMultiPress(widget=win, button=0)
+            self.outside.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            self.outside.connect("pressed", self.on_press_outside)
+
+            win.connect("key-press-event", self.on_key)
+            win.connect("focus-out-event", self.on_focus_out)
+            self.was_active = False
+            win.connect("notify::is-active", lambda w, *_: w.is_active() and setattr(self, "was_active", True))
+
+        def build_layer(self):
+            # The drawer fades while a folder is open (a click on it closes the
+            # folder: on_press_outside), and an app dragged out of the folder
+            # onto it closes the folder too, so the drag goes on in All apps.
+            self.layer = Gtk.EventBox()
+            self.layer.get_style_context().add_class("dim")
+            self.dest(self.layer, "outside-panel")
+            self.fwin = None
+            return self.layer
+
+        def build_folder_window(self):
+            """The open folder: its own small, solid white window over
+            the drawer, so the compositor can zoom it in and out."""
+            fw = Gtk.Window(type=Gtk.WindowType.TOPLEVEL, decorated=False, resizable=False,
+                            skip_taskbar_hint=True, skip_pager_hint=True, title="kite-start-folder")
+            fw.set_transient_for(self.win)
+            fw.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            fw.set_keep_above(True)
+            fw.get_style_context().add_class("kite-folder")
+            self.fpad = 0
+            screen = fw.get_screen()
+            if screen.get_rgba_visual() is not None and screen.is_composited():
+                fw.set_visual(screen.get_rgba_visual())
+                fw.set_app_paintable(True)
+                fw.get_style_context().add_class("clear")
+                self.fpad = FOLDER_SHADOW
+                fw.connect("size-allocate", self.shape_folder)
+            fw.set_default_size(PANEL_W + 2 * self.fpad, PANEL_H + 2 * self.fpad)
+            card = Gtk.Box(margin=self.fpad)
+            card.get_style_context().add_class("card")
+            root = Gtk.EventBox()                       # drop on empty space: the folder's end
+            root.set_visible_window(False)
+            self.dest(root, "folder-end")
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            # The name on a strip with a line under it, like the drawer's footer.
+            head = Gtk.Box()
+            head.get_style_context().add_class("folder-head")
+            self.title = Gtk.Entry(has_frame=False, xalign=0.5, margin=12, margin_start=16, margin_end=16)
+            self.title.get_style_context().add_class("folder-title")
+            self.title.connect("activate", self.rename_folder)
+            self.title.connect("focus-out-event", self.rename_folder)
+            head.pack_start(self.title, True, True, 0)
+            inner.pack_start(head, False, False, 0)
+            self.panel_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            fscroll = Gtk.ScrolledWindow(margin=16)
+            self.quick_scrollbar(fscroll)
+            fscroll.add(self.panel_box)
+            inner.pack_start(fscroll, True, True, 0)
+            root.add(inner)
+            card.pack_start(root, True, True, 0)
+            fw.add(card)
+            fw.connect("key-press-event", self.on_key)
+            fw.connect("focus-out-event", self.on_focus_out)
+            fw.connect("notify::is-active", lambda w, *_: w.is_active() and setattr(self, "was_active", True))
+            fw.connect("delete-event", lambda *_: self.close_folder() or True)
+            card.show_all()
+            self.fwin = fw
+
+        def shape_folder(self, fw, alloc):
+            # Clicks and drops on the clear shadow margin go to the drawer below.
+            p = self.fpad
+            fw.input_shape_combine_region(
+                cairo.Region(cairo.RectangleInt(p, p, alloc.width - 2 * p, alloc.height - 2 * p)))
+
+        def quick_scrollbar(self, scroll):
+            """A scroll bar that shows while the list scrolls or the pointer is
+            on it and fades BAR_HIDE_MS after. GTK 3's overlay bar stays about
+            three seconds, and that delay is fixed in GTK."""
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_overlay_scrolling(False)
+            bar = scroll.get_vscrollbar()
+            bar.set_opacity(0)
+            state = {"wait": 0, "fade": 0, "over": False}
+
+            def stop(key):
+                if state[key]:
+                    GLib.source_remove(state[key])
+                    state[key] = 0
+
+            def fade():
+                left = max(bar.get_opacity() - 0.25, 0)
+                bar.set_opacity(left)
+                if left == 0:
+                    state["fade"] = 0
+                    return False
+                return True
+
+            def later():
+                state["wait"] = 0
+                if not state["over"]:
+                    state["fade"] = GLib.timeout_add(30, fade)
+                return False
+
+            def show(*_):
+                stop("wait")
+                stop("fade")
+                bar.set_opacity(1)
+                state["wait"] = GLib.timeout_add(BAR_HIDE_MS, later)
+
+            def over(on):
+                state["over"] = on
+                show()
+                return False
+
+            scroll.get_vadjustment().connect("value-changed", show)
+            bar.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+            bar.connect("enter-notify-event", lambda *_: over(True))
+            bar.connect("leave-notify-event", lambda *_: over(False))
+
+        def place_folder(self):
+            # Centred over the drawer's grid, from the menu's fixed size (the
+            # dim layer has no size yet the first time a folder opens).
+            x, y = self.win.get_position()
+            top = self.entry.get_allocation().y + self.entry.get_allocation().height + 12
+            bottom = HEIGHT - 56                       # the footer
+            p = self.fpad
+            self.fwin.move(x + (WIDTH - PANEL_W) // 2 - p, y + top + max(0, (bottom - top - PANEL_H) // 2) - p)
+
+        def place(self, win):
+            # Above the Start button: the bottom-left of the work area.
+            display = win.get_display()
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+            area = monitor.get_workarea()
+            win.move(area.x + 8, area.y + area.height - HEIGHT - 8)
+
+        def footer(self):
+            bar = Gtk.Box(spacing=12)
+            bar.get_style_context().add_class("footer")
+            name = GLib.get_real_name()
+            if not name or name == "Unknown":
+                name = GLib.get_user_name()
+            avatar = None
+            for path in (os.path.expanduser("~/.face"),
+                         "/var/lib/AccountsService/icons/" + GLib.get_user_name()):
+                if os.path.isfile(path) and os.access(path, os.R_OK):
+                    try:
+                        from gi.repository import GdkPixbuf
+                        avatar = Gtk.Image.new_from_pixbuf(
+                            GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 32, 32, True))
+                        break
+                    except GLib.Error:
+                        pass
+            if avatar is None:
+                avatar = Gtk.Image.new_from_icon_name("avatar-default", Gtk.IconSize.DND)
+            bar.pack_start(avatar, False, False, 0)
+            bar.pack_start(Gtk.Label(label=name, xalign=0), True, True, 0)
+            power = Gtk.MenuButton(relief=Gtk.ReliefStyle.NONE)
+            power.add(Gtk.Image.new_from_icon_name("system-shutdown-symbolic", Gtk.IconSize.LARGE_TOOLBAR))
+            pop = Gtk.Popover(relative_to=power, position=Gtk.PositionType.TOP)
+            items = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, margin=6)
+            for label, cmd in POWER:
+                b = Gtk.ModelButton(text=label)
+                b.connect("clicked", lambda _b, c=cmd: self.run_command(c))
+                items.pack_start(b, False, False, 0)
+            items.show_all()
+            pop.add(items)
+            pop.connect("show", lambda *_: self.busy_add(1))
+            pop.connect("closed", lambda *_: self.busy_add(-1))
+            power.set_popover(pop)
+            bar.pack_end(power, False, False, 0)
+            return bar
+
+        # -------------------------------------------------------- tiles --
+        def icon(self, app, size):
+            gicon = app["info"].get_icon() or Gio.ThemedIcon.new("application-x-executable")
+            scale = self.win.get_scale_factor() if self.win is not None else 1
+            pb = cached_icon(Gtk.IconTheme.get_default(), gicon, size, scale)
+            if pb is None:
+                img = Gtk.Image.new_from_gicon(gicon, Gtk.IconSize.DIALOG)
+                img.set_pixel_size(size)
+                return img
+            return Gtk.Image.new_from_surface(Gdk.cairo_surface_create_from_pixbuf(pb, scale, None))
+
+        def tile(self, kind, key, where, ghost=False):
+            """WHERE: 'main', a folder name, 'recent' or 'search'. Only tiles
+            in All apps and in a folder can be dragged and dropped on."""
+            t = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+            t.get_style_context().add_class("tile")
+            if ghost:
+                t.get_style_context().add_class("ghost")
+            if kind == "folder":
+                # Always a 2x2 grid of MINI icons: the same size for 2 apps or 25.
+                grid_ = Gtk.Grid(row_spacing=2, column_spacing=2, halign=Gtk.Align.CENTER)
+                grid_.get_style_context().add_class("folder-icon")
+                members = self.cfg["folders"].get(key, [])
+                for n in range(FOLDER_PREVIEW):
+                    if n < len(members):
+                        cell = self.icon(self.by_id[members[n]], MINI)
+                    else:
+                        cell = Gtk.Box()
+                    cell.set_size_request(MINI, MINI)
+                    grid_.attach(cell, n % 2, n // 2, 1, 1)
+                t.pack_start(grid_, False, False, 0)
+                name = key
+            else:
+                compact = where not in ("main", "recent", "search")    # in an open folder
+                t.pack_start(self.icon(self.by_id[key], FOLDER_ICON if compact else 42), False, False, 0)
+                name = self.by_id[key]["name"]
+            lab = Gtk.Label(label=name, max_width_chars=11, justify=Gtk.Justification.CENTER)
+            lab.set_line_wrap(True)                    # long names take two lines, then "…"
+            lab.set_lines(2)
+            lab.set_ellipsize(3)  # Pango.EllipsizeMode.END
+            t.pack_start(lab, False, False, 0)
+
+            ev = Gtk.EventBox()
+            ev.add(t)
+            ev.kite = (kind, key)
+            ev.where = where
+            ev.box = t
+            ev.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+            ev.connect("enter-notify-event", lambda *_: t.get_style_context().add_class("hover") or False)
+            ev.connect("leave-notify-event", lambda w, e: (e.detail != Gdk.NotifyType.INFERIOR
+                                                           and t.get_style_context().remove_class("hover")) or False)
+            ev.connect("button-press-event", self.on_button)
+            if where in ("recent", "search") or ghost:
+                return ev
+            ev.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [], Gdk.DragAction.MOVE)
+            ev.drag_source_add_text_targets()
+            if kind == "app" and self.by_id[key]["info"].get_icon():
+                ev.drag_source_set_icon_gicon(self.by_id[key]["info"].get_icon())
+            else:
+                ev.drag_source_set_icon_name("folder")
+            ev.connect("drag-begin", self.on_drag_begin)
+            ev.connect("drag-data-get", lambda w, ctx, data, *_: data.set_text(self.item_key(w.kite), -1))
+            ev.connect("drag-end", self.on_drag_end)
+            self.dest(ev, "tile")
+            return ev
+
+        def item_key(self, kite):
+            kind, key = kite
+            return fkey(key) if kind == "folder" else key
+
+        def dest(self, widget, role):
+            widget.role = role
+            widget.drag_dest_set(Gtk.DestDefaults.DROP, [], Gdk.DragAction.MOVE)
+            widget.drag_dest_add_text_targets()
+            widget.connect("drag-motion", self.on_drag_motion)
+            widget.connect("drag-leave", self.on_drag_leave)
+            widget.connect("drag-data-received", self.on_drop)
+
+        def flow(self, items, where, live=None, columns=COLUMNS, spacing=(4, 4)):
+            """A grid of tiles; with LIVE (a list of keys) it is kept sorted by
+            that list, so tiles move aside while something is dragged."""
+            fb = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.SINGLE, homogeneous=True,
+                             min_children_per_line=columns, max_children_per_line=columns,
+                             activate_on_single_click=True, row_spacing=spacing[0], column_spacing=spacing[1],
+                             valign=Gtk.Align.START)
+            fb.connect("child-activated", self.on_activate)
+            fb.where = where
+            for kind, key in items:
+                fb.add(self.tile(kind, key, where))
+            if live is not None:
+                fb.live = live
+                fb.set_sort_func(self.sort_live, fb)
+            return fb
+
+        def sort_live(self, a, b, fb):
+            ka, kb = self.item_key(a.get_child().kite), self.item_key(b.get_child().kite)
+            ia = fb.live.index(ka) if ka in fb.live else len(fb.live)
+            ib = fb.live.index(kb) if kb in fb.live else len(fb.live)
+            return ia - ib
+
+        def heading(self, text, after_section=False):
+            # A heading under another section stands clear of that section's apps.
+            lab = Gtk.Label(label=text, xalign=0, margin_start=8, margin_bottom=8,
+                            margin_top=32 if after_section else 0)
+            lab.get_style_context().add_class("heading")
+            return lab
+
+        def refresh(self):
+            """Draw the drawer (and the folder panel, if a folder is open)."""
+            for child in self.content.get_children():
+                self.content.remove(child)
+            self.flows = []
+            self.main_flow = None
+            q = self.entry.get_text()
+            if q.strip():
+                best, sett = search(self.shown, q, self.settings_ids)
+                for title, ids in (("Best matches", best), ("Settings", sett)):
+                    if ids:
+                        self.content.pack_start(self.heading(title, bool(self.flows)), False, False, 0)
+                        self.flows.append(self.flow([("app", i) for i in ids], "search"))
+                        self.content.pack_start(self.flows[-1], False, False, 0)
+                if not best and not sett:
+                    empty = Gtk.Label(label="No apps or settings match", margin_top=40)
+                    empty.get_style_context().add_class("empty")
+                    self.content.pack_start(empty, False, False, 0)
+            else:
+                recent = recent_row(self.cfg, {a["id"] for a in self.shown})
+                if recent:
+                    self.content.pack_start(self.heading("Recent apps"), False, False, 0)
+                    self.flows.append(self.flow([("app", i) for i in recent], "recent"))
+                    self.content.pack_start(self.flows[-1], False, False, 0)
+                self.content.pack_start(self.heading("All apps", bool(recent)), False, False, 0)
+                items = grid(self.shown, self.cfg)
+                self.main_flow = self.flow(items, "main", live=[self.item_key(i) for i in items])
+                self.flows.append(self.main_flow)
+                self.content.pack_start(self.main_flow, False, False, 0)
+            self.content.show_all()
+            self.draw_panel()
+            if q.strip() and self.flows:
+                first = self.flows[0].get_child_at_index(0)
+                if first is not None:
+                    self.flows[0].select_child(first)
+
+        def draw_panel(self):
+            if self.fwin is None:
+                self.build_folder_window()
+            for child in self.panel_box.get_children():
+                self.panel_box.remove(child)
+            self.folder_flow = None
+            if self.folder is None or self.folder not in self.cfg["folders"] or self.entry.get_text().strip():
+                self.folder = None
+                self.layer.hide()
+                self.fwin.hide()          # hidden, not destroyed: a drag from it goes on
+                return
+            members = self.cfg["folders"][self.folder]
+            self.title.set_text(self.folder)
+            self.folder_flow = self.flow([("app", i) for i in members], self.folder, live=list(members),
+                                         columns=FOLDER_COLUMNS, spacing=FOLDER_SPACING)
+            self.panel_box.pack_start(self.folder_flow, False, False, 0)
+            self.panel_box.show_all()
+            self.layer.show_all()
+            if not self.fwin.get_visible():
+                self.place_folder()
+                self.fwin.present()
+            # Focus on the apps, not the name: a stray key must not rename it.
+            first = self.folder_flow.get_child_at_index(0)
+            if first is not None:
+                self.fwin.set_focus(first)
+            self.title.select_region(0, 0)
+
+        # ------------------------------------------------------ actions --
+        def on_activate(self, _flow, child):
+            kind, key = child.get_child().kite
+            if kind == "folder":
+                self.open_folder(key)
+            else:
+                self.launch(key)
+
+        def open_first(self, *_):
+            for fb in self.flows:
+                child = fb.get_child_at_index(0)
+                if child is not None:
+                    self.on_activate(fb, child)
+                    return
+
+        def launch(self, app_id):
+            self.cfg = record_use(self.cfg, app_id)
+            self.save()
+            ctx = self.win.get_display().get_app_launch_context()
+            try:
+                self.by_id[app_id]["info"].launch([], ctx)
+            except GLib.Error as e:
+                print("kite-start: %s" % e.message, file=sys.stderr)
+            self.hide_drawer()
+
+        def run_command(self, cmd):
+            try:
+                Gio.Subprocess.new(cmd, Gio.SubprocessFlags.NONE)
+            except GLib.Error as e:
+                print("kite-start: %s" % e.message, file=sys.stderr)
+            self.hide_drawer()
+
+        def open_folder(self, name):
+            self.folder = name
+            self.draw_panel()
+
+        def on_press_outside(self, gesture, *_):
+            if self.folder is not None and self.fwin is not None and self.fwin.get_visible():
+                gesture.set_state(Gtk.EventSequenceState.CLAIMED)   # the click goes no further
+                self.close_folder()
+
+        def close_folder(self):
+            self.rename_folder()
+            self.folder = None
+            self.draw_panel()
+            self.refresh()          # the folder's icon shows its new contents
+
+        def rename_folder(self, *_):
+            if self.fwin is None:
+                return False
+            old, new = self.folder, self.title.get_text().strip()
+            if old is None or not new or new == old or new in self.cfg["folders"]:
+                return False
+            folders = {(new if n == old else n): v for n, v in self.cfg["folders"].items()}
+            order = [fkey(new) if k == fkey(old) else k for k in self.cfg["order"]]
+            self.cfg = dict(self.cfg, folders=folders, order=order)
+            self.folder = new
+            self.save()
+            return False
+
+        def changed(self):
+            self.cfg = tidy(self.cfg)
+            if self.folder is not None and self.folder not in self.cfg["folders"]:
+                self.folder = None
+            self.save()
+            self.refresh()
+
+        # ---------------------------------------------------- drag & drop --
+        # Like Android: over the edges of a tile, the others move aside to
+        # show where the app will land; over the middle of a tile in All apps,
+        # it highlights to make (or fill) a folder, and a folder held this way
+        # opens. Out of an open folder, the panel closes and the drag goes on
+        # in All apps.
+        def on_drag_begin(self, widget, _ctx):
+            self.busy_add(1)
+            self.drag = {"src": self.item_key(widget.kite), "from": None if widget.where == "main" else widget.where,
+                         "zone": None, "target": None, "dropped": False}
+            widget.box.get_style_context().add_class("dragged")
+
+        def on_drag_end(self, widget, _ctx):
+            self.busy_add(-1)
+            self.stop_hold()
+            dropped = self.drag and self.drag.get("dropped")
+            self.drag = None
+            if not dropped:
+                self.refresh()     # cancelled: everything back where it was
+
+        def flow_of(self, widget):
+            """The FlowBox a tile is in, and that flow's container: None (All
+            apps) or the open folder's name."""
+            w = widget
+            while w is not None and not isinstance(w, Gtk.FlowBox):
+                w = w.get_parent()
+            if w is None or not hasattr(w, "live"):
+                return None, None
+            return w, (None if w.where == "main" else w.where)
+
+        def ensure_ghost(self, fb, src):
+            """Dragging into a grid that has no tile for SRC: a faint one
+            takes its place, so the gap shows where it will land."""
+            if src in fb.live:
+                return
+            kind, key = ("folder", src[7:]) if src.startswith("folder:") else ("app", src)
+            fb.live.append(src)
+            fb.add(self.tile(kind, key, fb.where, ghost=True))
+            fb.show_all()
+
+        def on_drag_motion(self, widget, ctx, x, _y, time):
+            Gdk.drag_status(ctx, Gdk.DragAction.MOVE, time)
+            d = self.drag
+            if d is None:
+                return True
+            role = widget.role
+            if role == "outside-panel":
+                if self.folder is not None:      # dragged out of the open folder
+                    self.folder = None
+                    self.draw_panel()
+                return True
+            if role in ("main-end", "folder-end"):
+                return True
+            # Over a tile.
+            fb, container = self.flow_of(widget)
+            if fb is None:
+                return True
+            target = self.item_key(widget.kite)
+            if target == d["src"]:
+                return True
+            w = widget.get_allocated_width() or 1
+            zone = "before" if x < w * 0.3 else ("after" if x > w * 0.7 else "into")
+            if zone == "into" and (container is not None or d["src"].startswith("folder:")):
+                zone = "before" if x < w / 2 else "after"   # no folders in folders
+            self.mark(widget, zone == "into")
+            d["zone"], d["target"] = zone, target
+            if zone == "into":
+                if widget.kite[0] == "folder" and not self.hold_timer:
+                    self.hold_timer = GLib.timeout_add(HOLD_OPEN_MS, self.hold_open, widget.kite[1])
+                return True
+            self.stop_hold()
+            self.ensure_ghost(fb, d["src"])
+            fb.live[:] = move_item(fb.live, d["src"], target, zone == "after")
+            fb.invalidate_sort()
+            return True
+
+        def on_drag_leave(self, widget, *_):
+            if getattr(widget, "role", "") == "tile":
+                self.mark(widget, False)
+                self.stop_hold()
+
+        def mark(self, widget, on):
+            ctx = widget.box.get_style_context()
+            (ctx.add_class if on else ctx.remove_class)("drop-into")
+
+        def hold_open(self, name):
+            self.hold_timer = 0
+            if self.drag is not None and name in self.cfg["folders"]:
+                self.folder = name
+                self.draw_panel()
+            return False
+
+        def stop_hold(self):
+            if self.hold_timer:
+                GLib.source_remove(self.hold_timer)
+                self.hold_timer = 0
+
+        def on_drop(self, widget, _ctx, _x, _y, _data, *_):
+            d = self.drag
+            if d is None:
+                return
+            d["dropped"] = True
+            src = d["src"]
+            role = widget.role
+            if role == "tile" and d["zone"] == "into":
+                kind, key = widget.kite
+                cfg = self.cfg
+                if d["from"] is not None:        # out of a folder first
+                    cfg = commit_drop(cfg, src, d["from"], None, cfg["order"] + [src])
+                self.cfg = add_to_folder(cfg, key, src) if kind == "folder" else make_folder(cfg, src, key)
+            elif role == "tile" or role in ("main-end", "folder-end"):
+                if role == "tile":
+                    fb, container = self.flow_of(widget)
+                elif role == "folder-end" and self.folder_flow is not None:
+                    fb, container = self.folder_flow, self.folder
+                else:
+                    fb, container = self.main_flow, None
+                if fb is None:
+                    return
+                if src not in fb.live:
+                    fb.live.append(src)
+                if container is not None and src.startswith("folder:"):
+                    return                       # no folders in folders
+                self.cfg = commit_drop(self.cfg, src, d["from"], container, list(fb.live))
+            else:
+                return
+            self.stop_hold()
+            self.changed()
+
+        # ---------------------------------------------------- right-click --
+        def on_button(self, widget, event):
+            if event.button != 3 or widget.where == "search":
+                return False
+            kind, key = widget.kite
+            menu = Gtk.Menu()
+            if kind == "app":
+                if widget.where not in ("main", "recent"):      # in a folder
+                    item = Gtk.MenuItem(label="Move out of folder")
+                    item.connect("activate", lambda *_: self.do(
+                        lambda: commit_drop(self.cfg, key, widget.where, None, self.cfg["order"] + [key])))
+                    menu.append(item)
+                sub = Gtk.Menu()
+                for name in self.cfg["folders"]:
+                    if name != widget.where:
+                        it = Gtk.MenuItem(label=name)
+                        it.connect("activate", lambda _i, n=name: self.do(lambda: add_to_folder(self.cfg, n, key)))
+                        sub.append(it)
+                sub.append(Gtk.SeparatorMenuItem())
+                hint = Gtk.MenuItem(label="New folder: drag onto another app")
+                hint.set_sensitive(False)
+                sub.append(hint)
+                item = Gtk.MenuItem(label="Add to folder")
+                item.set_submenu(sub)
+                menu.append(item)
+            else:
+                item = Gtk.MenuItem(label="Remove folder (apps stay)")
+                item.connect("activate", lambda *_: self.do(lambda: self.unfold(key)))
+                menu.append(item)
+            menu.show_all()
+            self.busy_add(1)
+            menu.connect("deactivate", lambda *_: self.busy_add(-1))
+            menu.attach_to_widget(widget)
+            menu.popup_at_pointer(event)
+            return True
+
+        def unfold(self, name):
+            order = list(self.cfg["order"])
+            pos = order.index(fkey(name)) if fkey(name) in order else len(order)
+            order[pos:pos + 1] = [i for i in self.cfg["folders"].get(name, []) if i not in order]
+            folders = {n: v for n, v in self.cfg["folders"].items() if n != name}
+            return dict(self.cfg, order=order, folders=folders)
+
+        def do(self, change):
+            self.cfg = change()
+            self.changed()
+
+        # --------------------------------------------------------- keys --
+        def on_key(self, _w, event):
+            if event.keyval == Gdk.KEY_Escape:
+                if self.folder is not None:
+                    self.close_folder()
+                elif self.entry.get_text():
+                    self.entry.set_text("")
+                else:
+                    self.hide_drawer()
+                return True
+            # Typing anywhere searches (it closes an open folder).
+            if not self.entry.has_focus() and not (self.fwin is not None and self.title.has_focus()) \
+                    and event.string and event.string.isprintable():
+                self.entry.grab_focus_without_selecting()
+                return self.entry.event(event)
+            return False
+
+        def on_focus_out(self, *_):
+            # Clicking outside closes it (not while one of its menus or a drag is open).
+            def check():
+                folder_active = self.fwin is not None and self.fwin.get_visible() and self.fwin.is_active()
+                if self.was_active and self.busy == 0 and self.win is not None \
+                        and self.win.get_visible() and not self.win.is_active() and not folder_active:
+                    self.hide_drawer(by_focus=True)
+                return False
+            GLib.timeout_add(150, check)
+            return False
+
+    return Start().run(sys.argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

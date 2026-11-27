@@ -45,12 +45,8 @@ DECORATION = {"windows": "menu:minimize,maximize,close"}
 # exists only in the live session.
 PINNED = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "thunar", "xfce4-terminal",
           "kite-apps", "kite-settings")
-# Favourites in the Start menu, so it opens with something to click; only
-# the installed ones are listed (the text editor and image viewer have both
-# their old and their reverse-DNS desktop file names here).
-FAVOURITES = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "code", "thunar",
-              "xfce4-terminal", "org.xfce.mousepad", "mousepad", "org.xfce.ristretto",
-              "ristretto", "kite-apps", "kite-settings")
+# The Start menu (kite-start) picks its own first favourites
+# (DEFAULT_FAVOURITES there).
 
 # Files the layout owns (relative to ~/.config); removed before the layout's
 # own copies go in, so nothing of an older layout is left behind.
@@ -73,7 +69,7 @@ KEEP_XSETTINGS = ("FontName", "MonospaceFontName")
 SHORTCUTS = {
     "common": {
         "commands": {
-            "<Super>space": "xfce4-popup-whiskermenu",
+            "<Super>space": "kite-start",
             "<Super>w": "xfdesktop --windowlist",
             "<Super>l": "xflock4",
             "<Super>e": "thunar",
@@ -154,11 +150,8 @@ def placeholders(layout):
         theme = FALLBACK_THEME
     pinned = "".join(os.path.join(APPS, a + ".desktop") + ";" for a in PINNED
                      if os.path.isfile(os.path.join(APPS, a + ".desktop")))
-    favourites = ",".join(a + ".desktop" for a in FAVOURITES
-                          if os.path.isfile(os.path.join(APPS, a + ".desktop")))
     return {"@GTK_THEME@": theme, "@ICON_THEME@": ICON_THEME[layout],
-            "@DECORATION_LAYOUT@": DECORATION[layout], "@PINNED@": pinned,
-            "@FAVOURITES@": favourites}, theme
+            "@DECORATION_LAYOUT@": DECORATION[layout], "@PINNED@": pinned}, theme
 
 
 def system_file(name):

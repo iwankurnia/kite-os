@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KiteOS Start
+Comment=Keeps the Start menu ready, so it opens at once
+Exec=kite-start --background
+NoDisplay=true
+OnlyShowIn=XFCE;
+X-XFCE-Autostart-Override=true

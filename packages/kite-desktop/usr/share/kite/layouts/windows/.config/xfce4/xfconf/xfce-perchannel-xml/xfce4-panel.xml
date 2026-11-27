@@ -41,8 +41,13 @@
     </property>
   </property>
   <property name="plugins" type="empty">
-    <!-- Start -->
-    <property name="plugin-1" type="string" value="whiskermenu"/>
+    <!-- Start: KiteOS Start (kite-start), an app drawer with folders -->
+    <property name="plugin-1" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="start.desktop"/>
+      </property>
+      <property name="show-label" type="bool" value="false"/>
+    </property>
     <!-- Search -->
     <property name="plugin-2" type="string" value="launcher">
       <property name="items" type="array">

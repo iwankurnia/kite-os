@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Start
+Comment=Apps, settings and power (Search key)
+Exec=kite-start
+Icon=kite-start-symbolic
+NoDisplay=true

@@ -1,0 +1,14 @@
+#!/bin/sh
+# KiteOS Start: show the Start menu, or hide it if it is open.
+#
+# The menu itself (/usr/lib/kite/desktop/kite-start, Python and GTK) starts
+# hidden at login and stays in memory. This script asks it over D-Bus, which
+# takes about 10 ms; starting Python and GTK takes half a second on the N4020.
+# If it is not running (closed, or crashed), it is started here instead.
+app=${KITE_START_APP:-/usr/lib/kite/desktop/kite-start}
+if [ "${1:-}" != --background ] &&
+        gdbus call --session --timeout 2 --dest org.kiteos.Start --object-path /org/kiteos/Start \
+            --method org.gtk.Actions.Activate toggle '@av []' '@a{sv} {}' >/dev/null 2>&1; then
+    exit 0
+fi
+exec "$app" "$@"

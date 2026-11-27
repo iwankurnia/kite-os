@@ -165,16 +165,15 @@ check "panel plugins run in their own processes (battery + volume crash the pane
 check "battery on the taskbar" grep -q 'value="power-manager-plugin"' "$X/xfce4-panel.xml"
 check "windows: 36 px taskbar, tray in one row" bash -c "grep -q 'name=\"size\" type=\"uint\" value=\"36\"' '$X/xfce4-panel.xml' && grep -q 'name=\"single-row\" type=\"bool\" value=\"true\"' '$X/xfce4-panel.xml'"
 check "windows: no pop-up shadows (borders instead)" grep -q 'name="show_popup_shadow" type="bool" value="false"' "$X/xfwm4.xml"
-check "windows: Start and Search icons shipped in hicolor" bash -c "grep -qx 'button-icon=kite-start-symbolic' '$LH/home/.config/xfce4/panel/whiskermenu-1.rc' && grep -qx 'Icon=kite-search-symbolic' '$LH/home/.config/xfce4/panel/launcher-2/search.desktop' && test -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg' -a -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg'"
+check "windows: Start and Search icons shipped in hicolor" bash -c "grep -qx 'Icon=kite-start-symbolic' '$LH/home/.config/xfce4/panel/launcher-1/start.desktop' && grep -qx 'Icon=kite-search-symbolic' '$LH/home/.config/xfce4/panel/launcher-2/search.desktop' && test -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg' -a -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg'"
 check "Bluetooth tray applet not hidden for new accounts" test ! -e "$REPO/packages/kite-desktop/etc/skel/.config/autostart/blueman.desktop"
-check "Start menu offers shut down" grep -qx 'show-command-shutdown=true' "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
+check "taskbar Start button opens kite-start (no Whisker menu)" bash -c "grep -qx 'Exec=kite-start' '$LH/home/.config/xfce4/panel/launcher-1/start.desktop' && xmllint --xpath \"//property[@name='plugin-1']/property[@name='items']/value/@value\" '$X/xfce4-panel.xml' | grep -q start.desktop && ! grep -rq whisker '$LH/home/.config/xfce4'"
 check "pins only installed apps, Brave first" grep -qx "pinned=$LH/apps/brave-browser.desktop;$LH/apps/thunar.desktop;$LH/apps/xfce4-terminal.desktop;$LH/apps/kite-apps.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
-check "Start menu favourites: installed apps only" grep -qx "favorites=brave-browser.desktop,thunar.desktop,xfce4-terminal.desktop,kite-apps.desktop" "$LH/home/.config/xfce4/panel/whiskermenu-1.rc"
 touch "$LH/apps/kite-install.desktop"; kl windows >/dev/null
 check "live session: Install KiteOS pinned first" grep -q "^pinned=$LH/apps/kite-install.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
 if [ -f /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml ]; then
     f=$X/xfce4-keyboard-shortcuts.xml
-    check "shortcuts: Search key opens the Start menu" bash -c "xmllint --xpath \"//property[@name='commands']/property[@name='custom']/property[@name='<Super>space']/@value\" '$f' | grep -q xfce4-popup-whiskermenu"
+    check "shortcuts: Search key opens the Start menu" bash -c "xmllint --xpath \"//property[@name='commands']/property[@name='custom']/property[@name='<Super>space']/@value\" '$f' | grep -q 'value=\"kite-start\"'"
     check "shortcuts: windows tiling keys" bash -c "xmllint --xpath \"//property[@name='xfwm4']/property[@name='custom']/property[@name='<Super>Left']/@value\" '$f' | grep -q tile_left_key"
     n_def=$(xmllint --xpath "count(//property[@name='commands']/property[@name='default']/property)" "$f")
     n_cus=$(xmllint --xpath "count(//property[@name='commands']/property[@name='custom']/property)" "$f")
@@ -405,10 +404,16 @@ rm -f "$C/cfg/kite/display.conf" "$C/bin/picom"
 check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
 # Calm animations: short, a small zoom at most, nothing on resize/maximise
 # (picom stretches the old picture), the taskbar and desktop never move.
-check "every animation is shorter than 0.16 s" bash -c \
-    "! grep -o 'duration = [0-9.]*' '$PC' | awk '{ if (\$3 >= 0.16) bad = 1 } END { exit !bad }'"
-check "windows grow from 96 % or more (no big zoom)" bash -c \
-    "! grep -o 'scale = [0-9.]*' '$PC' | awk '{ if (\$3 < 0.96) bad = 1 } END { exit !bad }'"
+# KiteOS Start is the one exception, on purpose: it slides up from the
+# taskbar (0.18 s) and its folders zoom from 85 %, like a phone's.
+PC_OTHERS=$(mktemp); grep -v -e "class_g = 'Kite-start'" -e "name = 'kite-start-folder'" "$PC" | awk '/^  # KiteOS Start [(]kite-start/ { skip = 1 } /# The taskbar and the desktop/ { skip = 0 } !skip' > "$PC_OTHERS"
+check "every animation is shorter than 0.16 s (but KiteOS Start's)" bash -c \
+    "! grep -o 'duration = [0-9.]*' '$PC_OTHERS' | awk '{ if (\$3 >= 0.16) bad = 1 } END { exit !bad }'"
+check "windows grow from 96 % or more (no big zoom; but KiteOS Start's folders)" bash -c \
+    "! grep -o 'scale = [0-9.]*' '$PC_OTHERS' | awk '{ if (\$3 < 0.96) bad = 1 } END { exit !bad }'"
+check "KiteOS Start slides up from the taskbar, its folders zoom" bash -c \
+    "grep -A6 \"class_g = 'Kite-start'\" '$PC' | grep -Eq 'preset = \"slide-in\"; +direction = \"down\"' && grep -A6 \"name = 'kite-start-folder'\" '$PC' | grep -q 'scale = 0.85'"
+rm -f "$PC_OTHERS"
 check "no animation on resize, maximise or tiling" bash -c "! grep -q '\"geometry\"' '$PC'"
 check "xrender backend (glx left a restarted taskbar invisible)" grep -qx 'backend = "xrender";' "$PC"
 check "no picom shadow on windows that draw their own (Brave's pale box)" grep -q 'match = "_GTK_FRAME_EXTENTS@"; shadow = false;' "$PC"
@@ -914,6 +919,120 @@ check "kite-apps still opens App Centre" grep -qx 'exec /usr/bin/kite-app-centre
 D=$REPO/packages/kite-storage/usr/share/applications/kite-apps.desktop
 check "launcher: App Centre, grouped as kite-apps" bash -c "grep -qx 'Name=App Centre' '$D' && grep -qx 'Exec=kite-app-centre' '$D' && grep -qx 'StartupWMClass=kite-apps' '$D'"
 check "kite-storage depends on Python GTK 3" grep -qE '^Depends:.*python3-gi, gir1.2-gtk-3.0' "$REPO/packages/kite-storage/DEBIAN/control"
+
+echo "== kite-start (Start menu with an app drawer)"
+KS=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-start
+ks_py() { python3 - "$KS" "$T" <<PYEOF
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("ks", sys.argv[1])
+spec = importlib.util.spec_from_loader("ks", loader); ks = importlib.util.module_from_spec(spec); loader.exec_module(ks)
+def app(i, name, cats, exe=""):
+    return {"id": i, "name": name, "categories": cats.split(";"), "exec": exe, "generic": "", "keywords": []}
+apps = [app("brave.desktop", "Brave", "Network;WebBrowser"), app("code.desktop", "Visual Studio Code", "TextEditor;Development;IDE"),
+        app("display.desktop", "Display", "XFCE;GTK;Settings"), app("battery.desktop", "Battery", "Settings;HardwareSettings"),
+        app("thunar.desktop", "Files", "System;Core;GTK"), app("term.desktop", "Terminal", "GTK;System;TerminalEmulator"),
+        app("mousepad.desktop", "Mousepad", "Utility;TextEditor;GTK"), app("pavu.desktop", "Volume Control", "AudioVideo;Audio;Mixer"),
+        app("vlc.desktop", "VLC media player", "AudioVideo;Player"), app("ristretto.desktop", "Image Viewer", "GTK;Graphics;Viewer"),
+        app("kite-apps.desktop", "App Centre", "System;Settings;PackageManager"), app("bt.desktop", "Bluetooth", "System", "kite-bluetooth"),
+        app("picom.desktop", "picom", "Utility", "picom"), app("xfce4-session-logout.desktop", "Log Out", "System;X-XFCE", "xfce4-session-logout"),
+        app("xfce4-run.desktop", "Run Program...", "Utility;X-XFCE", "xfce4-appfinder"), app("wa.desktop", "WhatsApp Web", "")]
+$1
+PYEOF
+}
+check "settings panels go in Settings, App Centre and Bluetooth placed right" ks_py \
+    'c = {a["id"]: ks.classify(a) for a in apps}; assert (c["display.desktop"], c["battery.desktop"], c["bt.desktop"], c["kite-apps.desktop"]) == ("settings", "settings", "settings", "app"), c'
+check "system tools go in System (Files, Terminal, Mousepad, Volume Control)" ks_py \
+    'assert [ks.classify(a) for a in apps if a["id"] in ("thunar.desktop", "term.desktop", "mousepad.desktop", "pavu.desktop")] == ["system"] * 4'
+check "your apps stay loose (Brave, VS Code, VLC, Image Viewer, web apps)" ks_py \
+    'assert all(ks.classify(a) == "app" for a in apps if a["id"] in ("brave.desktop", "code.desktop", "vlc.desktop", "ristretto.desktop", "wa.desktop"))'
+check "hidden: picom, Log Out (in the power menu), Run Program (search covers it)" ks_py \
+    'assert [ks.classify(a) for a in apps if a["id"] in ("picom.desktop", "xfce4-session-logout.desktop", "xfce4-run.desktop")] == ["hidden"] * 3'
+check "first run: Whisker favourites first in its order (only there, even system apps), your other apps, then the folders" ks_py \
+    'cfg = ks.sync_config(None, apps, ["vlc.desktop", "thunar.desktop", "gone.desktop", "brave.desktop"]); assert cfg["order"] == ["vlc.desktop", "thunar.desktop", "brave.desktop", "kite-apps.desktop", "ristretto.desktop", "code.desktop", "wa.desktop", "folder:Settings", "folder:System"], cfg["order"]; assert "thunar.desktop" not in cfg["folders"]["System"], cfg["folders"]'
+check "first run with no Whisker favourites: KiteOS's default favourites first" ks_py \
+    'cfg = ks.sync_config(None, apps); assert cfg["order"][:3] == ["code.desktop", "thunar.desktop", "mousepad.desktop"], cfg["order"]'
+check "Whisker favourites are read from the panel settings (xfconf array)" ks_py \
+    'assert ks.parse_xfconf_array("Value is an array with 2 items:\n\nbrave-browser.desktop\nthunar.desktop\n") == ["brave-browser.desktop", "thunar.desktop"]'
+check "an app installed later: a settings panel joins Settings, your app goes at the end" ks_py \
+    'cfg = ks.sync_config(None, apps, []); cfg2 = ks.sync_config(cfg, apps + [app("kb.desktop", "Keyboard", "XFCE;Settings"), app("gimp.desktop", "GIMP", "Graphics")]); assert "kb.desktop" in cfg2["folders"]["Settings"] and cfg2["order"][-1] == "gimp.desktop", cfg2["order"]'
+check "your order is never re-sorted" ks_py \
+    'cfg = ks.sync_config(None, apps, []); cfg["order"] = ks.move_item(cfg["order"], "vlc.desktop", cfg["order"][0], False); assert ks.sync_config(cfg, apps)["order"][0] == "vlc.desktop"'
+check "drag to the right edge of a tile: placed after it" ks_py \
+    'assert ks.move_item(["a", "b", "c"], "a", "c", True) == ["b", "c", "a"] and ks.move_item(["a", "b", "c"], "c", "a", False) == ["c", "a", "b"]'
+check "your own folder changes are kept (an app you took out is not put back)" ks_py \
+    'cfg = ks.sync_config(None, apps, []); cfg = ks.remove_from_folder(cfg, "System", "term.desktop"); cfg2 = ks.sync_config(cfg, apps); assert "term.desktop" not in cfg2["folders"]["System"] and "term.desktop" in cfg2["order"]'
+check "an app both loose and in a folder: taking it out of the folder adds no second copy" ks_py \
+    'cfg = ks.sync_config(None, apps, ["thunar.desktop"]); cfg = ks.remove_from_folder(cfg, "System", "thunar.desktop"); assert cfg["order"].count("thunar.desktop") == 1, cfg["order"]'
+check "drag out of a folder into All apps: placed where dropped, gone from the folder" ks_py \
+    'cfg = ks.sync_config(None, apps, []); live = list(cfg["order"]); live.insert(1, "term.desktop"); cfg = ks.commit_drop(cfg, "term.desktop", "System", None, live); assert cfg["order"][1] == "term.desktop" and "term.desktop" not in cfg["folders"].get("System", []), cfg'
+check "drag from All apps into an open folder: placed where dropped, gone from All apps" ks_py \
+    'cfg = ks.sync_config(None, apps, []); live = list(cfg["folders"]["System"]); live.insert(0, "vlc.desktop"); cfg = ks.commit_drop(cfg, "vlc.desktop", None, "System", live); assert cfg["folders"]["System"][0] == "vlc.desktop" and "vlc.desktop" not in cfg["order"], cfg'
+check "rearranging inside a folder or inside All apps keeps everything else" ks_py \
+    'cfg = ks.sync_config(None, apps, []); live = ks.move_item(cfg["folders"]["System"], "term.desktop", cfg["folders"]["System"][0], False); c2 = ks.commit_drop(cfg, "term.desktop", "System", "System", live); assert c2["folders"]["System"][0] == "term.desktop" and c2["order"] == cfg["order"]'
+check "folder icons are one size whatever the folder holds (2 or 25 apps)" bash -c "grep -q 'FOLDER_PREVIEW = 4' '$KS' && grep -q 'set_size_request(MINI, MINI)' '$KS'"
+check "drag an app onto another: a folder with both, where the target was" ks_py \
+    'cfg = ks.sync_config(None, apps, []); cfg = ks.make_folder(cfg, "vlc.desktop", "brave.desktop"); pos = ks.sync_config(None, apps, [])["order"].index("brave.desktop"); assert cfg["folders"]["Folder"] == ["brave.desktop", "vlc.desktop"] and cfg["order"][pos] == "folder:Folder" and "vlc.desktop" not in cfg["order"], cfg["order"]'
+check "a folder left with one app dissolves; the app takes its place" ks_py \
+    'cfg = ks.sync_config(None, apps, []); cfg = ks.make_folder(cfg, "vlc.desktop", "brave.desktop"); cfg = ks.remove_from_folder(cfg, "Folder", "vlc.desktop"); pos = ks.sync_config(None, apps, [])["order"].index("brave.desktop"); cfg = ks.sync_config(cfg, apps); assert "Folder" not in cfg["folders"] and cfg["order"][pos] == "brave.desktop", cfg["order"]'
+check "search: name start, then word start, then anywhere; settings in their own section" ks_py \
+    'best, sett = ks.search(ks.visible(apps), "vi", {"display.desktop", "battery.desktop", "bt.desktop"}); assert best == ["code.desktop", "ristretto.desktop"] and sett == [], (best, sett)
+best, sett = ks.search(ks.visible(apps), "dis", {"display.desktop"}); assert best == [] and sett == ["display.desktop"], (best, sett)'
+check "folders are saved and read back" ks_py \
+    'import os; p = os.path.join(sys.argv[2], "kite-start.json"); ks.save_config({"order": ["folder:A"], "folders": {"A": ["x", "y"]}, "known": ["x", "y"]}, p); assert ks.load_config(p)["order"] == ["folder:A"]'
+check "no method shadows Gtk.Application's own (run() did: it re-launched itself in a loop)" bash -c \
+    "! grep -nE '^        def (run|quit|activate|hold|release|register|open)\(' '$KS'"
+check "recently used: the app just opened goes first, no duplicates, at most 10 kept" ks_py \
+    'cfg = {"recent": [str(i) for i in range(10)]}; cfg = ks.record_use(cfg, "5"); assert cfg["recent"][:3] == ["5", "0", "1"] and len(cfg["recent"]) == 10 and cfg["recent"].count("5") == 1'
+check "recently used row: one row (5), only apps still installed, folder apps included" ks_py \
+    'assert ks.recent_row({"recent": ["gone.desktop", "display.desktop", "vlc.desktop", "brave.desktop", "code.desktop", "wa.desktop", "thunar.desktop"]}, {a["id"] for a in apps}) == ["display.desktop", "vlc.desktop", "brave.desktop", "code.desktop", "wa.desktop"]'
+check "no tooltips on the tiles (hover only lights them up)" bash -c "! grep -n tooltip_text=name '$KS'"
+check "Whisker favourites saved at the switch are read on the first run" ks_py \
+    'import os; p = os.path.join(sys.argv[2], "wf"); open(p, "w").write("b.desktop\na.desktop\n"); assert ks.saved_favourites(p) == ["b.desktop", "a.desktop"] and ks.saved_favourites(p + "x") is None'
+check "kept in memory: started hidden at login, the command asks it over D-Bus (10 ms, not 0.5 s)" bash -c \
+    "grep -qx 'Exec=kite-start --background' '$REPO/packages/kite-desktop/etc/xdg/autostart/kite-start.desktop' && grep -q 'org.gtk.Actions.Activate toggle' '$REPO/packages/kite-desktop/usr/bin/kite-start' && grep -q 'Gio.SimpleAction.new(\"toggle\"' '$KS' && sh -n '$REPO/packages/kite-desktop/usr/bin/kite-start'"
+check "kite-start starts the menu when none is running" bash -c \
+    "d=\$(mktemp -d); printf '#!/bin/sh\\nexit 1\\n' > \$d/gdbus; printf '#!/bin/sh\\necho started \"\$*\"\\n' > \$d/app; chmod +x \$d/gdbus \$d/app; out=\$(PATH=\$d:\$PATH KITE_START_APP=\$d/app sh '$REPO/packages/kite-desktop/usr/bin/kite-start'); rm -rf \$d; [ \"\$out\" = 'started ' ]"
+check "a click on Start that took the focus away hides it, and does not show it straight back" grep -q 'time.monotonic() - self.hidden_by_focus >= REOPEN_S' "$KS"
+check "new and removed apps show without a restart (Gio.AppInfoMonitor)" grep -q 'Gio.AppInfoMonitor.get()' "$KS"
+check "no Whisker left: package, panel layout, Search key" bash -c "! grep -rq whisker '$REPO/packages/kite-desktop/usr/share/kite/layouts' '$REPO/packages/kite-desktop/usr/bin/kite-layout' '$REPO/live/config/package-lists' && ! grep -q whisker '$REPO/packages/kite-desktop/DEBIAN/control'"
+
+check "every icon theme gets its cache (Papirus had none: GTK apps scanned 43,000 files)" bash -c \
+    "grep -q 'for t in /usr/share/icons/\\*/' '$REPO/packages/kite-desktop/DEBIAN/postinst' && grep -q 'for t in /usr/share/icons/\\*/' '$REPO/live/config/hooks/normal/0500-kite-live-session.hook.chroot'"
+
+echo "== kite-user-init: Whisker menu swapped for kite-start once"
+UI=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init
+UH=$(mktemp -d); mkdir -p "$UH/cfg/xfce4/xfconf/xfce-perchannel-xml" "$UH/cfg/xfce4/panel" "$UH/bin"
+printf '#!/bin/sh\nexit 1\n' > "$UH/bin/pgrep"; chmod +x "$UH/bin/pgrep"
+cat > "$UH/cfg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<'XML'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-panel" version="1.0">
+  <property name="plugins" type="empty">
+    <property name="plugin-5" type="string" value="whiskermenu">
+      <property name="button-icon" type="string" value="kite-start-symbolic"/>
+      <property name="favorites" type="array">
+        <value type="string" value="thunar.desktop"/>
+        <value type="string" value="brave-browser.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-2" type="string" value="launcher"/>
+  </property>
+</channel>
+XML
+printf '<channel name="xfce4-keyboard-shortcuts" version="1.0"><property name="commands" type="empty"><property name="custom" type="empty"><property name="&lt;Super&gt;space" type="string" value="xfce4-popup-whiskermenu"/></property></property></channel>\n' > "$UH/cfg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml"
+echo 'favorites=x.desktop' > "$UH/cfg/xfce4/panel/whiskermenu-5.rc"
+ui_run() { PATH="$UH/bin:$PATH" XDG_CONFIG_HOME="$UH/cfg" KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" python3 -I -c '
+import importlib.machinery, importlib.util, sys
+l = importlib.machinery.SourceFileLoader("kui", sys.argv[1]); sp = importlib.util.spec_from_loader("kui", l); m = importlib.util.module_from_spec(sp); l.exec_module(m)
+m.setup_start_menu()' "$UI"; }
+ui_run
+UP=$UH/cfg/xfce4/xfconf/xfce-perchannel-xml
+check "the Whisker plugin becomes a kite-start launcher, same plugin id" bash -c "xmllint --xpath \"//property[@name='plugin-5']/@value\" '$UP/xfce4-panel.xml' | grep -q launcher && grep -qx 'Exec=kite-start' '$UH/cfg/xfce4/panel/launcher-5/start.desktop' && test ! -e '$UH/cfg/xfce4/panel/whiskermenu-5.rc' && ! grep -q favorites '$UP/xfce4-panel.xml'"
+check "Whisker favourites saved for kite-start, in Whisker's order" bash -c "test \"\$(cat '$UH/cfg/kite/whisker-favourites')\" = \"\$(printf 'thunar.desktop\nbrave-browser.desktop')\""
+check "Search key opens kite-start" grep -q 'value="kite-start"' "$UP/xfce4-keyboard-shortcuts.xml"
+check "other plugins untouched" bash -c "xmllint --xpath \"//property[@name='plugin-2']/@value\" '$UP/xfce4-panel.xml' | grep -q launcher"
+sed -i 's/value="launcher"/value="whiskermenu"/' "$UP/xfce4-panel.xml"; ui_run
+check "done once: a Whisker menu added back later stays" grep -q 'name="plugin-5" type="string" value="whiskermenu"' "$UP/xfce4-panel.xml"
+rm -rf "$UH"
 
 echo "== window guard (title bars kept on screen)"
 WG=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard

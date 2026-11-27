@@ -81,9 +81,8 @@ box.menu > .menu_item button:hover { background-color: #c42b1c; color: #ffffff; 
 box.menu > .menu_item button:hover image { color: #ffffff; -gtk-icon-style: symbolic; }
 .xfce4-panel .separator { color: rgba(0, 0, 0, 0.12); }
 
-/* Pop-ups: Windows 11-style rounded corners. The Start menu window itself
-   stays square: it has no alpha channel, so rounded corners show black. */
-#whiskermenu-window .view,
+/* Pop-ups: Windows 11-style rounded corners. (The Start menu, kite-start,
+   is rounded by the compositor.) */
 .xfce4-panel menu,
 tooltip, tooltip.background {
   border-radius: 8px;
@@ -116,13 +115,12 @@ XfdesktopIconView.view:selected,
 
 /* Borders, not shadows: a thin line along the top of the taskbar and around
    menus and pop-overs separates them from the window behind. Pop-up shadows
-   are off here and in xfwm4.xml (show_popup_shadow). The Start menu gets no
-   border; xfwm4 gives it a window shadow. */
+   are off here and in xfwm4.xml (show_popup_shadow). The Start menu
+   (kite-start) gets no border; picom gives it a shadow. */
 .xfce4-panel.background { border-top: 1px solid rgba(0, 0, 0, 0.18); }
 menu, .menu, window.popup menu { border: 1px solid rgba(0, 0, 0, 0.22); }
 popover, popover.background { border: 1px solid rgba(0, 0, 0, 0.22); }
-.csd.popup decoration, window.popup decoration, menu, .menu, popover,
-#whiskermenu-window, #whiskermenu-window decoration { box-shadow: none; }
+.csd.popup decoration, window.popup decoration, menu, .menu, popover { box-shadow: none; }
 
 /* Clock calendar pop-up: roomy rows, quiet day names and arrows, no heading
    frame, today as a blue number with a short bar under it. It is a bare

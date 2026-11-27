@@ -135,8 +135,7 @@ v = [p.get("value") for p in r.findall("./property[@name=\"xfwm4\"]/property[@na
 d = [a for a, n in collections.Counter(v).items() if n > 1]
 print("duplicates:", ", ".join(d) if d else "none")
 PY' 'duplicates: none'
-# Whisker menu moves its settings from whiskermenu-1.rc into xfconf on start.
-has   "live: menu favourites set" "$GUI"' xfconf-query -c xfce4-panel -lv | grep -i favorites; grep -h ^favorites= ~/.config/xfce4/panel/whiskermenu-*.rc 2>/dev/null' 'brave-browser'
+has   "live: Start button opens kite-start" 'grep -h ^Exec= ~/.config/xfce4/panel/launcher-*/start.desktop' '^Exec=kite-start$'
 
 # Putting the desktop back (kite-layout windows) in a running session: each
 # time there must still be a window manager, one panel process and the theme.

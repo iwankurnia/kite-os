@@ -9,9 +9,13 @@ rm -f /usr/share/applications/calamares-install-debian.desktop
 # Debian's autostart that copies its installer icon to the desktop: KiteOS has
 # no desktop icons, and it logged an error at every live start.
 grep -l 'add-calamares-desktop-icon' /etc/xdg/autostart/*.desktop 2>/dev/null | xargs -r rm -f
-# The "Install KiteOS" icon is added from includes.chroot, after the packages
-# built the hicolor icon cache: refresh it so the icon is found.
-gtk-update-icon-cache -f -q /usr/share/icons/hicolor 2>/dev/null || true
+# Icon caches for every theme: the "Install KiteOS" icon is added from
+# includes.chroot after the packages built the hicolor cache, and Papirus and
+# Adwaita were set up before the cache tool was installed, so they had none
+# (every GTK app then scans Papirus's 43,000 files when it starts).
+for t in /usr/share/icons/*/; do
+    [ -f "$t/index.theme" ] && gtk-update-icon-cache -f -q "$t" 2>/dev/null || true
+done
 # No automatic screen lock in the live session (nobody knows its password).
 cat > /etc/xdg/autostart/kite-live-nolock.desktop <<'DESKTOP'
 [Desktop Entry]

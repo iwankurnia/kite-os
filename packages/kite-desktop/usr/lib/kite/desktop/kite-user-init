@@ -6,14 +6,27 @@
   that (an account still on the dropped mac layout gets it once more).
 * Wallpaper: every connected monitor that has no wallpaper yet gets the
   KiteOS one (xfdesktop stores it per connector name, e.g. eDP-1, HDMI-1).
+* Start menu (once, kite-desktop 1.4.3): an account with the Whisker menu on
+  its taskbar gets KiteOS Start (kite-start) in its place, on the same
+  button, and the Search key opens it. Whisker's favourites are saved for
+  kite-start's first run, which puts them first in All apps, in order.
 """
+import glob
 import os
+import re
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 WALLPAPER = "/usr/share/backgrounds/kite/bloom.jpg"
-CHANNEL_DIR = os.path.expanduser("~/.config/xfce4/xfconf/xfce-perchannel-xml")
+CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+CHANNEL_DIR = os.path.join(CONFIG, "xfce4/xfconf/xfce-perchannel-xml")
+PANEL_DIR = os.path.join(CONFIG, "xfce4/panel")
+KITE_DIR = os.path.join(CONFIG, "kite")
+START_DONE = os.path.join(KITE_DIR, "start-menu")
+START_LAUNCHER = os.path.join(os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts"),
+                              "windows/.config/xfce4/panel/launcher-1/start.desktop")
 
 def connected_outputs():
     try:
@@ -59,12 +72,84 @@ def setup_wallpaper():
         tree.write(path, encoding="UTF-8", xml_declaration=True)
 
 
+def whisker_rc_favourites(plugin_id):
+    """Favourites still in whiskermenu-N.rc (Whisker moves them to xfconf the
+    first time it runs)."""
+    try:
+        with open(os.path.join(PANEL_DIR, "whiskermenu-%s.rc" % plugin_id)) as f:
+            for line in f:
+                if line.startswith("favorites="):
+                    return [v for v in line.strip().split("=", 1)[1].split(",") if v]
+    except OSError:
+        pass
+    return []
+
+
+def setup_start_menu():
+    """Swap the Whisker menu on the taskbar for kite-start, once."""
+    if os.path.exists(START_DONE):
+        return
+    # A settings store (xfconfd) left from an earlier session would keep the
+    # old panel in memory and write it back over the change: stop it first
+    # (it starts again on demand, and writes its files as it exits).
+    uid = str(os.getuid())
+    if subprocess.run(["pgrep", "-u", uid, "-x", "xfconfd"], stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, timeout=5).returncode == 0:
+        subprocess.run(["pkill", "-u", uid, "-x", "xfconfd"], timeout=5)
+        for _ in range(25):
+            if subprocess.run(["pgrep", "-u", uid, "-x", "xfconfd"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=5).returncode != 0:
+                break
+            time.sleep(0.2)
+    panel = os.path.join(CHANNEL_DIR, "xfce4-panel.xml")
+    changed = False
+    if os.path.isfile(panel):
+        tree = ET.parse(panel)
+        plugins = tree.getroot().find("./property[@name='plugins']")
+        for plugin in (plugins.findall("./property") if plugins is not None else []):
+            if plugin.get("value") != "whiskermenu":
+                continue
+            pid = plugin.get("name").rsplit("-", 1)[-1]
+            favs = [v.get("value") for v in plugin.findall("./property[@name='favorites']/value")]
+            favs = favs or whisker_rc_favourites(pid)
+            if favs and not os.path.exists(os.path.join(KITE_DIR, "start.json")):
+                os.makedirs(KITE_DIR, exist_ok=True)
+                with open(os.path.join(KITE_DIR, "whisker-favourites"), "w") as f:
+                    f.write("".join(v + "\n" for v in favs))
+            for p in list(plugin):
+                plugin.remove(p)
+            plugin.set("value", "launcher")
+            items = ET.SubElement(plugin, "property", name="items", type="array")
+            ET.SubElement(items, "value", type="string", value="start.desktop")
+            ET.SubElement(plugin, "property", name="show-label", type="bool", value="false")
+            folder = os.path.join(PANEL_DIR, "launcher-" + pid)
+            os.makedirs(folder, exist_ok=True)
+            with open(START_LAUNCHER) as src, open(os.path.join(folder, "start.desktop"), "w") as dst:
+                dst.write(src.read())
+            for rc in glob.glob(os.path.join(PANEL_DIR, "whiskermenu-%s.rc" % pid)):
+                os.remove(rc)
+            changed = True
+        if changed:
+            tree.write(panel, encoding="UTF-8", xml_declaration=True)
+    keys = os.path.join(CHANNEL_DIR, "xfce4-keyboard-shortcuts.xml")
+    if os.path.isfile(keys):
+        with open(keys, encoding="utf-8") as f:
+            text = f.read()
+        new = re.sub(r'value="xfce4-popup-whiskermenu[^"]*"', 'value="kite-start"', text)
+        if new != text:
+            with open(keys, "w", encoding="utf-8") as f:
+                f.write(new)
+    os.makedirs(KITE_DIR, exist_ok=True)
+    with open(START_DONE, "w") as f:
+        f.write("kite-start\n")
+
+
 def setup_layout():
     subprocess.run(["kite-layout", "--first-login"], timeout=30)
 
 
 def main():
-    for step in (setup_layout, setup_wallpaper):
+    for step in (setup_layout, setup_start_menu, setup_wallpaper):
         try:
             step()
         except Exception as exc:  # never block the login

@@ -8,7 +8,7 @@
 #   tests/preview-ui.sh [output-dir]
 #
 # Needs: xvfb, xfwm4, xfce4-panel, xfdesktop4, xfce4-settings,
-#        xfce4-whiskermenu-plugin, papirus-icon-theme, imagemagick, dbus-x11,
+#        python3-gi, gir1.2-gtk-3.0, papirus-icon-theme, imagemagick, dbus-x11,
 #        x11-xserver-utils
 set -euo pipefail
 
@@ -56,7 +56,7 @@ xfce4-terminal --disable-server --geometry=90x24+180+120 >/dev/null 2>&1 & pids=
 sleep 3
 import -window root "$OUT/desktop-$layout.png"
 echo "saved $OUT/desktop-$layout.png"
-xfce4-popup-whiskermenu >/dev/null 2>&1 || true
+"$PKG/usr/lib/kite/desktop/kite-start" >/dev/null 2>&1 & pids="$pids $!"
 sleep 2
 import -window root "$OUT/menu-$layout.png"
 echo "saved $OUT/menu-$layout.png"

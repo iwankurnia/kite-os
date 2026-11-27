@@ -514,6 +514,61 @@ hook `kite-ec-events` writes them back after any wake that left SCI at zero.
 come from the kernel's `cros_ec_commands.h` (0x88/0x89/0x8D get, 0x8A/0x8B/0x8E
 set) through `/dev/cros_ec`.
 
+**KiteOS Start replaces the Whisker menu (kite-desktop 1.4.3, 2026-11-28,
+tried on the device).** KiteOS Start is a Windows 11-shaped Start menu with an
+Android app drawer inside, designed in Claude Design first. The menu
+(`/usr/lib/kite/desktop/kite-start`, Python/GTK 3) starts hidden at login
+(`/etc/xdg/autostart/kite-start.desktop`, `--background`) and stays in memory
+(about 25 MB of its own); `/usr/bin/kite-start` is a sh script that asks it
+over D-Bus (`gdbus`, the application's "toggle" action, about 10 ms) and
+starts it only when none runs. Started cold it took 0.55 to 1.7 s to show,
+mostly Python plus GTK (0.25 s) and icon lookups; now about 0.1 s. While hidden
+it gets the next opening ready (search cleared, folder closed, at the top) and
+`Gio.AppInfoMonitor` brings new or removed apps in, so it never needs a
+restart. It is not in the kite-ui-protect scope: apps it starts would inherit
+the protection. Search box on a
+grey strip, "Recent apps" (one row), "All apps" in the user's own order (never
+re-sorted), name and power menu on a grey strip at the bottom. Arranging is
+Android-like: tiles reflow live while dragging, a drop on a tile's middle
+makes or fills a folder, holding over a folder opens it, a folder with one app
+left dissolves. Folders are their own small window (4 x 3, then scroll) so
+picom can zoom them; it is an RGBA window that draws its own rounded white
+card and a light shadow (picom's shadow strength is one setting for every
+window, and a rule's `shadow-opacity` only lasts while an animation runs), with
+the input shape cut to the card. Any click outside an open folder only closes
+it (a capture-phase gesture on the drawer). GTK 3 hides an entry's placeholder
+while it has focus, so the search hint is a label over the empty box; GTK 3's
+overlay scroll bar stays about 3 s and that is fixed in GTK, so the scroll bars
+are non-overlay ones faded by kite-start 0.6 s after scrolling. The
+arrangement is `~/.config/kite/start.json`; the first run puts Whisker's
+favourites first, in Whisker's order (KiteOS defaults on a fresh install),
+settings panels in "Settings", system tools in "System". New accounts get a
+launcher (`launcher-1/start.desktop`) on the taskbar; existing accounts are
+switched once at login by `kite-user-init` (before XFCE starts: stops a
+leftover xfconfd, turns the whiskermenu plugin into a launcher with the same
+id, saves its favourites to `~/.config/kite/whisker-favourites` for the first
+run, points `<Super>space` at kite-start, marks `~/.config/kite/start-menu`).
+`xfce4-whiskermenu-plugin` left the Depends and the ISO (installed systems keep
+it, unused). A click on Start or the Search key that takes focus from an open
+drawer hides it, and the same click then asks for it again: a request within
+0.5 s of a focus-out hide is ignored.
+
+**Icon caches (kite-desktop 1.4.3).** Papirus, Papirus-Light, Papirus-Dark and
+Adwaita had no `icon-theme.cache` on KiteOS: the ISO build sets them up before
+`gtk-update-icon-cache` is installed, and trixie's package has no trigger to
+build them later. Every GTK app then scanned Papirus's 43,000 files when it
+started (0.42 s of KiteOS Start's opening). kite-desktop's postinst and the ISO
+hook now build the cache for every theme with an `index.theme` (about 3 MB per
+Papirus theme). kite-start also keeps each icon it draws as a PNG in
+`~/.cache/kite-start/icons` (keyed by icon file, size and scale; redrawn when
+the icon file is newer). picom: the drawer
+slides up from the bottom (`slide-in`, `direction = "down"` means from below),
+folders zoom from 85 %, the only exceptions to the short-animation rules
+(tests skip just those two rules). Gotchas: a method named `run` on the
+Gtk.Application subclass shadowed GTK's and re-launched itself in a loop (a
+test forbids such names); an RGBA drawer window showed windows behind it
+through its scrolled grid, so the drawer itself is opaque and picom rounds it.
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;
@@ -689,7 +744,7 @@ gh release create v1.2 --title "KiteOS 1.2" --notes-file notes.md   # creates th
 Every release also carries the four `kite-*.deb` files and
 `kite-packages.sha256`, which `kite-update` on installed systems uses. So a
 fix that needs a new Debian package must add it to a kite package's
-`Depends` (as `libspa-0.2-bluetooth` and the Whisker menu are), not only to
+`Depends` (as `libspa-0.2-bluetooth` is), not only to
 `live/config/package-lists`, or installed systems won't get it.
 
 Without a release, a pushed tag gets one with generated notes. Manual runs
