@@ -120,7 +120,7 @@ k login "$VM" kite live >/dev/null || die "no serial login in the live session"
 wait_desktop || die "live desktop did not come up"
 log "live desktop up"
 sleep 8; shot 10-live-desktop
-has   "live: windows layout" 'cat ~/.config/kite/layout' '^windows$'
+has   "live: desktop layout" 'cat ~/.config/kite/layout' '^desktop$'
 has   "live: picom animations running" 'pgrep -a picom' 'picom --config /etc/kite/picom.conf'
 has   "live: xfwm4 compositor off while picom runs" "$GUI"' xfconf-query -c xfwm4 -p /general/use_compositing' '^false'
 has   "live: VLC plays audio and video by default" "$GUI"' echo "$(xdg-mime query default video/mp4) $(xdg-mime query default audio/mpeg) $(command -v vlc)"' '^vlc.desktop vlc.desktop /usr/bin/vlc$'
@@ -137,28 +137,28 @@ print("duplicates:", ", ".join(d) if d else "none")
 PY' 'duplicates: none'
 has   "live: Start button opens kite-start" 'grep -h ^Exec= ~/.config/xfce4/panel/launcher-*/start.desktop' '^Exec=kite-start$'
 
-# Putting the desktop back (kite-layout windows) in a running session: each
+# Putting the desktop back (kite-layout desktop) in a running session: each
 # time there must still be a window manager, one panel process and the theme.
 for i in 1 2; do
     t=$(date +%s)
-    vm "$GUI kite-layout windows" 120 >/dev/null
+    vm "$GUI kite-layout desktop" 120 >/dev/null
     took=$(( $(date +%s) - t ))
     sleep 6
     st=$(vm "$GUI"' echo "wm=$(pgrep -cx xfwm4) panels=$(pgrep -cx xfce4-panel) theme=$(xfconf-query -c xfwm4 -p /general/theme) buttons=$(xfconf-query -c xfwm4 -p /general/button_layout)"' 30)
     shot "1$((i + 1))-reapply-$i"
     if grep -q 'wm=1 panels=1' <<< "$st" && grep -qE "theme=(Fluent|KiteOS-Accent-[AB])" <<< "$st"; then
-        row PASS "live: kite-layout windows, run $i" "${took}s, $(short "$st")"
+        row PASS "live: kite-layout desktop, run $i" "${took}s, $(short "$st")"
     else
-        row FAIL "live: kite-layout windows, run $i" "${took}s, $(short "$st") (1$((i + 1))-reapply-$i.png)"
+        row FAIL "live: kite-layout desktop, run $i" "${took}s, $(short "$st") (1$((i + 1))-reapply-$i.png)"
     fi
 done
 vm 'tail -n 30 ~/.cache/kite-layout.log' 30 > "$OUT/kite-layout-log.txt"
 
 # Your own settings stay when the desktop is put back.
 vm "$GUI"' xfconf-query -c xfce4-terminal -p /font-name -n -t string -s "DejaVu Sans Mono 13"; xfconf-query -c xsettings -p /Gtk/FontName -s "DejaVu Sans 11"' 30 >/dev/null
-vm "$GUI kite-layout windows" 200 >/dev/null; sleep 6
-has "live: Terminal font kept by kite-layout windows" "$GUI"' xfconf-query -c xfce4-terminal -p /font-name' 'DejaVu Sans Mono 13'
-has "live: desktop font kept by kite-layout windows" "$GUI"' xfconf-query -c xsettings -p /Gtk/FontName' 'DejaVu Sans 11'
+vm "$GUI kite-layout desktop" 200 >/dev/null; sleep 6
+has "live: Terminal font kept by kite-layout desktop" "$GUI"' xfconf-query -c xfce4-terminal -p /font-name' 'DejaVu Sans Mono 13'
+has "live: desktop font kept by kite-layout desktop" "$GUI"' xfconf-query -c xsettings -p /Gtk/FontName' 'DejaVu Sans 11'
 
 # Command-line safety (kite-storage) with a throw-away USB disk.
 qemu-img create -q -f raw "$KITEVM_DIR/usb.img" 2G

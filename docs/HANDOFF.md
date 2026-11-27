@@ -626,6 +626,16 @@ to match Papirus's brightness sun. Testing with synthetic clicks (XTest):
 always release every button at the end; a held button once left the
 owner's mouse dead until a restart.
 
+**One layout, now called "desktop" (kite-desktop 1.4.7, 2026-11-28).** The
+windows layout was renamed: `kite-layout desktop`, data in
+/usr/share/kite/layouts/desktop, ~/.config/kite/layout says "desktop". An
+account saved as "windows" is read as "desktop" (RENAMED in kite-layout), so
+`--first-login` does not set it up again (that would reset the taskbar's
+pins and panel); `kite-layout windows` is refused, like `mac`. Orchis (the
+mac layout's GTK theme) left kite-desktop's Depends and the ISO; the
+fallback when Fluent is missing is Adwaita. Installed systems keep Orchis
+until `sudo apt purge orchis-gtk-theme`.
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;

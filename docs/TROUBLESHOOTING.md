@@ -35,7 +35,7 @@ Ctrl+Alt+(top-row key 2), log in, and check `journalctl -b -u lightdm` and
 
 **Start menu does not open with the Search key.** Check that
 `~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml` has `kite-start`.
-If not, run `kite-layout windows` to reset the desktop's shortcuts.
+If not, run `kite-layout desktop` to reset the desktop's shortcuts.
 
 **External disk app won't start.** `kite-storage status` shows each moved
 folder's state; `sudo kite-storage verify --repair` fixes links. To bring

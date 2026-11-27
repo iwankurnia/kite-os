@@ -3,15 +3,17 @@
 at the bottom with the Start menu on the left.
 
   kite-layout                 show whether this account has the KiteOS desktop
-  kite-layout windows         put the KiteOS desktop back now (no logout
+  kite-layout desktop         put the KiteOS desktop back now (no logout
                               needed): panel, window, theme and keyboard
                               settings; files, apps and other settings stay
   kite-layout keys K          window keys: chromebook, standard or auto
                               (auto: chromebook on a Chromebook)
   kite-layout --first-login   used at login: set up a new account
 
-(KiteOS 1.3 also had a "mac" layout; it was dropped in kite-desktop 1.3.0.
-An account still on it gets the windows layout at its next login.)
+The one layout was called "windows" until kite-desktop 1.4.7: an account
+saved as "windows" is on "desktop" (not set up again at login). (KiteOS 1.3
+also had a "mac" layout, dropped in kite-desktop 1.3.0: an account still on
+it gets the desktop at its next login.)
 """
 import copy
 import os
@@ -22,7 +24,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-LAYOUTS = ("windows",)
+LAYOUTS = ("desktop",)
+RENAMED = {"windows": "desktop"}     # saved names of this layout from before
 DATA = os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts")
 THEMES = os.environ.get("KITE_THEMES_DIR", "/usr/share/themes")
 APPS = os.environ.get("KITE_APPS_DIR", "/usr/share/applications")
@@ -34,13 +37,13 @@ KEYS_STATE = os.path.join(CONFIG, "kite/keys")
 DMI = os.environ.get("KITE_DMI_DIR", "/sys/class/dmi/id")
 KEY_STYLES = ("chromebook", "standard")
 
-GTK_THEME = {"windows": "Fluent-Light"}
-FALLBACK_THEME = "Orchis-Light-Compact"     # if the theme is missing
+GTK_THEME = {"desktop": "Fluent-Light"}
+FALLBACK_THEME = "Adwaita"     # if Fluent is missing (GTK's own; Orchis, the mac layout's, is gone)
 # The standard Papirus-Light icons, tray included (the Start and Search
 # buttons use the kite-*-symbolic icons in hicolor, which fill the button the
 # way the old KiteOS tray pack's did).
-ICON_THEME = {"windows": "Papirus-Light"}
-DECORATION = {"windows": "menu:minimize,maximize,close"}
+ICON_THEME = {"desktop": "Papirus-Light"}
+DECORATION = {"desktop": "menu:minimize,maximize,close"}
 # Pinned apps, in order; only the installed ones are pinned. "Install KiteOS"
 # exists only in the live session.
 PINNED = ("kite-install", "brave-browser", "onlyoffice-desktopeditors", "thunar", "xfce4-terminal",
@@ -78,7 +81,7 @@ SHORTCUTS = {
             "<Primary><Shift>Escape": "kite-tasks",
         },
     },
-    "windows": {"commands": {}},
+    "desktop": {"commands": {}},
 }
 
 # Window keys. xfwm4 honours ONE key per action (a second key for the same
@@ -92,11 +95,11 @@ WINDOW_KEYS = {
                    "<Alt>minus": "hide_window_key", "<Alt>equal": "maximize_window_key",
                    "<Alt>bracketleft": "tile_left_key", "<Alt>bracketright": "tile_right_key",
                    "<Super>d": "show_desktop_key"},
-        "windows": {},
+        "desktop": {},
     },
     "standard": {
         "common": {},
-        "windows": {"<Super>d": "show_desktop_key", "<Super>Up": "maximize_window_key",
+        "desktop": {"<Super>d": "show_desktop_key", "<Super>Up": "maximize_window_key",
                     "<Super>Left": "tile_left_key", "<Super>Right": "tile_right_key"},
     },
 }
@@ -135,13 +138,14 @@ def read_layout(path):
     try:
         with open(path) as f:
             value = f.read().strip()
+        value = RENAMED.get(value, value)
         return value if value in LAYOUTS else None
     except OSError:
         return None
 
 
 def system_default():
-    return "windows"
+    return "desktop"
 
 
 def placeholders(layout):

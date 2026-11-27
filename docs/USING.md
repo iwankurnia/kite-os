@@ -45,7 +45,7 @@ the right. Fluent theme, Papirus-Light icons.
 To put the desktop back to the KiteOS defaults without logging out:
 
 ```bash
-kite-layout windows
+kite-layout desktop
 ```
 
 This replaces the panel, theme and keyboard shortcuts; your files, apps,

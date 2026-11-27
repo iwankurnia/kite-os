@@ -151,30 +151,30 @@ mkdir -p "$LH/home/.config/kite" "$X" "$LH/home/.config/xfce4/panel/launcher-4"
 echo mac > "$LH/home/.config/kite/layout"
 echo '<channel name="xfce4-panel" version="1.0"><property name="panel-2" type="empty"/></channel>' > "$X/xfce4-panel.xml"
 kl --first-login
-check "first login: an account on the dropped mac layout gets windows" grep -qx windows "$LH/home/.config/kite/layout"
+check "first login: an account on the dropped mac layout gets the desktop" grep -qx desktop "$LH/home/.config/kite/layout"
 check "nothing of the mac layout left (its launchers)" test ! -d "$LH/home/.config/xfce4/panel/launcher-4"
 echo changed > "$LH/home/.config/gtk-3.0/gtk.css"; kl --first-login
 check "first login runs only once" grep -qx changed "$LH/home/.config/gtk-3.0/gtk.css"
-kl windows >/dev/null
-check "kite-layout windows puts the desktop back" bash -c "! grep -qx changed '$LH/home/.config/gtk-3.0/gtk.css'"
-check "windows: one taskbar" bash -c "! grep -q '<property name=\"panel-2\"' '$X/xfce4-panel.xml'"
-check "windows: Fluent theme and Papirus-Light icons" bash -c "grep -q 'value=\"Fluent-Light\"' '$X/xsettings.xml' && grep -q 'value=\"Papirus-Light\"' '$X/xsettings.xml'"
-check "windows: buttons on the right" grep -q 'value="menu:minimize,maximize,close"' "$X/xsettings.xml"
+kl desktop >/dev/null
+check "kite-layout desktop puts the desktop back" bash -c "! grep -qx changed '$LH/home/.config/gtk-3.0/gtk.css'"
+check "desktop: one taskbar" bash -c "! grep -q '<property name=\"panel-2\"' '$X/xfce4-panel.xml'"
+check "desktop: Fluent theme and Papirus-Light icons" bash -c "grep -q 'value=\"Fluent-Light\"' '$X/xsettings.xml' && grep -q 'value=\"Papirus-Light\"' '$X/xsettings.xml'"
+check "desktop: buttons on the right" grep -q 'value="menu:minimize,maximize,close"' "$X/xsettings.xml"
 check "no placeholders left" bash -c "! grep -rq '@[A-Z_]*@' '$LH/home/.config'"
 check "panel plugins run in their own processes (battery + volume crash the panel together)" grep -q 'name="force-all-internal" type="bool" value="false"' "$X/xfce4-panel.xml"
 check "battery on the taskbar" grep -q 'value="power-manager-plugin"' "$X/xfce4-panel.xml"
-check "windows: 36 px taskbar, tray in one row" bash -c "grep -q 'name=\"size\" type=\"uint\" value=\"36\"' '$X/xfce4-panel.xml' && grep -q 'name=\"single-row\" type=\"bool\" value=\"true\"' '$X/xfce4-panel.xml'"
-check "windows: no pop-up shadows (borders instead)" grep -q 'name="show_popup_shadow" type="bool" value="false"' "$X/xfwm4.xml"
-check "windows: Start and Search icons shipped in hicolor" bash -c "grep -qx 'Icon=kite-start-symbolic' '$LH/home/.config/xfce4/panel/launcher-1/start.desktop' && grep -qx 'Icon=kite-search-symbolic' '$LH/home/.config/xfce4/panel/launcher-2/search.desktop' && test -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg' -a -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg'"
+check "desktop: 36 px taskbar, tray in one row" bash -c "grep -q 'name=\"size\" type=\"uint\" value=\"36\"' '$X/xfce4-panel.xml' && grep -q 'name=\"single-row\" type=\"bool\" value=\"true\"' '$X/xfce4-panel.xml'"
+check "desktop: no pop-up shadows (borders instead)" grep -q 'name="show_popup_shadow" type="bool" value="false"' "$X/xfwm4.xml"
+check "desktop: Start and Search icons shipped in hicolor" bash -c "grep -qx 'Icon=kite-start-symbolic' '$LH/home/.config/xfce4/panel/launcher-1/start.desktop' && grep -qx 'Icon=kite-search-symbolic' '$LH/home/.config/xfce4/panel/launcher-2/search.desktop' && test -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-start-symbolic.svg' -a -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-search-symbolic.svg'"
 check "Bluetooth tray applet not hidden for new accounts" test ! -e "$REPO/packages/kite-desktop/etc/skel/.config/autostart/blueman.desktop"
 check "taskbar Start button opens kite-start (no Whisker menu)" bash -c "grep -qx 'Exec=kite-start' '$LH/home/.config/xfce4/panel/launcher-1/start.desktop' && xmllint --xpath \"//property[@name='plugin-1']/property[@name='items']/value/@value\" '$X/xfce4-panel.xml' | grep -q start.desktop && ! grep -rq whisker '$LH/home/.config/xfce4'"
 check "pins only installed apps, Brave first" grep -qx "pinned=$LH/apps/brave-browser.desktop;$LH/apps/thunar.desktop;$LH/apps/xfce4-terminal.desktop;$LH/apps/kite-apps.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
-touch "$LH/apps/kite-install.desktop"; kl windows >/dev/null
+touch "$LH/apps/kite-install.desktop"; kl desktop >/dev/null
 check "live session: Install KiteOS pinned first" grep -q "^pinned=$LH/apps/kite-install.desktop;" "$LH/home/.config/xfce4/panel/docklike-20.rc"
 if [ -f /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml ]; then
     f=$X/xfce4-keyboard-shortcuts.xml
     check "shortcuts: Search key opens the Start menu" bash -c "xmllint --xpath \"//property[@name='commands']/property[@name='custom']/property[@name='<Super>space']/@value\" '$f' | grep -q 'value=\"kite-start\"'"
-    check "shortcuts: windows tiling keys" bash -c "xmllint --xpath \"//property[@name='xfwm4']/property[@name='custom']/property[@name='<Super>Left']/@value\" '$f' | grep -q tile_left_key"
+    check "shortcuts: tiling keys" bash -c "xmllint --xpath \"//property[@name='xfwm4']/property[@name='custom']/property[@name='<Super>Left']/@value\" '$f' | grep -q tile_left_key"
     n_def=$(xmllint --xpath "count(//property[@name='commands']/property[@name='default']/property)" "$f")
     n_cus=$(xmllint --xpath "count(//property[@name='commands']/property[@name='custom']/property)" "$f")
     check "shortcuts: XFCE defaults kept ($n_def defaults, $n_cus custom)" test "${n_cus%.*}" -gt "${n_def%.*}"
@@ -191,7 +191,7 @@ rm -f "$LH/calls"
 rm -rf "$LH/themes/Fluent-Light/xfwm4"          # window theme falls back to Default
 env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" XDG_CACHE_HOME="$LH/cache" DISPLAY=:99 PATH="$LH/fake:$PATH" \
     KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
-    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" windows >/dev/null
+    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" desktop >/dev/null
 check "live apply: never starts a window manager" bash -c "! grep -q '^xfwm4' '$LH/calls'"
 check "live apply: window theme set through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/theme -n -t string -s Default' "$LH/calls"
 check "live apply: window buttons on the right through xfconf" grep -q '^xfconf-query -c xfwm4 -p /general/button_layout -n -t string -s O|HMC' "$LH/calls"
@@ -204,14 +204,14 @@ printf '#!/bin/sh\ncase "$*" in *picom*) exit 0 ;; esac\nexit 1\n' > "$LH/fake/p
 rm -f "$LH/calls"
 env HOME="$LH/home" XDG_CONFIG_HOME="$LH/home/.config" XDG_CACHE_HOME="$LH/cache" DISPLAY=:99 PATH="$LH/fake:$PATH" \
     KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" \
-    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" windows >/dev/null
+    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" desktop >/dev/null
 rm -f "$LH/fake/pgrep"
 check "live apply with picom: xfwm4's compositor never switched on" bash -c "! grep -q 'use_compositing .* -s true' '$LH/calls'"
 check "live apply with picom: xfwm4's compositor kept off after the reload" bash -c "a=\$(grep -n '^xfce4-panel --quit' '$LH/calls' | head -n1 | cut -d: -f1); b=\$(grep -n 'use_compositing -n -t bool -s false' '$LH/calls' | tail -n1 | cut -d: -f1); [ -n \"\$a\" ] && [ -n \"\$b\" ] && [ \"\$b\" -gt \"\$a\" ]"
 # Applying the layout again keeps the user's own Files/Terminal settings and fonts.
 echo '<channel name="thunar" version="1.0"><property name="mine" type="bool" value="true"/></channel>' > "$X/thunar.xml"
 sed -i.bak 's/value="Inter 10"/value="Ubuntu 12"/' "$X/xsettings.xml" && rm -f "$X/xsettings.xml.bak"
-kl windows >/dev/null
+kl desktop >/dev/null
 check "re-apply keeps the user's Files settings" grep -q 'name="mine"' "$X/thunar.xml"
 check "re-apply keeps the user's font" grep -q 'value="Ubuntu 12"' "$X/xsettings.xml"
 check "cursor size is an XSETTINGS key (Gtk/CursorThemeSize)" bash -c "python3 -c 'import sys, xml.etree.ElementTree as E; r = E.parse(sys.argv[1]).getroot(); sys.exit(0 if r.find(\"./property[@name=\x27Gtk\x27]/property[@name=\x27CursorThemeSize\x27]\") is not None and r.find(\"./property[@name=\x27Net\x27]/property[@name=\x27CursorThemeSize\x27]\") is None else 1)' '$X/xsettings.xml'"
@@ -240,11 +240,11 @@ klk() { env XDG_CONFIG_DIRS="$LH/xdg" KITE_DMI_DIR="$LH/dmi" HOME="$LH/home" XDG
         KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" "$@"; }
 wk() { python3 -c 'import sys, xml.etree.ElementTree as E; r = E.parse(sys.argv[1]).getroot(); print("\n".join(p.get("name") for p in r.findall("./property[@name=\x27xfwm4\x27]/property[@name=\x27custom\x27]/property") if p.get("value") == sys.argv[2]))' "$X/xfce4-keyboard-shortcuts.xml" "$1"; }
 echo "Generic" > "$LH/dmi/sys_vendor"; rm -f "$LH/home/.config/kite/keys"
-klk windows >/dev/null
-check "keys (windows): Super+Left tiles, the keypad key is gone" test "$(wk tile_left_key)" = "<Super>Left"
-check "keys (windows): Alt+F4 still closes" test "$(wk close_window_key)" = "<Alt>F4"
+klk desktop >/dev/null
+check "keys (standard): Super+Left tiles, the keypad key is gone" test "$(wk tile_left_key)" = "<Super>Left"
+check "keys (standard): Alt+F4 still closes" test "$(wk close_window_key)" = "<Alt>F4"
 echo "Google" > "$LH/dmi/sys_vendor"
-klk windows >/dev/null
+klk desktop >/dev/null
 check "keys (Chromebook detected): ChromeOS close key, one key only" test "$(wk close_window_key)" = "<Primary><Shift>w"
 check "keys (Chromebook): Alt+Tab switches windows" test "$(wk cycle_windows_key)" = "<Alt>Tab"
 check "keys (Chromebook): Alt+[ docks left" test "$(wk tile_left_key)" = "<Alt>bracketleft"
@@ -256,13 +256,19 @@ check "keys: auto goes back to detection" bash -c "test ! -e '$LH/home/.config/k
 check "keys: auto on a Chromebook gives the ChromeOS keys again" test "$(wk close_window_key)" = "<Primary><Shift>w"
 check "keys: no action has two keys" bash -c "python3 -c 'import sys, xml.etree.ElementTree as E, collections; r = E.parse(sys.argv[1]).getroot(); v = [p.get(\"value\") for p in r.findall(\"./property[@name=\x27xfwm4\x27]/property[@name=\x27custom\x27]/property\") if p.get(\"type\") == \"string\"]; d = [k for k, n in collections.Counter(v).items() if n > 1]; sys.exit(1 if d else 0)' '$X/xfce4-keyboard-shortcuts.xml'"
 check "keyring for apps (VS Code, Brave), unlocked by the login password" bash -c "sed -n '/^Depends:/,/^[A-Z]/p' '$REPO/packages/kite-desktop/DEBIAN/control' | grep -q 'gnome-keyring, libpam-gnome-keyring'"
-check "rejects unknown layouts, mac included" bash -c "! python3 '$KL' gnome 2>/dev/null && ! python3 '$KL' mac 2>/dev/null && ! python3 '$KL' --system windows 2>/dev/null"
+echo windows > "$LH/home/.config/kite/layout"; touch "$LH/home/.config/xfce4/panel/kept-by-user"
+KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" XDG_CONFIG_HOME="$LH/home/.config" HOME="$LH/home" \
+    KITE_THEMES_DIR="$LH/themes" KITE_APPS_DIR="$LH/apps" python3 "$KL" --first-login
+check "an account on \"windows\" (the old name) keeps its desktop: nothing re-applied" test -e "$LH/home/.config/xfce4/panel/kept-by-user"
+check "kite-layout reports it as the desktop layout" bash -c "XDG_CONFIG_HOME='$LH/home/.config' HOME='$LH/home' python3 '$KL' | grep -qx 'layout: desktop'"
+rm -f "$LH/home/.config/xfce4/panel/kept-by-user"
+check "rejects unknown layouts, mac and windows (old names) included" bash -c "! python3 '$KL' gnome 2>/dev/null && ! python3 '$KL' mac 2>/dev/null && ! python3 '$KL' windows 2>/dev/null && ! python3 '$KL' --system windows 2>/dev/null"
 check "ISO apps: VS Code (Microsoft repo, pinned key) and git" bash -c "grep -qx code '$REPO/live/config/package-lists/kite-apps.list.chroot' && grep -qx git '$REPO/live/config/package-lists/kite-apps.list.chroot' && grep -q '^\"vscode|https://packages.microsoft.com/keys/microsoft.asc|EB3E94ADBE1229CF|deb \[arch=amd64\] https://packages.microsoft.com/repos/code stable main\"' '$REPO/scripts/fetch-vendor-keys.sh'"
 check "installer has no Desktop page (one layout)" bash -c "! grep -q packagechooser '$REPO/live/config/includes.chroot/etc/calamares/settings.conf'"
 GC=$REPO/packages/kite-desktop/usr/share/lightdm/lightdm-gtk-greeter.conf.d/50-kite.conf
 check "login screen: lightdm-gtk-greeter with the KiteOS-Login theme" bash -c "grep -qx 'greeter-session=lightdm-gtk-greeter' '$REPO/packages/kite-desktop/etc/lightdm/lightdm.conf.d/50-kite.conf' && grep -qx 'theme-name=KiteOS-Login' '$GC'"
 check "login theme = Fluent-Light + the shared KiteOS card" bash -c "grep -q 'Fluent-Light/gtk-3.0/gtk.css' '$REPO/packages/kite-desktop/usr/share/themes/KiteOS-Login/gtk-3.0/gtk.css' && grep -q 'kite/login/kite-login.css' '$REPO/packages/kite-desktop/usr/share/themes/KiteOS-Login/gtk-3.0/gtk.css'"
-check "lock screen imports the same card (desktop gtk.css)" grep -q 'file:///usr/share/kite/login/kite-login.css' "$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css"
+check "lock screen imports the same card (desktop gtk.css)" grep -q 'file:///usr/share/kite/login/kite-login.css' "$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/gtk-3.0/gtk.css"
 check "card rules are scoped to the greeter/lock widgets" bash -c "! grep -E '^[a-z*]' '$REPO/packages/kite-desktop/usr/share/kite/login/kite-login.css' | grep -v '^ ' >/dev/null"
 check "installer picks lightdm-gtk-greeter (Calamares writes it into lightdm.conf)" grep -q 'preferred_greeters: \["lightdm-gtk-greeter.desktop"\]' "$REPO/live/config/includes.chroot/etc/calamares/modules/displaymanager.conf"
 LC=$T/lightdm.conf; printf '[Seat:*]\n#greeter-session=example\ngreeter-session=slick-greeter\n' > "$LC"
@@ -1144,12 +1150,12 @@ check "a theme chosen in Settings is left alone" ka_apply \
 rm -rf "$AT"
 check "follows the wallpaper: started at login, runs again when a wallpaper changes" bash -c \
     "grep -qx 'Exec=/usr/lib/kite/desktop/kite-accent-watch' '$REPO/packages/kite-desktop/etc/xdg/autostart/kite-accent.desktop' && grep -q 'xfconf-query -c xfce4-desktop -m' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent-watch' && grep -q 'last-image' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent-watch'"
-check "taskbar window pop-up tinted with the accent" grep -q 'mix(#ececec, @theme_selected_bg_color, 0.05)' "$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css"
+check "taskbar window pop-up tinted with the accent" grep -q 'mix(#ececec, @theme_selected_bg_color, 0.05)' "$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/gtk-3.0/gtk.css"
 check "KiteOS Start and the calendar use the theme's accent, not a fixed blue" bash -c \
-    "! grep -qi '0067c0\|0, 103, 192' '$KS' '$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css' && grep -q 'theme_selected_bg_color' '$KS'"
+    "! grep -qi '0067c0\|0, 103, 192' '$KS' '$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/gtk-3.0/gtk.css' && grep -q 'theme_selected_bg_color' '$KS'"
 check "taskbar: the active app's mark in the accent (docklike patch 05, colour from theme on)" bash -c \
-    "grep -q 'theme_selected_bg_color' '$REPO/patches/xfce4-docklike-plugin/05-kite-accent-indicator.patch' && grep -qx 'indicatorColorFromTheme=true' '$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/xfce4/panel/docklike-20.rc'"
-check "kite-layout windows puts the accent back after resetting the theme" grep -q 'kite-accent' "$REPO/packages/kite-desktop/usr/bin/kite-layout"
+    "grep -q 'theme_selected_bg_color' '$REPO/patches/xfce4-docklike-plugin/05-kite-accent-indicator.patch' && grep -qx 'indicatorColorFromTheme=true' '$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/xfce4/panel/docklike-20.rc'"
+check "kite-layout desktop puts the accent back after resetting the theme" grep -q 'kite-accent' "$REPO/packages/kite-desktop/usr/bin/kite-layout"
 
 echo "== window guard (title bars kept on screen)"
 WG=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard

@@ -30,7 +30,7 @@ KITE_DIR = os.path.join(CONFIG, "kite")
 START_DONE = os.path.join(KITE_DIR, "start-menu")
 ACCENT_DONE = os.path.join(KITE_DIR, "accent-setup")
 START_LAUNCHER = os.path.join(os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts"),
-                              "windows/.config/xfce4/panel/launcher-1/start.desktop")
+                              "desktop/.config/xfce4/panel/launcher-1/start.desktop")
 
 def connected_outputs():
     try:

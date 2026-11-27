@@ -3,7 +3,7 @@
 # desktop and of the open Start menu. Uses the XFCE and themes installed on the
 # host plus the files from packages/kite-desktop (nothing is installed
 # system-wide). For a true look, the host needs the Fluent theme; without it
-# kite-layout falls back to Orchis.
+# kite-layout falls back to Adwaita.
 #
 #   tests/preview-ui.sh [output-dir]
 #
@@ -27,7 +27,7 @@ export PATH=$PKG/usr/bin:$PATH
 export KITE_LAYOUT_DATA=$PKG/usr/share/kite/layouts
 
 DISP=:57
-layout=windows
+layout=desktop
 export HOME=$WORK/home-$layout
 mkdir -p "$HOME"
 cp -a "$PKG/etc/skel/." "$HOME/"
