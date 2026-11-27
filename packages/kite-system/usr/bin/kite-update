@@ -28,7 +28,8 @@ DEB = re.compile(r"^(kite-[a-z0-9-]+)_([^_]+)_(all|amd64)\.deb$")
 # KiteOS packages that take the place of a Debian one (scripts/build-patched.sh
 # builds them patched under a kite-* name): offered when the Debian one is
 # installed, so a system installed before the switch gets them too.
-TAKES_PLACE_OF = {"kite-docklike": "xfce4-docklike-plugin", "kite-screensaver": "xfce4-screensaver"}
+TAKES_PLACE_OF = {"kite-docklike": "xfce4-docklike-plugin", "kite-screensaver": "xfce4-screensaver",
+                  "kite-power-manager-plugins": "xfce4-power-manager-plugins"}
 SUMS = "kite-packages.sha256"
 # A dropped or refused connection while downloading. URLError, TimeoutError
 # and ssl.SSLError are all OSErrors; a body cut short is an HTTPException.

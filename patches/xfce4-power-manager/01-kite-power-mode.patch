@@ -1,0 +1,126 @@
+Description: Power mode slider in the battery pop-up
+ A "Power mode" slider under the display brightness, like Windows 11's:
+ Battery saver or Best performance. The mode follows the charger; a click
+ chooses the other one until the charger is plugged in or unplugged, or a
+ restart. It runs
+ kite-power saver / full through pkexec (polkit org.kiteos.power, no
+ password for the person at the laptop), as Settings > Battery does, and
+ shows only where kite-power is installed.
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-28
+---
+--- a/panel-plugins/power-manager-plugin/power-manager-button.c
++++ b/panel-plugins/power-manager-plugin/power-manager-button.c
+@@ -1574,6 +1574,101 @@
+ #endif
+ 
+ 
++/* KiteOS: the power mode, as in Settings > Battery (kite-power, in
++ * kite-system): Battery saver or Best performance. It follows the charger
++ * (Battery saver on battery); the slider chooses the other mode until the
++ * charger is plugged in or unplugged, or a restart. /run/kite/power says "saving" while power is
++ * being saved. Switched through pkexec (polkit org.kiteos.power: no
++ * password for the person at the laptop). */
++#define KITE_POWER "/usr/sbin/kite-power"
++#define KITE_POWER_STATE "/run/kite/power"
++
++/* TRUE for Best performance: anything but "saving" in /run/kite/power */
++static gboolean
++kite_power_performance (void)
++{
++  gchar *state = NULL;
++  gboolean full = TRUE;
++
++  if (g_file_get_contents (KITE_POWER_STATE, &state, NULL, NULL))
++  {
++    full = !g_str_has_prefix (state, "saving");
++    g_free (state);
++  }
++  return full;
++}
++
++static void
++kite_power_child_done (GPid pid,
++                       gint status,
++                       gpointer user_data)
++{
++  g_spawn_close_pid (pid);
++}
++
++/* A click (or drag) on the slider switches to the other mode. The menu item
++ * hands a press to the scale in the wrong coordinates, and before it says a
++ * drag began, so the scale's own value cannot be trusted with two stops:
++ * only the release counts, and the knob is then put where the mode is. */
++static void
++kite_power_mode_released_cb (GtkWidget *mi,
++                             gpointer user_data)
++{
++  gboolean full = !GPOINTER_TO_INT (g_object_get_data (G_OBJECT (mi), "kite-full"));
++  gchar *argv[] = { "pkexec", KITE_POWER, full ? "full" : "saver", NULL };
++  GError *error = NULL;
++  GPid pid;
++
++  g_object_set_data (G_OBJECT (mi), "kite-full", GINT_TO_POINTER (full));
++  scale_menu_item_set_value (SCALE_MENU_ITEM (mi), full ? 1 : 0);
++  /* pkexec as the plugin's own child: a plain g_spawn_async starts it through
++   * a helper that exits at once, and pkexec refuses a caller whose parent is
++   * gone ("Refusing to render service to dead parents"). */
++  if (g_spawn_async (NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_DO_NOT_REAP_CHILD,
++                     NULL, NULL, &pid, &error))
++    g_child_watch_add (pid, kite_power_child_done, NULL);
++  else
++  {
++    g_warning ("kite-power: %s", error->message);
++    g_error_free (error);
++  }
++}
++
++static void
++kite_power_mode_add (GtkWidget *menu)
++{
++  GtkWidget *mi, *scale, *img;
++  gboolean full = kite_power_performance ();
++
++  if (!g_file_test (KITE_POWER, G_FILE_TEST_IS_EXECUTABLE))
++    return;
++
++  /* a slider with two stops, like Windows 11's power mode */
++  mi = scale_menu_item_new_with_range (0, 1, 1);
++  scale_menu_item_set_description_label (SCALE_MENU_ITEM (mi), _("<b>Power mode</b>"));
++  scale = scale_menu_item_get_scale (SCALE_MENU_ITEM (mi));
++  gtk_range_set_round_digits (GTK_RANGE (scale), 0);
++  /* the two stops named under the slider, as in Settings > Battery */
++  gtk_scale_add_mark (GTK_SCALE (scale), 0, GTK_POS_BOTTOM, _("Batt"));
++  gtk_scale_add_mark (GTK_SCALE (scale), 1, GTK_POS_BOTTOM, _("Pow"));
++  scale_menu_item_set_value (SCALE_MENU_ITEM (mi), full ? 1 : 0);
++  g_object_set_data (G_OBJECT (mi), "kite-full", GINT_TO_POINTER (full));
++  g_signal_connect (mi, "slider-released", G_CALLBACK (kite_power_mode_released_cb), NULL);
++
++  img = gtk_image_new_from_icon_name (full ? "power-profile-performance-symbolic" : "power-profile-balanced-symbolic",
++                                      GTK_ICON_SIZE_DND);
++  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
++  gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM (mi), img);
++  G_GNUC_END_IGNORE_DEPRECATIONS
++  /* Papirus draws the gauge across its whole square and the brightness sun
++   * in 29 of 32 px: at 29 px the two look the same size; the 32 px box keeps
++   * the slider in line with the brightness one. */
++  gtk_image_set_pixel_size (GTK_IMAGE (img), 29);
++  gtk_widget_set_size_request (img, 32, 32);
++  gtk_widget_show_all (mi);
++  gtk_menu_shell_append (GTK_MENU_SHELL (menu), mi);
++}
++
+ void
+ power_manager_button_show_menu (PowerManagerButton *button)
+ {
+@@ -1652,6 +1747,9 @@
+     gtk_menu_shell_append (GTK_MENU_SHELL (menu), mi);
+   }
+ 
++  /* KiteOS: power mode slider */
++  kite_power_mode_add (menu);
++
+   /* Presentation mode checkbox */
+ #ifdef XFCE_PLUGIN
+   mi = gtk_menu_item_new ();

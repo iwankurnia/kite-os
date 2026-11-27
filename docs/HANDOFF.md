@@ -601,6 +601,31 @@ app's mark (upstream used the menu's text colour). Existing accounts:
 `kite-user-init` turns that option on and swaps the calendar's #0067c0 once
 (`~/.config/kite/accent-setup`). `kite-layout windows` re-runs kite-accent.
 
+**Power mode slider (kite-system 1.2.8, kite-power-manager-plugins
+4.20.0-1+kite1, 2026-11-28, tried on the device).** Two modes, Battery saver
+and Best performance; the default follows the charger, and `kite-power
+saver|full` chooses the other one (files in /run/kite holding "battery" or
+"plugged": `apply`, which udev runs on every power_supply event, drops a
+choice once the charger state differs, so battery-level events do not end
+it); `auto` and a restart go back to the charger. Saver chosen while
+plugged in uses TLP's battery settings (`tlp bat`); Brave's energy saver,
+screen dimming and Bluetooth-off still follow the real charger. Controls:
+a two-stop slider (Batt / Pow) in Settings > Battery and in the battery
+pop-up, the latter a patch to xfce4-power-manager's panel plugin
+(patches/xfce4-power-manager/01), shipped as kite-power-manager-plugins
+(build-patched.sh's 5th field: the binary package it replaces when it is
+not named after the source; kite-update's TAKES_PLACE_OF). Gotchas from
+the pop-up: its ScaleMenuItem passes a button press to the scale in the
+wrong coordinates and before "slider-grabbed", so only "slider-released"
+counts (a click flips the mode); scale_menu_item_set_*_label rebuilds the
+item and destroys its labels (GTK criticals, menu stopped opening); and a
+plain g_spawn_async runs pkexec through an intermediate that exits, so
+pkexec refused ("Refusing to render service to dead parents"): spawn with
+G_SPAWN_DO_NOT_REAP_CHILD. The gauge icon is drawn at 29 px in a 32 px box
+to match Papirus's brightness sun. Testing with synthetic clicks (XTest):
+always release every button at the end; a held button once left the
+owner's mouse dead until a restart.
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;

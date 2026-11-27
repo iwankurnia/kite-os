@@ -17,10 +17,12 @@ OUT=${1:-$REPO/out/debs}
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 
-# Debian package | its source version the patches are made for | KiteOS revision | KiteOS package name
+# Debian source | its version the patches are made for | KiteOS revision | KiteOS package name
+# [| the Debian binary package it replaces, when that is not named after the source]
 PATCHED=(
 "xfce4-docklike-plugin|0.4.3-1|4|kite-docklike"
 "xfce4-screensaver|4.18.4-1|1|kite-screensaver"
+"xfce4-power-manager|4.20.0-1|1|kite-power-manager-plugins|xfce4-power-manager-plugins"
 )
 
 export DEBIAN_FRONTEND=noninteractive
@@ -40,7 +42,8 @@ SRC=$WORK/src
 mkdir "$SRC"
 chown _apt "$SRC" 2>/dev/null || true
 for p in "${PATCHED[@]}"; do
-    IFS='|' read -r pkg ver rev bin <<< "$p"
+    IFS='|' read -r pkg ver rev bin deb <<< "$p"
+    deb=${deb:-$pkg}
     new="$ver+kite$rev"
     echo "==> $bin $new (Debian's $pkg $ver, patched)"
     apt-get build-dep -y -q --only-source "$pkg=$ver"
@@ -59,12 +62,16 @@ for p in "${PATCHED[@]}"; do
         printf '\n -- KiteOS <6760806+iwankurnia@users.noreply.github.com>  %s\n\n' "$(date -R)"
         cat "$dir/debian/changelog"
     } > "$WORK/changelog" && mv "$WORK/changelog" "$dir/debian/changelog"
-    # The binary package under its KiteOS name, standing in for Debian's.
-    grep -qx "Package: $pkg" "$dir/debian/control"
-    sed -i "s/^Package: $pkg\$/Package: $bin\nProvides: $pkg (= $new)\nConflicts: $pkg\nReplaces: $pkg/" "$dir/debian/control"
+    # The binary package under its KiteOS name, standing in for Debian's
+    # (only that one is shipped; the source's other packages stay Debian's).
+    grep -qx "Package: $deb" "$dir/debian/control"
+    sed -i "s/^Package: $deb\$/Package: $bin\nProvides: $deb (= $new)\nConflicts: $deb\nReplaces: $deb/" "$dir/debian/control"
     sed -i "/^Package: $bin\$/,/^Description:/ s/^\(Description: .*\)\$/\1 (KiteOS build)/" "$dir/debian/control"
-    sed -i "s#debian/$pkg/#debian/$bin/#g" "$dir/debian/rules"
-    [ -f "$dir/debian/lintian-overrides" ] && sed -i "s/^$pkg:/$bin:/" "$dir/debian/lintian-overrides"
+    sed -i "s#debian/$deb/#debian/$bin/#g" "$dir/debian/rules"
+    for f in "$dir/debian/$deb".*; do
+        [ -e "$f" ] && mv "$f" "$dir/debian/$bin.${f##*/"$deb".}"
+    done
+    [ -f "$dir/debian/lintian-overrides" ] && sed -i "s/^$deb:/$bin:/" "$dir/debian/lintian-overrides"
     (cd "$dir" && dpkg-buildpackage -b -us -uc -j"$(nproc)" >"$WORK/$pkg.log" 2>&1) \
         || { tail -n 40 "$WORK/$pkg.log" >&2; exit 1; }
     cp "$SRC/${bin}_${new}_"*.deb "$OUT/"

@@ -16,7 +16,8 @@ xfce4-settings
 xfconf
 xfce4-terminal
 xfce4-power-manager
-xfce4-power-manager-plugins
+# the battery plugin with the power mode slider (patches/xfce4-power-manager)
+kite-power-manager-plugins
 xfce4-pulseaudio-plugin
 xfce4-notifyd
 kite-screensaver

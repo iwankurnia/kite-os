@@ -448,7 +448,7 @@ def supply(name, **files):
     for k, v in files.items(): open(os.path.join(d, k), "w").write(v + "\n")
 def reset():
     import shutil; shutil.rmtree(os.environ["KITE_SYS"], ignore_errors=True)
-    for p in [os.path.join(os.environ["KITE_RUN"], f) for f in ("power", "power-full", "../calls")] + [os.environ["KITE_TLP_BOOST"]]:
+    for p in [os.path.join(os.environ["KITE_RUN"], f) for f in ("power", "power-full", "power-saver", "../calls")] + [os.environ["KITE_TLP_BOOST"]]:
         if os.path.exists(p): os.remove(p)
 def cpus(present, hybrid=False):
     d = os.environ["KITE_SYS"] + "/devices"; os.makedirs(d + "/system/cpu", exist_ok=True)
@@ -470,6 +470,14 @@ check "no battery (desktop, VM), or only a wireless mouse's: plugged-in mode" kp
     'assert not kp.on_battery(); supply("hidpp_battery_0", type="Battery", scope="Device"); assert kp.mode() == "ac"'
 check "full speed on battery: the flag wins" kp_py \
     'supply("BAT0", type="Battery"); open(kp.FULL, "w").write("1"); assert kp.mode() == "full"'
+check "Battery saver chosen while plugged in: saving (default follows the charger)" kp_py \
+    'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="1"); assert kp.mode() == "ac"; open(kp.SAVER, "w").write("1"); assert kp.mode() == "saving" and kp.tlp_mode() == "bat"'
+check "choosing one mode clears the other; auto follows the charger again (TLP: ac / bat / start)" kp_py \
+    'open(kp.FULL, "w").write("1"); assert kp.tlp_mode() == "ac"; os.remove(kp.FULL); open(kp.SAVER, "w").write("1"); assert kp.tlp_mode() == "bat"; os.remove(kp.SAVER); assert kp.tlp_mode() == "start"'
+check "apply with Battery saver chosen while plugged in: GPU capped like on battery" kp_py \
+    'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="1"); open(kp.SAVER, "w").write("plugged\n"); g = os.environ["KITE_SYS"] + "/class/drm/card0"; os.makedirs(g); [open(g + "/" + n, "w").write(v) for n, v in (("gt_RPn_freq_mhz", "200"), ("gt_RP0_freq_mhz", "650"), ("gt_max_freq_mhz", "650"), ("gt_boost_freq_mhz", "650"))]; kp.apply(); assert open(kp.STATE).read().strip() == "saving" and open(g + "/gt_max_freq_mhz").read() == "470"'
+check "Settings > Battery: the two-stop Battery saver / Best performance slider (kite-power saver / full)" bash -c \
+    "grep -q 'Battery saver' '$REPO/packages/kite-desktop/usr/bin/kite-power-settings' && grep -q 'want = \"saver\" if value == SAVER else \"full\"' '$REPO/packages/kite-desktop/usr/bin/kite-power-settings' && ! grep -q 'Full speed on battery' '$REPO/packages/kite-desktop/usr/bin/kite-power-settings'"
 check "P/E cores found from the hybrid PMUs; none on the N4020" kp_py \
     'assert kp.e_cores() is None; d = os.environ["KITE_SYS"] + "/devices"; os.makedirs(d + "/cpu_atom"); os.makedirs(d + "/cpu_core"); open(d + "/cpu_atom/cpus", "w").write("12-19\n"); open(d + "/cpu_core/cpus", "w").write("0-11\n"); assert kp.e_cores() == "12-19" and kp.cpu_list("0-3,8") == [0, 1, 2, 3, 8]'
 check "Intel GPU capped at 60 % of its range on battery (UHD 600: 200-650 MHz -> 470)" kp_py \
@@ -480,16 +488,22 @@ check "apply on battery: mode written, services on E-cores, GPU capped" kp_py \
 check "apply plugged in: every core, GPU full range" kp_py \
     'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="1"); d = os.environ["KITE_SYS"]; os.makedirs(d + "/devices/cpu_atom"); os.makedirs(d + "/devices/cpu_core"); open(d + "/devices/cpu_atom/cpus", "w").write("12-19"); open(d + "/devices/cpu_core/cpus", "w").write("0-11"); g = d + "/class/drm/card0"; os.makedirs(g); [open(g + "/" + n, "w").write(v) for n, v in (("gt_RPn_freq_mhz", "200"), ("gt_RP0_freq_mhz", "650"), ("gt_max_freq_mhz", "470"), ("gt_boost_freq_mhz", "470"))]; kp.apply(); assert open(kp.STATE).read().strip() == "ac" and open(g + "/gt_max_freq_mhz").read() == "650"; assert open(os.environ["KITE_RUN"] + "/../calls").read().splitlines()[-1].endswith("AllowedCPUs=")'
 printf '#!/bin/sh\necho "tlp $*" >> "%s/calls"\n' "$PW" > "$PW/bin/tlp"; chmod 755 "$PW/bin/tlp"
+check "a chosen mode ends when the charger is plugged in (back to following it)" kp_py \
+    'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="0"); open(kp.FULL, "w").write("battery\n"); kp.apply(); assert os.path.exists(kp.FULL) and kp.mode() == "full"; supply("AC", type="Mains", online="1"); kp.apply(); assert not os.path.exists(kp.FULL) and kp.mode() == "ac" and "tlp start" in calls(), calls()'
+check "and when it is unplugged: Battery saver chosen while plugged in ends" kp_py \
+    'supply("BAT0", type="Battery"); supply("AC", type="Mains", online="1"); open(kp.SAVER, "w").write("plugged\n"); kp.apply(); assert kp.mode() == "saving"; supply("AC", type="Mains", online="0"); kp.apply(); assert not os.path.exists(kp.SAVER) and kp.mode() == "saving" and open(kp.STATE).read().strip() == "saving"'
+check "battery level changes do not end a choice (same charger state)" kp_py \
+    'supply("BAT0", type="Battery", capacity="80"); supply("AC", type="Mains", online="0"); open(kp.FULL, "w").write("battery\n"); kp.apply(); supply("BAT0", type="Battery", capacity="79"); kp.apply(); assert kp.mode() == "full"'
 check "low-end CPU (N4020: 2 CPUs, no P/E cores): boost kept on battery, once" kp_py \
     'cpus("0-1"); supply("BAT0", type="Battery"); assert kp.low_end(); kp.apply(); t = open(kp.BOOST_CONF).read(); assert "CPU_BOOST_ON_BAT=1" in t and "CPU_HWP_DYN_BOOST_ON_BAT=1" in t and "CPU_ENERGY_PERF_POLICY_ON_BAT=balance_power" in t and "2 logical CPUs" in t; assert calls() == ["tlp start"], calls(); kp.apply(); assert calls() == ["tlp start"], calls()'
 check "low-end CPU at full speed: TLP's plugged-in settings stay (tlp ac)" kp_py \
-    'cpus("0-3"); supply("BAT0", type="Battery"); open(kp.FULL, "w").write("1"); kp.apply(); assert os.path.exists(kp.BOOST_CONF) and calls() == ["tlp ac"], calls()'
+    'cpus("0-3"); supply("BAT0", type="Battery"); open(kp.FULL, "w").write("battery\n"); kp.apply(); assert os.path.exists(kp.BOOST_CONF) and calls() == ["tlp ac"], calls()'
 check "other CPUs (8 CPUs, or P/E cores): no boost on battery, drop-in removed" kp_py \
     'cpus("0-7"); open(kp.BOOST_CONF, "w").write("x"); assert not kp.low_end(); kp.apply(); assert not os.path.exists(kp.BOOST_CONF) and calls() == ["tlp start"]; reset(); cpus("0-3", hybrid=True); assert not kp.low_end(); kp.apply(); assert not os.path.exists(kp.BOOST_CONF) and "tlp start" not in calls()'
 check "unknown CPU count: left alone" kp_py \
     'assert kp.cpu_count() == 0 and not kp.low_end() and not kp.tune_boost()'
 check "kite-system purge removes the boost drop-in" grep -q 'rm -f /etc/tlp.d/61-kite-boost.conf' "$REPO/packages/kite-system/DEBIAN/postrm"
-check "kite-power full/auto need root" bash -c "! KITE_RUN='$PW/run' python3 '$KP' full 2>/dev/null || [ \"\$(id -u)\" = 0 ]"
+check "kite-power full/saver/auto need root" bash -c "! KITE_RUN='$PW/run' python3 '$KP' full 2>/dev/null || [ \"\$(id -u)\" = 0 ]"
 TC=$REPO/packages/kite-system/etc/tlp.d/60-kite.conf
 check "TLP on battery: energy policy power, no turbo, no dynamic boost" bash -c \
     "grep -qx 'CPU_ENERGY_PERF_POLICY_ON_BAT=power' '$TC' && grep -qx 'CPU_BOOST_ON_BAT=0' '$TC' && grep -qx 'CPU_HWP_DYN_BOOST_ON_BAT=0' '$TC'"
@@ -731,6 +745,12 @@ def run(fail_on):
     last = err.getvalue().splitlines()[-1]
     assert rc == 1 and last.startswith("Could not reach the KiteOS releases on GitHub: "), (rc, last)
 '
+check "offers kite-power-manager-plugins in place of Debian's battery plugin" ku_py \
+    'release["assets"] += [{"name": "kite-power-manager-plugins_4.20.0-1+kite1_amd64.deb"}]
+p = ku.plan(release, {"xfce4-power-manager-plugins": "4.20.0-1"}.get, lambda a, b: a != b)
+assert [(x[0], x[1]) for x in p] == [("kite-power-manager-plugins", "xfce4-power-manager-plugins 4.20.0-1")], p'
+check "battery pop-up: power mode slider (Battery saver / Best performance) through kite-power" bash -c \
+    "grep -q 'kite_power_mode_add' '$REPO/patches/xfce4-power-manager/01-kite-power-mode.patch' && grep -q 'G_SPAWN_DO_NOT_REAP_CHILD' '$REPO/patches/xfce4-power-manager/01-kite-power-mode.patch' && grep -q '\"saver\"' '$REPO/patches/xfce4-power-manager/01-kite-power-mode.patch' && grep -q 'xfce4-power-manager|4.20.0-1|1|kite-power-manager-plugins|xfce4-power-manager-plugins' '$REPO/scripts/build-patched.sh' && grep -qx 'kite-power-manager-plugins' '$REPO/live/config/package-lists/kite-desktop.list.chroot'"
 check "offers kite-screensaver in place of Debian's xfce4-screensaver" ku_py \
     'release["assets"] += [{"name": "kite-screensaver_4.18.4-1+kite1_amd64.deb"}]
 p = ku.plan(release, {"xfce4-screensaver": "4.18.4-1"}.get, lambda a, b: a != b)

@@ -107,10 +107,13 @@ in `/etc/keyd/`.
 
 ## Battery
 
-Unplugged, KiteOS saves power on its own; plugged in, everything runs at full
-speed. **Settings → Battery** shows which mode is on and has **Full speed on
-battery** for heavy work away from the charger (it lasts until you switch it
-off or restart; no password needed). While saving power:
+Two power modes: **Battery saver** and **Best performance**. By default the
+mode follows the charger: Battery saver unplugged, Best performance plugged
+in. The **Power mode** slider (Batt / Pow) in the battery pop-up on the
+taskbar and in **Settings → Battery** chooses the other one, for example
+Best performance for heavy work away from the charger, or Battery saver
+while plugged in; the choice lasts until you plug in or unplug the charger,
+or restart (no password needed). In Battery saver:
 
 - **Processor:** stays at its base speed (no turbo) and its own power
   management is set to save energy (EPP "power"). **Low-end processors**

@@ -1,11 +1,18 @@
 #!/usr/bin/python3
-"""KiteOS power mode: plugged in, or saving power on battery.
+"""KiteOS power mode: Battery saver or Best performance.
+
+By default the mode follows the charger: Battery saver on battery, Best
+performance plugged in. The battery pop-up and Settings > Battery choose
+the other one, plugged in or not, until the charger is plugged in or
+unplugged, or the laptop restarts (the choice lives in /run and remembers
+whether the charger was in when it was made).
 
   kite-power              show the mode and what is in force
   kite-power apply        apply KiteOS's part for the current mode (run on
                           plugging in or out by udev, and at boot)
-  kite-power full         full speed on battery, until "auto" or a restart
-  kite-power auto         back to automatic: save power on battery
+  kite-power full         Best performance, even on battery
+  kite-power saver        Battery saver, even when plugged in
+  kite-power auto         back to following the charger
 
 TLP (/etc/tlp.d/60-kite.conf) does the CPU energy policy and turbo, PCI
 Express link power, runtime power management of the drivers, USB autosuspend,
@@ -21,10 +28,13 @@ Wi-Fi and audio power saving. kite-power does what TLP does not:
     dynamic boost on, energy policy balance_power) and removes it on any
     other CPU. The CPU does not change, so the file is written once.
   * /run/kite/power says "ac", "saving" or "full" for the desktop
-    (Settings > Battery; start-compositor if ANIMATIONS_ON_BATTERY=0).
+    (Settings > Battery, the battery pop-up; start-compositor if
+    ANIMATIONS_ON_BATTERY=0): "saving" whenever power is being saved, on
+    battery or by choice.
 
-"full" and "auto" are what Settings > Battery runs (pkexec, polkit action
-org.kiteos.power, no password for the person at the laptop).
+"full", "saver" and "auto" are what Settings > Battery and the battery
+pop-up run (pkexec, polkit action org.kiteos.power, no password for the
+person at the laptop).
 """
 import glob
 import os
@@ -35,6 +45,7 @@ SYS = os.environ.get("KITE_SYS", "/sys")
 RUN = os.environ.get("KITE_RUN", "/run/kite")
 STATE = os.path.join(RUN, "power")
 FULL = os.path.join(RUN, "power-full")
+SAVER = os.path.join(RUN, "power-saver")
 GPU_SHARE = 0.6                 # share of the GPU's range kept on battery
 BOOST_CONF = os.environ.get("KITE_TLP_BOOST", "/etc/tlp.d/61-kite-boost.conf")
 LOW_END_CPUS = 4                # this many logical CPUs or fewer: low-end
@@ -69,10 +80,40 @@ def on_battery():
     return batteries and not online
 
 
+def charger():
+    return "battery" if on_battery() else "plugged"
+
+
+def drop_stale_choice():
+    """A chosen mode lasts until the charger is plugged in or unplugged: its
+    file says which it was when the choice was made. True if one went."""
+    gone = False
+    for path in (FULL, SAVER):
+        if os.path.exists(path) and read(path) != charger():
+            try:
+                os.remove(path)
+                gone = True
+            except OSError:
+                pass
+    return gone
+
+
 def mode():
     if os.path.exists(FULL):
         return "full"
+    if os.path.exists(SAVER):
+        return "saving"
     return "saving" if on_battery() else "ac"
+
+
+def tlp_mode():
+    """TLP's command for the chosen mode: its plugged-in or battery settings
+    whatever the charger says, or back to following the charger."""
+    if os.path.exists(FULL):
+        return "ac"
+    if os.path.exists(SAVER):
+        return "bat"
+    return "start"
 
 
 def cpu_list(text):
@@ -163,6 +204,8 @@ def run(*argv):
 
 
 def apply():
+    if drop_stale_choice():
+        run("tlp", "start")         # TLP follows the charger again too
     m = mode()
     saving = m == "saving"
     os.makedirs(RUN, exist_ok=True)
@@ -170,7 +213,7 @@ def apply():
     done = ["mode %s" % m]
     if tune_boost():
         # First boot on this CPU: TLP has already applied 60-kite.conf alone.
-        run("tlp", "ac" if m == "full" else "start")
+        run("tlp", tlp_mode())
         done.append("TLP boost drop-in %s" % ("written" if low_end() else "removed"))
     ec = e_cores()
     if ec:
@@ -190,9 +233,10 @@ def apply():
 
 def status():
     m = mode()
-    print({"ac": "Plugged in: full speed.",
-           "saving": "On battery: saving power.",
-           "full": "Full speed on battery (until \"kite-power auto\" or a restart)."}[m])
+    chosen = os.path.exists(FULL) or os.path.exists(SAVER)
+    print({"ac": "Best performance (plugged in).",
+           "saving": "Battery saver (%s)." % ("chosen, until the charger is plugged in or out, or a restart" if chosen else "on battery"),
+           "full": "Best performance (chosen, until the charger is plugged in or out, or a restart)."}[m])
     print("TLP:          %s" % ("installed" if os.path.exists("/usr/sbin/tlp") else "not installed"))
     ec = e_cores()
     print("P/E cores:    %s" % ("E-cores %s (services there on battery)" % ec if ec else "no (all cores alike)"))
@@ -208,22 +252,25 @@ def main(args):
     if not args:
         return status()
     cmd = args[0]
-    if cmd not in ("apply", "full", "auto") or len(args) > 1:
+    if cmd not in ("apply", "full", "saver", "auto") or len(args) > 1:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
         return 2
     if os.geteuid() != 0:
         print("kite-power: run it as root (sudo kite-power %s)" % cmd, file=sys.stderr)
         return 1
-    if cmd == "full":
+    if cmd in ("full", "saver", "auto"):
         os.makedirs(RUN, exist_ok=True)
-        write(FULL, "1\n")
-        run("tlp", "ac")            # TLP's plugged-in settings until "tlp start"
-    elif cmd == "auto":
-        try:
-            os.remove(FULL)
-        except OSError:
-            pass
-        run("tlp", "start")         # back to following the charger
+        for path, want in ((FULL, cmd == "full"), (SAVER, cmd == "saver")):
+            if want:
+                write(path, charger() + "\n")
+            else:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+        # TLP: its plugged-in (ac) or battery (bat) settings until
+        # "tlp start", which follows the charger again
+        run("tlp", tlp_mode())
     return apply()
 
 
