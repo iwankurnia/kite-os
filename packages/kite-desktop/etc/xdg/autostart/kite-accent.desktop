@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KiteOS accent colour
+Comment=Takes the accent colour from the wallpaper
+Exec=/usr/lib/kite/desktop/kite-accent-watch
+NoDisplay=true
+OnlyShowIn=XFCE;
+X-XFCE-Autostart-Override=true

@@ -19,7 +19,7 @@ OUT=$(cd "$OUT" && pwd)
 
 # Debian package | its source version the patches are made for | KiteOS revision | KiteOS package name
 PATCHED=(
-"xfce4-docklike-plugin|0.4.3-1|3|kite-docklike"
+"xfce4-docklike-plugin|0.4.3-1|4|kite-docklike"
 "xfce4-screensaver|4.18.4-1|1|kite-screensaver"
 )
 

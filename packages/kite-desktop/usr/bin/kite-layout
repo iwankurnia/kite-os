@@ -390,6 +390,8 @@ def switch_live(layout):
     time.sleep(1)
     spawn("xfce4-panel")
     run("xfdesktop", "--reload")
+    # The layout sets Fluent-Light again: put the wallpaper's accent back.
+    spawn("/usr/lib/kite/desktop/kite-accent")
 
 
 def main(args):

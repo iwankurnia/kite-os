@@ -1,0 +1,333 @@
+#!/usr/bin/python3 -I
+"""KiteOS accent colour, taken from the wallpaper (like Windows).
+
+Picks the wallpaper's most vivid colour, darkens it until white text reads on
+it, and writes a copy of the Fluent-Light theme with Fluent's blue replaced
+by it: selections, buttons, switches, check boxes, links and focus rings in
+every GTK app. Fluent's light greys (window backgrounds, toolbars, header
+bars, borders) and the active window's title bar and frame (xfwm4) get a
+little of the accent mixed in (TINT), as Windows tints its surfaces; white
+(text fields, lists, text on accent buttons) stays white. The copy goes in
+~/.local/share/themes as KiteOS-Accent-A or -B, taking turns: GTK and xfwm4
+reload a theme only when its name changes, so each new colour is written to
+the slot not in use and the desktop is switched to it.
+
+    kite-accent            apply the wallpaper's colour (nothing if unchanged)
+    kite-accent --print    print the colour it would use, change nothing
+    kite-accent --css PICTURE   print CSS giving PICTURE's colour as the
+                           accent (kite-login-theme: the login screen's)
+
+Started at login and whenever the wallpaper changes by kite-accent-watch.
+Nothing happens while the account uses a theme other than Fluent-Light (or
+one of these copies): a theme chosen in Settings is left alone.
+"""
+import colorsys
+import os
+import subprocess
+import sys
+import time
+
+BASE = os.environ.get("KITE_ACCENT_BASE", "/usr/share/themes/Fluent-Light")
+BASE_NAME = "Fluent-Light"
+DATA = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+THEMES = os.path.join(DATA, "themes")
+CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+STATE = os.path.join(CONFIG, "kite", "accent")
+SLOTS = ("KiteOS-Accent-A", "KiteOS-Accent-B")
+FLUENT_BLUE = (0x1A, 0x73, 0xE8)       # Fluent's accent and its two shades
+FLUENT_HOVER = "#3181ea"
+FLUENT_PRESSED = "#1567d3"
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+# xfwm4: the title bar's background in Fluent's active images, and the close
+# button's red hover and press (kept red, as on Windows).
+TITLE_GREY = 247
+LIGHTEN = 0.0           # white mixed into the accent itself (none: the title bars carry the light look)
+PRUNE_AFTER = float(os.environ.get("KITE_ACCENT_PRUNE_AFTER", "8"))    # seconds
+TINT = 0.05             # accent mixed into Fluent's light greys (window backgrounds, title bars)
+
+
+# ------------------------------------------------------------- colour --
+def hexc(rgb):
+    return "#%02x%02x%02x" % tuple(int(round(c)) for c in rgb)
+
+
+def mix(a, b, t):
+    """A with T of B mixed in."""
+    return tuple(x + (y - x) * t for x, y in zip(a, b))
+
+
+def luminance(rgb):
+    def lin(c):
+        c = c / 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(c) for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a, b):
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def dominant(pixels):
+    """The most vivid colour among PIXELS ((r, g, b) tuples), or None when
+    they are all greys. Hues are counted in 36 bins, each pixel weighted by
+    its saturation (squared) and brightness, so a small vivid area beats a
+    large dull one; the best bin and its neighbours are averaged."""
+    bins = [0.0] * 36
+    sums = [[0.0, 0.0, 0.0] for _ in range(36)]
+    n = 0
+    for r, g, b in pixels:
+        n += 1
+        _h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+        if s < 0.2 or v < 0.15:
+            continue
+        w = s * s * v
+        i = int(_h * 36) % 36
+        bins[i] += w
+        sums[i][0] += r * w
+        sums[i][1] += g * w
+        sums[i][2] += b * w
+    if n == 0 or sum(bins) < n * 0.01:
+        return None
+    best = max(range(36), key=lambda i: bins[i - 1] + bins[i] + bins[(i + 1) % 36])
+    near = (best - 1, best, (best + 1) % 36)
+    w = sum(bins[i] for i in near)
+    return tuple(sum(sums[i][k] for i in near) / w for k in range(3))
+
+
+def usable(rgb):
+    """RGB made into an accent: saturated enough to read as a colour, dark
+    enough for white text on it (4.5:1, WCAG AA), then a little white mixed
+    back in (up to LIGHTEN, never below 3:1 for white text), so it is soft
+    rather than deep, as Windows' accents are."""
+    h, l, s = colorsys.rgb_to_hls(*(c / 255 for c in rgb))
+    s = max(s, 0.5)
+    l = min(max(l, 0.3), 0.55)
+    while True:
+        out = tuple(c * 255 for c in colorsys.hls_to_rgb(h, l, s))
+        if contrast(out, WHITE) >= 4.5 or l <= 0.2:
+            break
+        l -= 0.01
+    t = LIGHTEN
+    while t > 0 and contrast(mix(out, WHITE, t), WHITE) < 3.0:
+        t -= 0.01
+    return tuple(int(round(c)) for c in mix(out, WHITE, max(t, 0.0)))
+
+
+def accent_for(path):
+    """The accent for the picture at PATH (Fluent's blue if it has no
+    colour to speak of, or cannot be read)."""
+    import gi
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf, GLib
+    try:
+        pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 64, 64, True)
+    except (GLib.Error, TypeError):
+        return FLUENT_BLUE
+    n, rs, px = pb.get_n_channels(), pb.get_rowstride(), pb.get_pixels()
+    pixels = (tuple(px[y * rs + x * n:y * rs + x * n + 3])
+              for y in range(pb.get_height()) for x in range(pb.get_width()))
+    found = dominant(pixels)
+    return usable(found) if found else FLUENT_BLUE
+
+
+# ------------------------------------------------------------ desktop --
+def xfconf(channel, prop, value=None):
+    cmd = ["xfconf-query", "-c", channel, "-p", prop]
+    if value is not None:
+        cmd += ["-s", value]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def wallpaper():
+    """The wallpaper on the primary screen (else on any screen)."""
+    try:
+        props = subprocess.run(["xfconf-query", "-c", "xfce4-desktop", "-l"], capture_output=True,
+                               text=True, timeout=5).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    images = [p for p in props if p.endswith("/workspace0/last-image")]
+    primary = None
+    try:
+        for line in subprocess.run(["xrandr", "--query"], capture_output=True, text=True,
+                                   timeout=5).stdout.splitlines():
+            if " connected primary" in line:
+                primary = "/monitor" + line.split()[0] + "/"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    images.sort(key=lambda p: (primary is None or primary not in p))
+    for p in images:
+        v = xfconf("xfce4-desktop", p)
+        if v and os.path.isfile(v):
+            return v
+    return None
+
+
+# -------------------------------------------------------------- theme --
+def tint_greys(text, accent):
+    """Fluent's light greys (#d9d9d9 to #fafafa: backgrounds, bars and
+    borders) with TINT of ACCENT; white and the darker greys of text stay."""
+    import re
+
+    def tinted(m):
+        v = m.group(0)[1:].lower()
+        if not (v[0:2] == v[2:4] == v[4:6]) or not 0xD9 <= int(v[0:2], 16) <= 0xFA:
+            return m.group(0)
+        g = int(v[0:2], 16)
+        return hexc(mix((g, g, g), accent, TINT))
+    return re.sub(r"#[0-9a-fA-F]{6}\b", tinted, text)
+
+
+def recolour_css(text, accent):
+    text = tint_greys(text, accent)
+    hover = hexc(mix(accent, WHITE, 0.12))
+    pressed = hexc(mix(accent, BLACK, 0.12))
+    r, g, b = accent
+    for old, new in (("#1A73E8", hexc(accent)), ("#1a73e8", hexc(accent)),
+                     (FLUENT_HOVER, hover), (FLUENT_PRESSED, pressed),
+                     ("rgba(26, 115, 232,", "rgba(%d, %d, %d," % (r, g, b))):
+        text = text.replace(old, new)
+    return text
+
+
+def recolour_xfwm4(src, dst, accent):
+    """Fluent's xfwm4 images with the ACTIVE title bar, frame and buttons
+    tinted: Fluent's grey with TINT of ACCENT, every grey darkened the same way, so
+    symbols stay dark and the hover and press squares a shade darker; the
+    inactive ones too (on Fluent's slightly darker inactive grey), so a window
+    in the background matches the apps' tinted backgrounds. The close
+    button's red is kept."""
+    import gi
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf, GLib
+    os.makedirs(dst, exist_ok=True)
+    tint = mix((TITLE_GREY,) * 3, accent, TINT)
+    for name in sorted(os.listdir(src)):
+        path = os.path.join(src, name)
+        if not name.endswith(".png"):
+            os.symlink(path, os.path.join(dst, name))       # themerc
+            continue
+        pb = GdkPixbuf.Pixbuf.new_from_file(path)
+        w, h, n, rs = pb.get_width(), pb.get_height(), pb.get_n_channels(), pb.get_rowstride()
+        px = bytearray(pb.get_pixels())
+        for y in range(h):
+            for x in range(w):
+                o = y * rs + x * n
+                r, g, b = px[o], px[o + 1], px[o + 2]
+                if not (abs(r - g) <= 2 and abs(g - b) <= 2):
+                    continue                        # the close button's red
+                k = min(1.0, r / TITLE_GREY)
+                px[o], px[o + 1], px[o + 2] = (int(round(c * k)) for c in tint)
+        out = GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(bytes(px)), GdkPixbuf.Colorspace.RGB,
+                                              pb.get_has_alpha(), 8, w, h, rs)
+        out.savev(os.path.join(dst, name), "png", [], [])
+
+
+def write_theme(slot, accent):
+    import shutil
+    path = os.path.join(THEMES, slot)
+    tmp = path + ".new"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    with open(os.path.join(BASE, "index.theme")) as f:
+        index = f.read().replace("=" + BASE_NAME, "=" + slot)
+    with open(os.path.join(tmp, "index.theme"), "w") as f:
+        f.write(index)
+    for gtk in ("gtk-3.0", "gtk-4.0"):
+        src = os.path.join(BASE, gtk)
+        if not os.path.isdir(src):
+            continue
+        os.makedirs(os.path.join(tmp, gtk))
+        for name in os.listdir(src):
+            if name.endswith(".css"):
+                with open(os.path.join(src, name)) as f:
+                    text = recolour_css(f.read(), accent)
+                with open(os.path.join(tmp, gtk, name), "w") as f:
+                    f.write(text)
+            else:
+                os.symlink(os.path.join(src, name), os.path.join(tmp, gtk, name))
+    if os.path.isdir(os.path.join(BASE, "gtk-2.0")):
+        os.symlink(os.path.join(BASE, "gtk-2.0"), os.path.join(tmp, "gtk-2.0"))
+    if os.path.isdir(os.path.join(BASE, "xfwm4")):
+        recolour_xfwm4(os.path.join(BASE, "xfwm4"), os.path.join(tmp, "xfwm4"), accent)
+    shutil.rmtree(path, ignore_errors=True)
+    os.rename(tmp, path)
+
+
+def apply(accent, picture):
+    current = xfconf("xsettings", "/Net/ThemeName")
+    if current not in (BASE_NAME,) + SLOTS:
+        return "theme %s chosen in Settings: left alone" % current
+    state = "%s %s" % (hexc(accent), picture or "-")
+    try:
+        with open(STATE) as f:
+            if f.read().strip() == state and current in SLOTS \
+                    and os.path.isdir(os.path.join(THEMES, current)):
+                return "unchanged: %s" % hexc(accent)
+    except OSError:
+        pass
+    slot = SLOTS[1] if current == SLOTS[0] else SLOTS[0]
+    write_theme(slot, accent)
+    xfconf("xsettings", "/Net/ThemeName", slot)
+    if xfconf("xfwm4", "/general/theme") in (BASE_NAME,) + SLOTS:
+        xfconf("xfwm4", "/general/theme", slot)
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    with open(STATE, "w") as f:
+        f.write(state + "\n")
+    other = SLOTS[0] if slot == SLOTS[1] else SLOTS[1]
+    if PRUNE_AFTER:
+        time.sleep(PRUNE_AFTER)         # every app has loaded the new copy by then
+    prune(other)
+    return "accent %s from %s" % (hexc(accent), picture or "no wallpaper")
+
+
+def prune(slot):
+    """Empty the copy no longer in use, so Settings > Appearance lists only
+    the one in use; keep its links to Fluent's images, which apps that were
+    running may still load a check box or radio button picture from."""
+    import shutil
+    path = os.path.join(THEMES, slot)
+    if not os.path.isdir(path):
+        return
+    for name in os.listdir(path):
+        p = os.path.join(path, name)
+        if name in ("gtk-3.0", "gtk-4.0") and os.path.isdir(p) and not os.path.islink(p):
+            for inner in os.listdir(p):
+                if inner != "assets":
+                    os.remove(os.path.join(p, inner))
+        elif os.path.isdir(p) and not os.path.islink(p):
+            shutil.rmtree(p)
+        else:
+            os.remove(p)
+
+
+def login_css(picture):
+    accent = accent_for(picture) if picture and os.path.isfile(picture) else FLUENT_BLUE
+    return ("/* Written by kite-login-theme: the login screen's accent, from %s */\n"
+            "@define-color theme_selected_bg_color %s;\n" % (picture or "no picture", hexc(accent)))
+
+
+def main(args):
+    if len(args) == 2 and args[0] == "--css":
+        sys.stdout.write(login_css(args[1]))
+        return 0
+    if args not in ([], ["--print"]):
+        print(__doc__.split("\n\n")[2], file=sys.stderr)
+        return 2
+    picture = wallpaper()
+    accent = accent_for(picture) if picture else FLUENT_BLUE
+    if args == ["--print"]:
+        print(hexc(accent), picture or "")
+        return 0
+    print("kite-accent: " + apply(accent, picture))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

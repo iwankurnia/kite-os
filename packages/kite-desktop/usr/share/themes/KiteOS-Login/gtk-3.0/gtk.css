@@ -1,5 +1,8 @@
 /* The login screen's GTK theme: Fluent-Light (the desktop's theme) plus the
    KiteOS login card, which the lock screen shares (the desktop's gtk.css
-   imports the same file). */
+   imports the same file). The accent comes from the login background:
+   kite-login-theme writes login-accent.css (kite-desktop's postinst makes
+   sure it exists: a missing import would drop this whole theme). */
 @import url("file:///usr/share/themes/Fluent-Light/gtk-3.0/gtk.css");
+@import url("file:///var/lib/kite/login-accent.css");
 @import url("file:///usr/share/kite/login/kite-login.css");

@@ -399,18 +399,18 @@ def main():
 
     css = Gtk.CssProvider()
     css.load_from_data(b"""
-    .kite-start { background: #f3f3f3; }
+    .kite-start { background: @theme_bg_color; }    /* Fluent's grey, with the accent tint */
     .kite-start .search { border-radius: 18px; min-height: 34px; padding: 0 14px; background: #ffffff; }
     .kite-start .search-head { background: rgba(0, 0, 0, 0.035); border-bottom: 1px solid rgba(0, 0, 0, 0.08); }
     .kite-start .hint { color: alpha(#1b1b1b, 0.55); }
     .kite-start .tile { border-radius: 8px; padding: 10px 4px 8px; }
     .kite-start flowboxchild { padding: 0; background: none; outline: none; }
     .kite-start .tile.hover { background: rgba(0, 0, 0, 0.06); }
-    .kite-start flowboxchild:selected .tile, .kite-start flowboxchild:focus .tile { background: rgba(0, 103, 192, 0.1); }
+    .kite-start flowboxchild:selected .tile, .kite-start flowboxchild:focus .tile { background: alpha(@theme_selected_bg_color, 0.12); }
     .kite-start .tile label { font-size: 9pt; color: #1b1b1b; }
     .kite-start .tile.dragged { opacity: 0.25; }
     .kite-start .tile.ghost { opacity: 0.45; }
-    .kite-start .tile.drop-into { background: rgba(0, 103, 192, 0.16); }
+    .kite-start .tile.drop-into { background: alpha(@theme_selected_bg_color, 0.18); }
     .kite-start .folder-icon { background: rgba(0, 0, 0, 0.07); border-radius: 12px; padding: 4px; }
     .kite-start .heading { font-weight: 600; font-size: 12pt; color: #1b1b1b; }
     .kite-start .dim { background: rgba(255, 255, 255, 0.6); }
@@ -431,7 +431,7 @@ def main():
     .kite-folder .tile.dragged { opacity: 0.25; }
     .kite-folder .tile.ghost { opacity: 0.45; }
     .kite-folder .folder-title { font-weight: 600; font-size: 12pt; background: none; border: none;
-                                 box-shadow: none; color: #1b1b1b; caret-color: #0067c0; }
+                                 box-shadow: none; color: #1b1b1b; caret-color: @theme_selected_bg_color; }
     /* Thin scroll bars: a 4 px rounded slider on a clear track. */
     .kite-start scrollbar, .kite-folder scrollbar,
     .kite-start scrollbar trough, .kite-folder scrollbar trough { background: none; border: none; }

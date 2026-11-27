@@ -610,7 +610,7 @@ CSS = b"""
    16 px icons in the process list, short graphs. */
 /* Toolbar, macOS style: a segmented control for the tabs */
 .kite-tasks .toolbar-row {
-  padding: 4px 8px; background-color: #f6f6f6; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 4px 8px; background-color: @theme_bg_color; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 .kite-tasks .tabs {
   background-color: rgba(0, 0, 0, 0.07); border-radius: 8px; padding: 2px;
@@ -635,7 +635,7 @@ CSS = b"""
 }
 .kite-tasks .search { border-radius: 7px; min-height: 26px; }
 .kite-tasks .subtitle { color: rgba(0, 0, 0, 0.6); }
-.kite-tasks .content { background-color: #fafafa; }
+.kite-tasks .content { background-color: mix(@theme_bg_color, #ffffff, 0.5); }   /* follows the accent tint */
 .kite-tasks treeview.view { background-color: #ffffff; }
 .kite-tasks treeview.view header button {
   background: #ffffff; border: none; border-bottom: 1px solid rgba(0, 0, 0, 0.08);

@@ -11,7 +11,8 @@
 /* The card */
 .lightdm-gtk-greeter #login_window { background: transparent; border: none; box-shadow: none; }
 .lightdm-gtk-greeter #login_box {
-  background-color: rgba(255, 255, 255, 0.78);
+  /* white with 5 % of the accent, like the desktop's tinted surfaces */
+  background-color: alpha(mix(#ffffff, @theme_selected_bg_color, 0.05), 0.78);
   /* a border, not a shadow: GTK clips a shadow at the edge of the box that
      holds the card, which leaves square marks at its corners */
   border: 1px solid rgba(0, 0, 0, 0.12);
@@ -51,7 +52,7 @@
 }
 .lightdm-gtk-greeter #prompt_entry:focus {
   border-color: rgba(0, 0, 0, 0.16);
-  box-shadow: inset 0 -2px #0067c0;
+  box-shadow: inset 0 -2px @theme_selected_bg_color;
 }
 
 /* Buttons: the main one filled in the accent colour, the others quiet */
@@ -67,11 +68,12 @@
 }
 .lightdm-gtk-greeter #buttonbox_frame button:hover { background: #ffffff; }
 .lightdm-gtk-greeter #buttonbox_frame button#login_button {
-  background: #0067c0;
-  border-color: #0067c0;
+  background: @theme_selected_bg_color;      /* the accent: the lock screen's from your
+                                               wallpaper, the login screen's from its own */
+  border-color: @theme_selected_bg_color;
   color: #ffffff;
 }
-.lightdm-gtk-greeter #buttonbox_frame button#login_button:hover { background: #1975c5; }
+.lightdm-gtk-greeter #buttonbox_frame button#login_button:hover { background: shade(@theme_selected_bg_color, 1.1); }
 .lightdm-gtk-greeter #buttonbox_frame button label { color: inherit; }
 
 /* Messages (wrong password, Caps Lock) inside the card, not a coloured bar */
@@ -83,10 +85,10 @@
 }
 .lightdm-gtk-greeter #greeter_infobar label { color: #c42b1c; }
 
-/* Top bar: slim and frosted, date and time in the middle */
+/* Top bar: slim and frosted, date and time in the middle; tinted like the card */
 .lightdm-gtk-greeter #panel_window,
 #panel_window.panel {
-  background-color: rgba(255, 255, 255, 0.55);
+  background-color: alpha(mix(#ffffff, @theme_selected_bg_color, 0.05), 0.55);
   border-bottom: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow: none;
   min-height: 28px;

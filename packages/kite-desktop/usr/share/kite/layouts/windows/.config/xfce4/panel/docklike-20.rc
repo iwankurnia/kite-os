@@ -17,7 +17,9 @@ onlyDisplayVisible=false
 onlyDisplayScreen=false
 indicatorStyle=0
 inactiveIndicatorStyle=0
-indicatorColorFromTheme=false
+# The running app's mark in the theme's accent colour (kite-accent, from the
+# wallpaper; KiteOS's patch 05), the others grey.
+indicatorColorFromTheme=true
 indicatorColor=rgb(0,103,192)
 inactiveColor=rgb(134,134,134)
 indicatorOrientation=0

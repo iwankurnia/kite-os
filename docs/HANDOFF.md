@@ -569,6 +569,38 @@ Gtk.Application subclass shadowed GTK's and re-launched itself in a loop (a
 test forbids such names); an RGBA drawer window showed windows behind it
 through its scrolled grid, so the drawer itself is opaque and picom rounds it.
 
+**Accent colour from the wallpaper (kite-desktop 1.4.5, kite-docklike
++kite4, 2026-11-28, tried on the device).** `/usr/lib/kite/desktop/kite-accent`
+picks the wallpaper's most vivid hue (36 hue bins weighted by saturation² ×
+value on a 64 px copy), darkens it until white text has 4.5:1, and writes a
+copy of Fluent-Light to `~/.local/share/themes/KiteOS-Accent-A` or `-B` (taking
+turns: GTK and xfwm4 reload a theme only when its NAME changes) with Fluent's
+blue (#1A73E8, hover #3181ea, press #1567d3, rgba(26, 115, 232, …)) replaced;
+Fluent's GTK 3 check boxes and radios are CSS-coloured symbolic SVGs, so the
+CSS is all that needs changing (assets and gtk-2.0 are symlinks). Fluent's
+light greys (#d9d9d9 to #fafafa: window backgrounds, bars, borders) get 5 % of
+the accent (TINT; the owner tried 12, 6, 8, 10, 6 on white title bars, then
+asked for Fluent's own greys as the base, inside apps too, and 5 %); white
+(text fields, lists, text on accent buttons) stays white. xfwm4: every title
+bar, frame and button image, inactive ones too, is Fluent's grey with the
+tint, greys scaled so symbols stay dark; the close button's red is kept.
+After a switch the unused copy is emptied (8 s later, keeping only its asset
+links, which running apps may still load) so Settings > Appearance lists one.
+Task Manager and KiteOS Start use @theme_bg_color. Lock screen: the shared
+card CSS (kite-login.css) uses @theme_selected_bg_color and a 5 % tint on the
+card and top bar, so it follows the user's accent. Login screen: kite-login-
+theme writes /var/lib/kite/login-accent.css (kite-accent --css PICTURE) for
+the chosen login background; KiteOS-Login imports it, so it must exist
+(a missing @import drops the whole GTK theme): postinst creates it. Wallpapers without
+colour keep Fluent's blue; a theme chosen in Settings is left alone (only
+Fluent-Light and the two copies are touched). `kite-accent-watch` (autostart)
+runs it at login and on every `last-image` change seen by `xfconf-query -m`.
+KiteOS Start and the layout's gtk.css use `@theme_selected_bg_color`;
+docklike patch 05 makes "colour from theme" use the accent for the active
+app's mark (upstream used the menu's text colour). Existing accounts:
+`kite-user-init` turns that option on and swaps the calendar's #0067c0 once
+(`~/.config/kite/accent-setup`). `kite-layout windows` re-runs kite-accent.
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;

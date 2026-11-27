@@ -21,7 +21,7 @@ if [ "$1" = purge ]; then
             rm -f "$greeter_conf"
         fi
     done
-    rm -f /var/lib/kite/login-background.jpg /var/lib/kite/login-background.png
+    rm -f /var/lib/kite/login-background.jpg /var/lib/kite/login-background.png /var/lib/kite/login-accent.css
     rmdir /var/lib/kite 2>/dev/null || true
 fi
 exit 0

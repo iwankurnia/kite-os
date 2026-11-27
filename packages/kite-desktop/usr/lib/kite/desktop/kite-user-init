@@ -6,6 +6,9 @@
   that (an account still on the dropped mac layout gets it once more).
 * Wallpaper: every connected monitor that has no wallpaper yet gets the
   KiteOS one (xfdesktop stores it per connector name, e.g. eDP-1, HDMI-1).
+* Accent colour (once, kite-desktop 1.4.5): the taskbar marks and the
+  clock's calendar follow the theme's accent (kite-accent) instead of a
+  fixed blue.
 * Start menu (once, kite-desktop 1.4.3): an account with the Whisker menu on
   its taskbar gets KiteOS Start (kite-start) in its place, on the same
   button, and the Search key opens it. Whisker's favourites are saved for
@@ -25,6 +28,7 @@ CHANNEL_DIR = os.path.join(CONFIG, "xfce4/xfconf/xfce-perchannel-xml")
 PANEL_DIR = os.path.join(CONFIG, "xfce4/panel")
 KITE_DIR = os.path.join(CONFIG, "kite")
 START_DONE = os.path.join(KITE_DIR, "start-menu")
+ACCENT_DONE = os.path.join(KITE_DIR, "accent-setup")
 START_LAUNCHER = os.path.join(os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts"),
                               "windows/.config/xfce4/panel/launcher-1/start.desktop")
 
@@ -144,12 +148,37 @@ def setup_start_menu():
         f.write("kite-start\n")
 
 
+def setup_accent():
+    """Point the taskbar marks and the calendar at the theme's accent, once."""
+    if os.path.exists(ACCENT_DONE):
+        return
+    for rc in glob.glob(os.path.join(PANEL_DIR, "docklike-*.rc")):
+        with open(rc, encoding="utf-8") as f:
+            text = f.read()
+        new = text.replace("indicatorColorFromTheme=false", "indicatorColorFromTheme=true")
+        if new != text:
+            with open(rc, "w", encoding="utf-8") as f:
+                f.write(new)
+    css = os.path.join(CONFIG, "gtk-3.0", "gtk.css")
+    try:
+        with open(css, encoding="utf-8") as f:
+            text = f.read()
+        if "Clock calendar pop-up" in text and "#0067c0" in text:    # the KiteOS layout's file
+            with open(css, "w", encoding="utf-8") as f:
+                f.write(text.replace("#0067c0", "@theme_selected_bg_color"))
+    except OSError:
+        pass
+    os.makedirs(KITE_DIR, exist_ok=True)
+    with open(ACCENT_DONE, "w") as f:
+        f.write("theme accent\n")
+
+
 def setup_layout():
     subprocess.run(["kite-layout", "--first-login"], timeout=30)
 
 
 def main():
-    for step in (setup_layout, setup_start_menu, setup_wallpaper):
+    for step in (setup_layout, setup_start_menu, setup_accent, setup_wallpaper):
         try:
             step()
         except Exception as exc:  # never block the login

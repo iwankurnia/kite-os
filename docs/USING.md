@@ -18,6 +18,15 @@ the right. Fluent theme, Papirus-Light icons.
 - **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
   Right-click an app to pin or unpin it.
 - Lock the screen with **Search + L**.
+- **Accent colour:** taken from your wallpaper, as on Windows: selections,
+  buttons, switches and check boxes in apps, the Start menu's highlight, the
+  mark under the active app on the taskbar and today's date in the calendar
+  use it, and window backgrounds and title bars carry a hint of it. The lock
+  screen follows your wallpaper too; the login screen takes its accent from
+  its own background (Settings → Login Screen). Change the wallpaper and the
+  colour follows within a couple of seconds. A wallpaper with hardly any
+  colour keeps the standard blue; choosing another theme in Settings →
+  Appearance turns this off.
 - **Animations:** windows fade in and out with a slight zoom; the Start menu
   slides up from the taskbar and its folders zoom; the calendar and menus
   just fade. They are short on purpose, and resizing,

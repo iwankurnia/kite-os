@@ -1,0 +1,12 @@
+#!/bin/sh
+# KiteOS: keep the accent colour following the wallpaper. Started at login
+# (/etc/xdg/autostart/kite-accent.desktop): sets it once, then again each
+# time a wallpaper changes. xfconf-query -m is a small C program that prints
+# a line per settings change; kite-accent itself runs only when needed.
+accent=${KITE_ACCENT:-/usr/lib/kite/desktop/kite-accent}
+"$accent"
+xfconf-query -c xfce4-desktop -m 2>/dev/null | while read -r line; do
+    case $line in
+        *last-image*) "$accent" ;;
+    esac
+done

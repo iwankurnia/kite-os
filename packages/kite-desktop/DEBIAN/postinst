@@ -19,6 +19,15 @@ if [ "$1" = configure ]; then
             find "/usr/share/icons/$t" -depth -type d -empty -delete 2>/dev/null || true
         fi
     done
+    # The login screen's accent colour (its theme imports this file, so it
+    # must exist): from its current background.
+    if [ ! -s /var/lib/kite/login-accent.css ] || [ "${2:-}" != "" ]; then
+        kite-login-theme accent >/dev/null 2>&1 || true
+    fi
+    if [ ! -s /var/lib/kite/login-accent.css ]; then
+        mkdir -p /var/lib/kite
+        printf '@define-color theme_selected_bg_color #1A73E8;\n' > /var/lib/kite/login-accent.css
+    fi
     if [ -x /usr/bin/xfce4-terminal.wrapper ]; then
         update-alternatives --set x-terminal-emulator /usr/bin/xfce4-terminal.wrapper >/dev/null 2>&1 || true
     fi

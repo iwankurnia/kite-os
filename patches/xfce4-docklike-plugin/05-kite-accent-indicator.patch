@@ -1,0 +1,40 @@
+Description: Taskbar marks in the theme's accent colour
+ With "colour from theme" on, the active app's mark takes the theme's
+ selection colour (theme_selected_bg_color: KiteOS's accent, taken from
+ the wallpaper by kite-accent) and the other apps' marks keep the
+ inactive colour, as on Windows. Upstream used the menu's text colour
+ for every mark.
+Author: KiteOS <6760806+iwankurnia@users.noreply.github.com>
+Forwarded: no
+Last-Update: 2026-11-28
+---
+--- a/src/Group.cpp
++++ b/src/Group.cpp
+@@ -318,7 +318,26 @@
+ 
+ 	double rgba[4];
+ 
+-	if (Settings::indicatorColorFromTheme)
++	GdkRGBA themeAccent;
++	if (Settings::indicatorColorFromTheme && mActive
++		&& gtk_style_context_lookup_color(gtk_widget_get_style_context(mButton), "theme_selected_bg_color", &themeAccent))
++	{
++		// KiteOS: the active app's mark in the theme's accent colour (it
++		// follows the wallpaper through kite-accent); others stay grey.
++		rgba[0] = themeAccent.red;
++		rgba[1] = themeAccent.green;
++		rgba[2] = themeAccent.blue;
++		rgba[3] = themeAccent.alpha;
++	}
++	else if (Settings::indicatorColorFromTheme && !mActive)
++	{
++		std::shared_ptr<GdkRGBA> inactive = Settings::inactiveColor;
++		rgba[0] = inactive->red;
++		rgba[1] = inactive->green;
++		rgba[2] = inactive->blue;
++		rgba[3] = inactive->alpha;
++	}
++	else if (Settings::indicatorColorFromTheme)
+ 	{
+ 		GtkWidget* menu = gtk_menu_new();
+ 		GtkStyleContext* sc = gtk_widget_get_style_context(menu);

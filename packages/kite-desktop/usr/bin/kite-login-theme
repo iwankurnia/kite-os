@@ -3,6 +3,10 @@
 #   kite-login-theme                    show the current one and the choices
 #   sudo kite-login-theme frosted|aurora|dusk
 #   sudo kite-login-theme /path/to/picture.jpg     your own picture
+#   sudo kite-login-theme accent        the accent colour again, for the current one
+# The login screen's accent colour (its main button, the password underline)
+# comes from the background: written to /var/lib/kite/login-accent.css, which
+# the KiteOS-Login theme imports (it must always exist: postinst makes it).
 # KiteOS's default (frosted) is in /usr/share/lightdm/lightdm-gtk-greeter.conf.d/
 # 50-kite.conf; this writes a file of its own in /etc/lightdm/
 # lightdm-gtk-greeter.conf.d/, which the greeter reads after it. Your own
@@ -20,12 +24,29 @@ need_root() {
     fi
 }
 
+current() {      # the background the login screen shows now
+    bg=$(sed -n 's/^background=//p' "$conf" 2>/dev/null | tail -n1 || true)
+    echo "${bg:-$dir/login-frosted.jpg}"
+}
+
+write_accent() { # write_accent PICTURE
+    mkdir -p "$store"
+    chmod 755 "$store"
+    tmp="$store/login-accent.css.kite-tmp"
+    if ! "${KITE_ACCENT:-/usr/lib/kite/desktop/kite-accent}" --css "$1" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then
+        printf '/* Written by kite-login-theme (Fluent blue: no colour found) */\n@define-color theme_selected_bg_color #1A73E8;\n' > "$tmp"
+    fi
+    chmod 644 "$tmp"
+    mv "$tmp" "$store/login-accent.css"
+}
+
 write_conf() {   # write_conf PICTURE
     mkdir -p "$(dirname "$conf")"
     tmp="$conf.kite-tmp"
     printf '# Written by kite-login-theme (removed when kite-desktop is purged)\n[greeter]\nbackground=%s\n' "$1" > "$tmp"
     chmod 644 "$tmp"
     mv "$tmp" "$conf"
+    write_accent "$1"
 }
 
 case "${1:-}" in
@@ -44,8 +65,12 @@ case "${1:-}" in
         rm -f "$store"/login-background.*
         echo "The login screen now uses '$1' (from the next time it appears)."
         ;;
+    accent)
+        need_root accent
+        write_accent "$(current)"
+        ;;
     -*)
-        echo "usage: kite-login-theme [frosted|aurora|dusk|PICTURE]" >&2
+        echo "usage: kite-login-theme [frosted|aurora|dusk|PICTURE|accent]" >&2
         exit 2
         ;;
     */*|*.jpg|*.jpeg|*.png|*.JPG|*.JPEG|*.PNG)
@@ -66,7 +91,7 @@ case "${1:-}" in
         echo "The login screen now uses your picture (from the next time it appears)."
         ;;
     *)
-        echo "usage: kite-login-theme [frosted|aurora|dusk|PICTURE]" >&2
+        echo "usage: kite-login-theme [frosted|aurora|dusk|PICTURE|accent]" >&2
         exit 2
         ;;
 esac

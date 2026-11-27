@@ -276,25 +276,35 @@ check "pkexec message for kite-login-theme" grep -q '/usr/bin/kite-login-theme' 
 
 echo "== kite-login-theme (login screen background)"
 LT=$REPO/packages/kite-desktop/usr/bin/kite-login-theme; G=$T/greeter/conf.d/90-kite-login-background.conf; GS=$T/greeter/store
-lt() { KITE_GREETER_CONF=$G KITE_LOGIN_STORE=$GS sh "$LT" "$@"; }
+lt() { KITE_GREETER_CONF=$G KITE_LOGIN_STORE=$GS KITE_ACCENT=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent sh "$LT" "$@"; }
 check "default is frosted" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'frosted (default)'"
 lt aurora >/dev/null
 check "writes its own greeter file, marked as ours" test "$(cat "$G")" = "$(printf '# Written by kite-login-theme (removed when kite-desktop is purged)\n[greeter]\nbackground=/usr/share/backgrounds/kite/login-aurora.jpg')"
 check "reports the current one" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'login screen: aurora$'"
+check "login screen accent from its own background (aurora: deep blue)" grep -qx '@define-color theme_selected_bg_color #233676;' "$GS/login-accent.css"
 lt "$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg" >/dev/null
 check "own picture copied where the greeter can read it" bash -c "cmp -s '$GS/login-background.jpg' '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg' && grep -qx 'background=$GS/login-background.jpg' '$G'"
 check "reports an own picture" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'own picture'"
 echo 'not a picture' > "$T/greeter/fake.jpg"
 check "refuses a file that is not a picture" bash -c "! KITE_GREETER_CONF='$G' KITE_LOGIN_STORE='$GS' sh '$LT' '$T/greeter/fake.jpg' 2>/dev/null"
+check "an own picture gives its own accent" bash -c "grep -q '@define-color theme_selected_bg_color #' '$GS/login-accent.css' && ! grep -q '#233676' '$GS/login-accent.css'"
 lt dusk >/dev/null
 check "a KiteOS picture again removes the copy" bash -c "[ ! -e '$GS/login-background.jpg' ] && grep -q login-dusk.jpg '$G'"
 check "rejects unknown names and options" bash -c "! KITE_GREETER_CONF='$G' sh '$LT' sunset 2>/dev/null && ! KITE_GREETER_CONF='$G' sh '$LT' --x 2>/dev/null"
+rm -f "$GS/login-accent.css"; lt accent
+check "accent again for the current background (postinst)" grep -qx '@define-color theme_selected_bg_color #4c2193;' "$GS/login-accent.css"
+KITE_GREETER_CONF=$G KITE_LOGIN_STORE=$GS KITE_ACCENT=/nonexistent sh "$LT" accent
+check "no colour tool: Fluent's blue still written (the theme needs the file)" grep -q '#1A73E8' "$GS/login-accent.css"
+check "login theme imports the accent; postinst makes sure the file exists" bash -c \
+    "grep -q 'file:///var/lib/kite/login-accent.css' '$REPO/packages/kite-desktop/usr/share/themes/KiteOS-Login/gtk-3.0/gtk.css' && grep -q 'kite-login-theme accent' '$REPO/packages/kite-desktop/DEBIAN/postinst' && grep -q 'login-accent.css' '$REPO/packages/kite-desktop/DEBIAN/postinst'"
+check "login and lock screen card and top bar: tinted, main button and password line in the accent, no fixed blue" bash -c \
+    "! grep -qi '0067c0\|1975c5' '$REPO/packages/kite-desktop/usr/share/kite/login/kite-login.css' && grep -q 'background: @theme_selected_bg_color' '$REPO/packages/kite-desktop/usr/share/kite/login/kite-login.css' && grep -q 'alpha(mix(#ffffff, @theme_selected_bg_color, 0.05), 0.78)' '$REPO/packages/kite-desktop/usr/share/kite/login/kite-login.css' && grep -q 'alpha(mix(#ffffff, @theme_selected_bg_color, 0.05), 0.55)' '$REPO/packages/kite-desktop/usr/share/kite/login/kite-login.css'"
 # kite-desktop's postrm, pointed at the test copies
 DPR=$T/greeter/postrm
 sed "s#/etc/lightdm/lightdm-gtk-greeter.conf.d/90-kite-login-background.conf#$G#; s#/etc/lightdm/slick-greeter.conf#$T/greeter/slick.conf#; s#/var/lib/kite#$GS#g" "$REPO/packages/kite-desktop/DEBIAN/postrm" > "$DPR"
 printf '# Written by kite-login-theme (x)\n[Greeter]\n' > "$T/greeter/slick.conf"; lt "$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg" >/dev/null
 sh "$DPR" purge
-check "purge removes what kite-login-theme wrote (both greeters, own picture)" bash -c "[ ! -e '$G' ] && [ ! -e '$T/greeter/slick.conf' ] && [ ! -e '$GS/login-background.jpg' ]"
+check "purge removes what kite-login-theme wrote (both greeters, own picture, accent)" bash -c "[ ! -e '$G' ] && [ ! -e '$T/greeter/slick.conf' ] && [ ! -e '$GS/login-background.jpg' ] && [ ! -e '$GS/login-accent.css' ]"
 mkdir -p "$(dirname "$G")"; printf '[greeter]\nbackground=/x.png\n' > "$G"; sh "$DPR" purge
 check "purge keeps a greeter file someone else wrote" test -s "$G"
 check "all three login images ship" bash -c "for l in frosted aurora dusk; do [ -s '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/login-'\$l.jpg ] || exit 1; done"
@@ -1032,7 +1042,90 @@ check "Search key opens kite-start" grep -q 'value="kite-start"' "$UP/xfce4-keyb
 check "other plugins untouched" bash -c "xmllint --xpath \"//property[@name='plugin-2']/@value\" '$UP/xfce4-panel.xml' | grep -q launcher"
 sed -i 's/value="launcher"/value="whiskermenu"/' "$UP/xfce4-panel.xml"; ui_run
 check "done once: a Whisker menu added back later stays" grep -q 'name="plugin-5" type="string" value="whiskermenu"' "$UP/xfce4-panel.xml"
+printf 'indicatorColorFromTheme=false\n' > "$UH/cfg/xfce4/panel/docklike-20.rc"; mkdir -p "$UH/cfg/gtk-3.0"
+printf '/* Clock calendar pop-up */ a { color: #0067c0; }\n' > "$UH/cfg/gtk-3.0/gtk.css"
+PATH="$UH/bin:$PATH" XDG_CONFIG_HOME="$UH/cfg" python3 -I -c '
+import importlib.machinery, importlib.util, sys
+l = importlib.machinery.SourceFileLoader("kui", sys.argv[1]); sp = importlib.util.spec_from_loader("kui", l); m = importlib.util.module_from_spec(sp); l.exec_module(m)
+m.setup_accent()' "$UI"
+check "accent once at login: taskbar marks from the theme, calendar's blue = the accent" bash -c \
+    "grep -qx 'indicatorColorFromTheme=true' '$UH/cfg/xfce4/panel/docklike-20.rc' && grep -q '@theme_selected_bg_color' '$UH/cfg/gtk-3.0/gtk.css' && test -e '$UH/cfg/kite/accent-setup'"
 rm -rf "$UH"
+
+echo "== kite-accent (accent colour from the wallpaper)"
+KA=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent
+AT=$(mktemp -d)
+# A tiny Fluent-Light: CSS with every form of its blue, assets, xfwm4 images.
+mkdir -p "$AT/base/gtk-3.0/assets" "$AT/base/gtk-4.0" "$AT/base/gtk-2.0" "$AT/base/xfwm4" "$AT/bin"
+printf '[Desktop Entry]\nName=Fluent-Light\n[X-GNOME-Metatheme]\nGtkTheme=Fluent-Light\n' > "$AT/base/index.theme"
+printf 'a { color: #1A73E8; } b { color: #3181ea; } c { color: #1567d3; } d { color: rgba(26, 115, 232, 0.3); }\n' > "$AT/base/gtk-3.0/gtk.css"
+cp "$AT/base/gtk-3.0/gtk.css" "$AT/base/gtk-4.0/gtk.css"
+printf 'active_text_color=#707070\n' > "$AT/base/xfwm4/themerc"
+ka_py() { python3 -I -B - "$KA" "$AT" <<KAEOF
+import importlib.machinery, importlib.util, os, sys
+os.environ["KITE_ACCENT_BASE"] = sys.argv[2] + "/base"; os.environ["XDG_DATA_HOME"] = sys.argv[2] + "/data"
+os.environ["XDG_CONFIG_HOME"] = sys.argv[2] + "/config"; os.environ["KITE_ACCENT_PRUNE_AFTER"] = "0"
+loader = importlib.machinery.SourceFileLoader("ka", sys.argv[1])
+spec = importlib.util.spec_from_loader("ka", loader); ka = importlib.util.module_from_spec(spec); loader.exec_module(ka)
+import gi; gi.require_version("GdkPixbuf", "2.0"); from gi.repository import GdkPixbuf, GLib
+def png(path, rgb, w=4, h=4):
+    GdkPixbuf.Pixbuf.new_from_bytes(GLib.Bytes.new(bytes(rgb) * (w * h)), GdkPixbuf.Colorspace.RGB, False, 8, w, h, w * 3).savev(path, "png", [], [])
+def pixel(path):
+    pb = GdkPixbuf.Pixbuf.new_from_file(path); return tuple(pb.get_pixels()[:3])
+$1
+KAEOF
+}
+check "a vivid colour wins over a larger dull area" ka_py \
+    'px = [(120, 120, 125)] * 900 + [(200, 60, 40)] * 100; r, g, b = ka.dominant(px); assert r > 150 and g < 100 and b < 80, (r, g, b)'
+check "a grey picture has no accent (Fluent's blue then)" ka_py 'assert ka.dominant([(90, 90, 90)] * 500 + [(200, 200, 200)] * 500) is None'
+check "the accent always carries white text (contrast 4.5:1 or more)" ka_py \
+    'assert all(ka.contrast(ka.usable(c), ka.WHITE) >= 4.5 for c in [(255, 240, 120), (180, 255, 200), (40, 40, 120), (250, 120, 200), (130, 230, 250)])'
+check "every form of Fluent's blue is replaced (hex, both shades, rgba)" ka_py \
+    'css = ka.recolour_css(open(sys.argv[2] + "/base/gtk-3.0/gtk.css").read(), (186, 90, 49)); assert "1A73E8" not in css and "3181ea" not in css and "1567d3" not in css and "26, 115, 232" not in css and "#ba5a31" in css and "rgba(186, 90, 49, 0.3)" in css'
+check "the theme copy: recoloured CSS, Fluent's own assets linked, GTK 2 linked" ka_py \
+    'png(sys.argv[2] + "/base/xfwm4/title-1-active.png", (247, 247, 247)); png(sys.argv[2] + "/base/xfwm4/title-1-inactive.png", (242, 242, 242))
+ka.write_theme("KiteOS-Accent-A", (186, 90, 49)); t = sys.argv[2] + "/data/themes/KiteOS-Accent-A"
+assert "#ba5a31" in open(t + "/gtk-3.0/gtk.css").read() and os.path.islink(t + "/gtk-3.0/assets") and os.path.islink(t + "/gtk-2.0")
+assert "Name=KiteOS-Accent-A" in open(t + "/index.theme").read()'
+check "title bars: Fluent's greys with 5 % of the accent, the inactive one too; themerc is Fluent's" ka_py \
+    'png(sys.argv[2] + "/base/xfwm4/title-1-active.png", (247, 247, 247)); png(sys.argv[2] + "/base/xfwm4/title-1-inactive.png", (242, 242, 242))
+ka.write_theme("KiteOS-Accent-B", (186, 90, 49)); t = sys.argv[2] + "/data/themes/KiteOS-Accent-B/xfwm4"
+want = tuple(round(c) for c in ka.mix((247, 247, 247), (186, 90, 49), ka.TINT)); assert ka.TINT == 0.05 and pixel(t + "/title-1-active.png") == want, (pixel(t + "/title-1-active.png"), want)
+inact = tuple(round(c * 242 / 247) for c in ka.mix((247, 247, 247), (186, 90, 49), ka.TINT))
+assert pixel(t + "/title-1-inactive.png") == inact, (pixel(t + "/title-1-inactive.png"), inact) and os.path.islink(t + "/themerc")'
+check "inside apps: Fluent's light greys tinted, white and text greys kept" ka_py \
+    'css = ka.recolour_css("a { background: #F2F2F2; border-color: #d9d9d9; color: #FFFFFF; } b { color: #363636; } c { background: #e0e0e0; }", (186, 90, 49)); g = ka.hexc(ka.mix((242, 242, 242), (186, 90, 49), ka.TINT)); assert g in css and "#F2F2F2" not in css and "#d9d9d9" not in css and "#FFFFFF" in css and "#363636" in css, css'
+check "the close button's red hover is kept" ka_py \
+    'png(sys.argv[2] + "/base/xfwm4/close-prelight.png", (229, 115, 115)); ka.write_theme("KiteOS-Accent-A", (186, 90, 49)); assert pixel(sys.argv[2] + "/data/themes/KiteOS-Accent-A/xfwm4/close-prelight.png") == (229, 115, 115)'
+# xfconf-query stand-in: one file per property
+cat > "$AT/bin/xfconf-query" <<'SH'
+#!/bin/sh
+d=$KA_XFCONF; c=; p=; v=; set_=
+while [ $# -gt 0 ]; do case $1 in -c) c=$2; shift ;; -p) p=$2; shift ;; -s) v=$2; set_=1; shift ;; esac; shift; done
+f="$d/$c$(echo "$p" | tr / _)"
+if [ -n "$set_" ]; then printf '%s\n' "$v" > "$f"; else [ -f "$f" ] && cat "$f" || exit 1; fi
+SH
+chmod +x "$AT/bin/xfconf-query"; mkdir -p "$AT/xf"
+ka_apply() { PATH="$AT/bin:$PATH" KA_XFCONF="$AT/xf" ka_py "$1"; }
+echo Fluent-Light > "$AT/xf/xsettings_Net_ThemeName"; echo Fluent-Light > "$AT/xf/xfwm4_general_theme"
+check "apply: GTK and the window borders switch to the copy" ka_apply \
+    'ka.apply((186, 90, 49), "/w.jpg"); assert open(sys.argv[2] + "/xf/xsettings_Net_ThemeName").read().strip() == "KiteOS-Accent-A" and open(sys.argv[2] + "/xf/xfwm4_general_theme").read().strip() == "KiteOS-Accent-A"'
+check "the same colour again: nothing reloads" ka_apply 'assert ka.apply((186, 90, 49), "/w.jpg").startswith("unchanged")'
+check "a new colour goes to the other copy (GTK reloads only on a new theme name)" ka_apply \
+    'ka.apply((60, 95, 222), "/x.jpg"); assert open(sys.argv[2] + "/xf/xsettings_Net_ThemeName").read().strip() == "KiteOS-Accent-B"'
+echo Adwaita > "$AT/xf/xsettings_Net_ThemeName"
+check "Appearance lists only the copy in use (the other keeps just its image links)" ka_py \
+    't = sys.argv[2] + "/data/themes/"; assert os.path.isfile(t + "KiteOS-Accent-B/gtk-3.0/gtk.css") and not os.path.exists(t + "KiteOS-Accent-A/gtk-3.0/gtk.css") and not os.path.exists(t + "KiteOS-Accent-A/index.theme") and not os.path.exists(t + "KiteOS-Accent-A/xfwm4") and os.path.islink(t + "KiteOS-Accent-A/gtk-3.0/assets")'
+check "a theme chosen in Settings is left alone" ka_apply \
+    'assert "left alone" in ka.apply((60, 95, 222), "/y.jpg"); assert open(sys.argv[2] + "/xf/xsettings_Net_ThemeName").read().strip() == "Adwaita"'
+rm -rf "$AT"
+check "follows the wallpaper: started at login, runs again when a wallpaper changes" bash -c \
+    "grep -qx 'Exec=/usr/lib/kite/desktop/kite-accent-watch' '$REPO/packages/kite-desktop/etc/xdg/autostart/kite-accent.desktop' && grep -q 'xfconf-query -c xfce4-desktop -m' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent-watch' && grep -q 'last-image' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent-watch'"
+check "KiteOS Start and the calendar use the theme's accent, not a fixed blue" bash -c \
+    "! grep -qi '0067c0\|0, 103, 192' '$KS' '$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css' && grep -q 'theme_selected_bg_color' '$KS'"
+check "taskbar: the active app's mark in the accent (docklike patch 05, colour from theme on)" bash -c \
+    "grep -q 'theme_selected_bg_color' '$REPO/patches/xfce4-docklike-plugin/05-kite-accent-indicator.patch' && grep -qx 'indicatorColorFromTheme=true' '$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/xfce4/panel/docklike-20.rc'"
+check "kite-layout windows puts the accent back after resetting the theme" grep -q 'kite-accent' "$REPO/packages/kite-desktop/usr/bin/kite-layout"
 
 echo "== window guard (title bars kept on screen)"
 WG=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard

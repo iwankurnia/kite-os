@@ -17,7 +17,7 @@ for f in glob.glob("live/config/includes.chroot/etc/calamares/**/*.conf", recurs
          glob.glob("live/config/includes.chroot/etc/calamares/**/*.desc", recursive=True):
     yaml.safe_load(open(f))
 PY
-python3 -m py_compile packages/kite-chromebook/usr/lib/kite/chromebook/kite-keyd-gen packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard packages/kite-chromebook/usr/lib/kite/chromebook/kite-ec-events packages/kite-desktop/usr/lib/kite/desktop/kite-user-init packages/kite-desktop/usr/bin/kite-vivid packages/kite-desktop/usr/bin/kite-layout packages/kite-desktop/usr/bin/kite-tasks packages/kite-desktop/usr/lib/kite/desktop/kite-start packages/kite-desktop/usr/bin/kite-login-settings packages/kite-system/usr/bin/kite-update packages/kite-storage/usr/bin/kite-app-centre
+python3 -m py_compile packages/kite-chromebook/usr/lib/kite/chromebook/kite-keyd-gen packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard packages/kite-chromebook/usr/lib/kite/chromebook/kite-ec-events packages/kite-desktop/usr/lib/kite/desktop/kite-user-init packages/kite-desktop/usr/bin/kite-vivid packages/kite-desktop/usr/bin/kite-layout packages/kite-desktop/usr/bin/kite-tasks packages/kite-desktop/usr/lib/kite/desktop/kite-start packages/kite-desktop/usr/lib/kite/desktop/kite-accent packages/kite-desktop/usr/bin/kite-login-settings packages/kite-system/usr/bin/kite-update packages/kite-storage/usr/bin/kite-app-centre
 find packages -name __pycache__ -prune -exec rm -rf {} +
 echo "  ok"
 echo "== package build"
