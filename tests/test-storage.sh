@@ -11,7 +11,13 @@ T=$(mktemp -d)
 chmod 755 "$T"   # like a real mount point: other users may traverse it
 made_user=
 cleanup() {
-    [ -z "$made_user" ] || userdel -r kitetest 2>/dev/null || true
+    if [ -n "$made_user" ]; then
+        # su's PAM session can leave a systemd user manager running as
+        # kitetest, and userdel refuses a user with processes.
+        loginctl terminate-user kitetest 2>/dev/null || true
+        pkill -KILL -u kitetest 2>/dev/null || true
+        userdel -r -f kitetest 2>&1 | grep -v 'mail spool' >&2 || true
+    fi
     rm -rf "$T"
 }
 trap cleanup EXIT
@@ -101,7 +107,7 @@ check "profile folder is a link" test -L "$H/.config/BraveSoftware"
 check "cache folder created and linked (app not run yet)" test -L "$H/.cache/BraveSoftware"
 check "profile readable through the link" grep -q pref "$H/.config/BraveSoftware/Brave-Browser/Default/Preferences"
 check "external folders owned by the user" test "$(stat -c %U "$T/ext/kite/home/kitetest/.config")" = kitetest
-check "user can write through the link" su -s /bin/sh kitetest -c "touch '$H/.config/BraveSoftware/written-by-user'"
+check "user can write through the link" setpriv --reuid=kitetest --regid=kitetest --init-groups sh -c "touch '$H/.config/BraveSoftware/written-by-user'"
 
 "$KS" restore-data brave-browser --user kitetest >/dev/null
 check "profile back on internal disk" bash -c "[ -d '$H/.config/BraveSoftware' ] && [ ! -L '$H/.config/BraveSoftware' ]"
