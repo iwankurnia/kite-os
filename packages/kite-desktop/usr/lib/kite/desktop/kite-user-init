@@ -6,9 +6,9 @@
   that (an account still on the dropped mac layout gets it once more).
 * Wallpaper: every connected monitor that has no wallpaper yet gets the
   KiteOS one (xfdesktop stores it per connector name, e.g. eDP-1, HDMI-1).
-* Accent colour (once, kite-desktop 1.4.5): the taskbar marks and the
-  clock's calendar follow the theme's accent (kite-accent) instead of a
-  fixed blue.
+* Accent colour (once, kite-desktop 1.4.5): the taskbar marks, the
+  taskbar's window pop-up and the clock's calendar follow the theme's
+  accent (kite-accent) instead of a fixed blue and grey.
 * Start menu (once, kite-desktop 1.4.3): an account with the Whisker menu on
   its taskbar gets KiteOS Start (kite-start) in its place, on the same
   button, and the Search key opens it. Whisker's favourites are saved for
@@ -163,9 +163,13 @@ def setup_accent():
     try:
         with open(css, encoding="utf-8") as f:
             text = f.read()
-        if "Clock calendar pop-up" in text and "#0067c0" in text:    # the KiteOS layout's file
-            with open(css, "w", encoding="utf-8") as f:
-                f.write(text.replace("#0067c0", "@theme_selected_bg_color"))
+        if "Clock calendar pop-up" in text:      # the KiteOS layout's file
+            new = text.replace("#0067c0", "@theme_selected_bg_color").replace(
+                "  background-color: #ececec;\n",
+                "  background-color: mix(#ececec, @theme_selected_bg_color, 0.05);   /* the accent tint */\n")
+            if new != text:
+                with open(css, "w", encoding="utf-8") as f:
+                    f.write(new)
     except OSError:
         pass
     os.makedirs(KITE_DIR, exist_ok=True)

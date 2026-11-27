@@ -281,7 +281,9 @@ check "default is frosted" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'f
 lt aurora >/dev/null
 check "writes its own greeter file, marked as ours" test "$(cat "$G")" = "$(printf '# Written by kite-login-theme (removed when kite-desktop is purged)\n[greeter]\nbackground=/usr/share/backgrounds/kite/login-aurora.jpg')"
 check "reports the current one" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'login screen: aurora$'"
-check "login screen accent from its own background (aurora: deep blue)" grep -qx '@define-color theme_selected_bg_color #233676;' "$GS/login-accent.css"
+# (the exact colour depends on the picture decoder: compared with kite-accent's own answer)
+check "login screen accent from its own background (aurora)" bash -c \
+    "grep -qx \"\$('$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent' --css /usr/share/backgrounds/kite/login-aurora.jpg | tail -n1)\" '$GS/login-accent.css' && ! grep -q '1A73E8' '$GS/login-accent.css'"
 lt "$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg" >/dev/null
 check "own picture copied where the greeter can read it" bash -c "cmp -s '$GS/login-background.jpg' '$REPO/packages/kite-desktop/usr/share/backgrounds/kite/waves.jpg' && grep -qx 'background=$GS/login-background.jpg' '$G'"
 check "reports an own picture" bash -c "KITE_GREETER_CONF='$G' sh '$LT' | grep -q 'own picture'"
@@ -292,7 +294,8 @@ lt dusk >/dev/null
 check "a KiteOS picture again removes the copy" bash -c "[ ! -e '$GS/login-background.jpg' ] && grep -q login-dusk.jpg '$G'"
 check "rejects unknown names and options" bash -c "! KITE_GREETER_CONF='$G' sh '$LT' sunset 2>/dev/null && ! KITE_GREETER_CONF='$G' sh '$LT' --x 2>/dev/null"
 rm -f "$GS/login-accent.css"; lt accent
-check "accent again for the current background (postinst)" grep -qx '@define-color theme_selected_bg_color #4c2193;' "$GS/login-accent.css"
+check "accent again for the current background (postinst)" bash -c \
+    "grep -qx \"\$('$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent' --css /usr/share/backgrounds/kite/login-dusk.jpg | tail -n1)\" '$GS/login-accent.css' && ! grep -q '1A73E8' '$GS/login-accent.css'"
 KITE_GREETER_CONF=$G KITE_LOGIN_STORE=$GS KITE_ACCENT=/nonexistent sh "$LT" accent
 check "no colour tool: Fluent's blue still written (the theme needs the file)" grep -q '#1A73E8' "$GS/login-accent.css"
 check "login theme imports the accent; postinst makes sure the file exists" bash -c \
@@ -1043,13 +1046,13 @@ check "other plugins untouched" bash -c "xmllint --xpath \"//property[@name='plu
 sed -i 's/value="launcher"/value="whiskermenu"/' "$UP/xfce4-panel.xml"; ui_run
 check "done once: a Whisker menu added back later stays" grep -q 'name="plugin-5" type="string" value="whiskermenu"' "$UP/xfce4-panel.xml"
 printf 'indicatorColorFromTheme=false\n' > "$UH/cfg/xfce4/panel/docklike-20.rc"; mkdir -p "$UH/cfg/gtk-3.0"
-printf '/* Clock calendar pop-up */ a { color: #0067c0; }\n' > "$UH/cfg/gtk-3.0/gtk.css"
+printf '/* Clock calendar pop-up */ a { color: #0067c0; }\n.docklike-popup > box.menu {\n  background-color: #ececec;\n}\n' > "$UH/cfg/gtk-3.0/gtk.css"
 PATH="$UH/bin:$PATH" XDG_CONFIG_HOME="$UH/cfg" python3 -I -c '
 import importlib.machinery, importlib.util, sys
 l = importlib.machinery.SourceFileLoader("kui", sys.argv[1]); sp = importlib.util.spec_from_loader("kui", l); m = importlib.util.module_from_spec(sp); l.exec_module(m)
 m.setup_accent()' "$UI"
-check "accent once at login: taskbar marks from the theme, calendar's blue = the accent" bash -c \
-    "grep -qx 'indicatorColorFromTheme=true' '$UH/cfg/xfce4/panel/docklike-20.rc' && grep -q '@theme_selected_bg_color' '$UH/cfg/gtk-3.0/gtk.css' && test -e '$UH/cfg/kite/accent-setup'"
+check "accent once at login: taskbar marks from the theme, calendar's blue = the accent, pop-up tinted" bash -c \
+    "grep -qx 'indicatorColorFromTheme=true' '$UH/cfg/xfce4/panel/docklike-20.rc' && grep -q 'color: @theme_selected_bg_color' '$UH/cfg/gtk-3.0/gtk.css' && grep -q 'mix(#ececec, @theme_selected_bg_color, 0.05)' '$UH/cfg/gtk-3.0/gtk.css' && test -e '$UH/cfg/kite/accent-setup'"
 rm -rf "$UH"
 
 echo "== kite-accent (accent colour from the wallpaper)"
@@ -1121,6 +1124,7 @@ check "a theme chosen in Settings is left alone" ka_apply \
 rm -rf "$AT"
 check "follows the wallpaper: started at login, runs again when a wallpaper changes" bash -c \
     "grep -qx 'Exec=/usr/lib/kite/desktop/kite-accent-watch' '$REPO/packages/kite-desktop/etc/xdg/autostart/kite-accent.desktop' && grep -q 'xfconf-query -c xfce4-desktop -m' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent-watch' && grep -q 'last-image' '$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-accent-watch'"
+check "taskbar window pop-up tinted with the accent" grep -q 'mix(#ececec, @theme_selected_bg_color, 0.05)' "$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css"
 check "KiteOS Start and the calendar use the theme's accent, not a fixed blue" bash -c \
     "! grep -qi '0067c0\|0, 103, 192' '$KS' '$REPO/packages/kite-desktop/usr/share/kite/layouts/windows/.config/gtk-3.0/gtk.css' && grep -q 'theme_selected_bg_color' '$KS'"
 check "taskbar: the active app's mark in the accent (docklike patch 05, colour from theme on)" bash -c \

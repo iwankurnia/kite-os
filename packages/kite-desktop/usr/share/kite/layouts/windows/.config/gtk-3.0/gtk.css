@@ -55,7 +55,7 @@
    focused window's title bold and minimised ones italic, which CSS cannot
    undo; that font stays regular. */
 .docklike-popup > box.menu {
-  background-color: #ececec;
+  background-color: mix(#ececec, @theme_selected_bg_color, 0.05);   /* the accent tint */
   border: none;
   padding: 6px;
 }
