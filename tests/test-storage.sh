@@ -1,14 +1,20 @@
 #!/bin/bash
 # shellcheck disable=SC1090,SC2012,SC2001  # tests source the tool and list temp dirs
 # Tests for kite-storage using a plain directory as the "external disk".
-# Needs root (creates a throw-away user "kitetest" for the per-user tests).
+# Needs root (creates a throw-away user "kitetest" for the per-user tests,
+# and deletes it again at the end; it used to stay behind on the laptop).
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 KS=$REPO/packages/kite-storage/usr/sbin/kite-storage
 T=$(mktemp -d)
 chmod 755 "$T"   # like a real mount point: other users may traverse it
-trap 'rm -rf "$T"' EXIT
+made_user=
+cleanup() {
+    [ -z "$made_user" ] || userdel -r kitetest 2>/dev/null || true
+    rm -rf "$T"
+}
+trap cleanup EXIT
 pass=0; fail=0
 ok()   { echo "  ok   $*"; pass=$((pass + 1)); }
 bad()  { echo "  FAIL $*"; fail=$((fail + 1)); }
@@ -80,7 +86,10 @@ check "repaired content kept" test "$(cat "$APP/file")" = new
 "$KS" restore-dir "$APP" >/dev/null
 
 echo "== per-user app data (brave-browser profile)"
-id kitetest >/dev/null 2>&1 || useradd -m -s /bin/bash kitetest
+if ! id kitetest >/dev/null 2>&1; then
+    useradd -m -s /bin/bash kitetest
+    made_user=1
+fi
 H=$(getent passwd kitetest | cut -d: -f6)
 rm -rf "$H/.config/BraveSoftware" "$H/.cache/BraveSoftware" "$T/ext/kite/home"
 install -d -o kitetest -g kitetest "$H/.config/BraveSoftware/Brave-Browser/Default"
@@ -142,6 +151,11 @@ if [ -n "$lo" ]; then
     echo "$out" | sed 's/^/     /'
     check "shared folder /usr/lib/libreoffice not offered for one package" bash -c "! grep -q '/usr/lib/libreoffice$' <<< \"\$1\"" _ "$out"
 fi
+
+echo
+echo "== clean-up"
+cleanup; made_user=
+check "throw-away user kitetest removed (not left on the laptop or its login screen)" bash -c "! id kitetest >/dev/null 2>&1 && [ ! -e /home/kitetest ]"
 
 echo
 echo "storage tests: $pass passed, $fail failed"
