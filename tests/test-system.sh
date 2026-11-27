@@ -404,15 +404,15 @@ rm -f "$C/cfg/kite/display.conf" "$C/bin/picom"
 check "animations on by default" grep -qx 'ANIMATIONS=1' "$REPO/packages/kite-desktop/etc/kite/display.conf"
 # Calm animations: short, a small zoom at most, nothing on resize/maximise
 # (picom stretches the old picture), the taskbar and desktop never move.
-# KiteOS Start is the one exception, on purpose: it slides up from the
-# taskbar (0.18 s) and its folders zoom from 85 %, like a phone's.
+# KiteOS Start is the one exception, on purpose: it rises as it fades in
+# and its folders zoom from 85 %, like a phone's.
 PC_OTHERS=$(mktemp); grep -v -e "class_g = 'Kite-start'" -e "name = 'kite-start-folder'" "$PC" | awk '/^  # KiteOS Start [(]kite-start/ { skip = 1 } /# The taskbar and the desktop/ { skip = 0 } !skip' > "$PC_OTHERS"
 check "every animation is shorter than 0.16 s (but KiteOS Start's)" bash -c \
     "! grep -o 'duration = [0-9.]*' '$PC_OTHERS' | awk '{ if (\$3 >= 0.16) bad = 1 } END { exit !bad }'"
 check "windows grow from 96 % or more (no big zoom; but KiteOS Start's folders)" bash -c \
     "! grep -o 'scale = [0-9.]*' '$PC_OTHERS' | awk '{ if (\$3 < 0.96) bad = 1 } END { exit !bad }'"
-check "KiteOS Start slides up from the taskbar, its folders zoom" bash -c \
-    "grep -A6 \"class_g = 'Kite-start'\" '$PC' | grep -Eq 'preset = \"slide-in\"; +direction = \"down\"' && grep -A6 \"name = 'kite-start-folder'\" '$PC' | grep -q 'scale = 0.85'"
+check "KiteOS Start rises and fades in, fades out when it closes, its folders zoom" bash -c \
+    "grep -A12 \"class_g = 'Kite-start'\" '$PC' | grep -q 'offset-y = { duration = 0.14; start = 48' && grep -A12 \"class_g = 'Kite-start'\" '$PC' | grep -q 'preset = \"disappear\"; duration = 0.10; scale = 1.0' && grep -A6 \"name = 'kite-start-folder'\" '$PC' | grep -q 'scale = 0.85'"
 rm -f "$PC_OTHERS"
 check "no animation on resize, maximise or tiling" bash -c "! grep -q '\"geometry\"' '$PC'"
 check "xrender backend (glx left a restarted taskbar invisible)" grep -qx 'backend = "xrender";' "$PC"
