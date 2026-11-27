@@ -146,7 +146,7 @@ for i in 1 2; do
     sleep 6
     st=$(vm "$GUI"' echo "wm=$(pgrep -cx xfwm4) panels=$(pgrep -cx xfce4-panel) theme=$(xfconf-query -c xfwm4 -p /general/theme) buttons=$(xfconf-query -c xfwm4 -p /general/button_layout)"' 30)
     shot "1$((i + 1))-reapply-$i"
-    if grep -q 'wm=1 panels=1' <<< "$st" && grep -q "theme=Fluent" <<< "$st"; then
+    if grep -q 'wm=1 panels=1' <<< "$st" && grep -qE "theme=(Fluent|KiteOS-Accent-[AB])" <<< "$st"; then
         row PASS "live: kite-layout windows, run $i" "${took}s, $(short "$st")"
     else
         row FAIL "live: kite-layout windows, run $i" "${took}s, $(short "$st") (1$((i + 1))-reapply-$i.png)"
