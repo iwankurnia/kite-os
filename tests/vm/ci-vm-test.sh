@@ -252,7 +252,7 @@ k type "$VM" "$PASS"; k keys "$VM" ret
 k login "$VM" "$LOGIN" "$PASS" >/dev/null || die "no serial login on the installed system"
 wait_desktop || row FAIL "installed: desktop came up" "no window manager / panel"
 sleep 8; shot 51-desktop
-has   "installed: account layout = windows" 'cat ~/.config/kite/layout' '^windows$'
+has   "installed: account layout = desktop" 'cat ~/.config/kite/layout' '^desktop$'
 has   "installed: window manager running" 'pgrep -x xfwm4 && echo WM' '^WM$'
 has   "installed: no failed services" 'n=$(systemctl --failed --no-legend --plain | grep -vc serial-getty); echo failed=$n; systemctl --failed --no-legend --plain' 'failed=0'
 has   "installed: picom animations running" 'pgrep -a picom' 'picom --config /etc/kite/picom.conf'
