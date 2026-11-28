@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Task view
+Comment=Every open window at once (three-finger swipe)
+Exec=kite-switcher --overview
+Icon=kite-taskview-symbolic
+NoDisplay=true

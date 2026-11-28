@@ -9,6 +9,8 @@
 * Accent colour (once, kite-desktop 1.4.5): the taskbar marks, the
   taskbar's window pop-up and the clock's calendar follow the theme's
   accent (kite-accent) instead of a fixed blue and grey.
+* Window switcher (once, kite-desktop 1.4.8): Alt+Tab and Search+W go to
+  kite-switcher, and a Task view button goes beside Start.
 * Start menu (once, kite-desktop 1.4.3): an account with the Whisker menu on
   its taskbar gets KiteOS Start (kite-start) in its place, on the same
   button, and the Search key opens it. Whisker's favourites are saved for
@@ -29,6 +31,11 @@ PANEL_DIR = os.path.join(CONFIG, "xfce4/panel")
 KITE_DIR = os.path.join(CONFIG, "kite")
 START_DONE = os.path.join(KITE_DIR, "start-menu")
 ACCENT_DONE = os.path.join(KITE_DIR, "accent-setup")
+SWITCHER_DONE = os.path.join(KITE_DIR, "switcher-setup")
+TASKVIEW_LAUNCHER = os.path.join(os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts"),
+                                 "desktop/.config/xfce4/panel/launcher-21/taskview.desktop")
+SWITCHER_KEYS = {"<Alt>Tab": "kite-switcher", "<Alt><Shift>Tab": "kite-switcher --previous",
+                 "<Super>w": "kite-switcher --overview"}
 START_LAUNCHER = os.path.join(os.environ.get("KITE_LAYOUT_DATA", "/usr/share/kite/layouts"),
                               "desktop/.config/xfce4/panel/launcher-1/start.desktop")
 
@@ -177,12 +184,67 @@ def setup_accent():
         f.write("theme accent\n")
 
 
+def setup_switcher():
+    """Once (kite-desktop 1.4.8): Alt+Tab, Alt+Shift+Tab and Search+W go to
+    kite-switcher (xfwm4's own switcher keeps no key), and a Task view button
+    goes beside Start on the taskbar."""
+    if os.path.exists(SWITCHER_DONE):
+        return
+    keys = os.path.join(CHANNEL_DIR, "xfce4-keyboard-shortcuts.xml")
+    if os.path.isfile(keys):
+        tree = ET.parse(keys)
+        root = tree.getroot()
+        wm = root.find("./property[@name='xfwm4']/property[@name='custom']")
+        if wm is not None:
+            for p in list(wm):
+                if p.get("value") in ("cycle_windows_key", "cycle_reverse_windows_key"):
+                    wm.remove(p)
+        cmds = root.find("./property[@name='commands']/property[@name='custom']")
+        if cmds is not None:
+            for key, cmd in SWITCHER_KEYS.items():
+                found = cmds.find("./property[@name='%s']" % key)
+                if found is None:
+                    ET.SubElement(cmds, "property", name=key, type="string", value=cmd)
+                else:
+                    found.set("value", cmd)
+        tree.write(keys, encoding="UTF-8", xml_declaration=True)
+    panel = os.path.join(CHANNEL_DIR, "xfce4-panel.xml")
+    if os.path.isfile(panel) and os.path.isfile(TASKVIEW_LAUNCHER):
+        tree = ET.parse(panel)
+        root = tree.getroot()
+        plugins = root.find("./property[@name='plugins']")
+        ids = root.find("./property[@name='panels']/property[@name='panel-1']/property[@name='plugin-ids']")
+        have = [p for p in (plugins if plugins is not None else [])
+                if p.get("value") == "launcher" and any(v.get("value") == "taskview.desktop"
+                                                         for v in p.findall("./property[@name='items']/value"))]
+        if plugins is not None and ids is not None and not have:
+            used = {int(v.get("value")) for v in ids.findall("./value")} | \
+                   {int(p.get("name").rsplit("-", 1)[-1]) for p in plugins if p.get("name", "").startswith("plugin-")}
+            new = 21 if 21 not in used else max(used) + 1
+            plug = ET.SubElement(plugins, "property", name="plugin-%d" % new, type="string", value="launcher")
+            items = ET.SubElement(plug, "property", name="items", type="array")
+            ET.SubElement(items, "value", type="string", value="taskview.desktop")
+            ET.SubElement(plug, "property", name="show-label", type="bool", value="false")
+            values = ids.findall("./value")
+            start = [i for i, v in enumerate(values) if v.get("value") == "1"]     # beside Start
+            pos = start[0] + 1 if start else 0
+            ids.insert(pos, ET.Element("value", type="int", value=str(new)))
+            folder = os.path.join(PANEL_DIR, "launcher-%d" % new)
+            os.makedirs(folder, exist_ok=True)
+            with open(TASKVIEW_LAUNCHER) as src, open(os.path.join(folder, "taskview.desktop"), "w") as dst:
+                dst.write(src.read())
+            tree.write(panel, encoding="UTF-8", xml_declaration=True)
+    os.makedirs(KITE_DIR, exist_ok=True)
+    with open(SWITCHER_DONE, "w") as f:
+        f.write("kite-switcher\n")
+
+
 def setup_layout():
     subprocess.run(["kite-layout", "--first-login"], timeout=30)
 
 
 def main():
-    for step in (setup_layout, setup_start_menu, setup_accent, setup_wallpaper):
+    for step in (setup_layout, setup_start_menu, setup_accent, setup_switcher, setup_wallpaper):
         try:
             step()
         except Exception as exc:  # never block the login

@@ -14,7 +14,13 @@ the right. Fluent theme, Papirus-Light icons.
   panels and system tools start in the Settings and System folders. Your
   name and the power button (lock, sleep, hibernate, restart, shut down,
   sign out) are at the bottom.
-- **Window list:** the top-row "overview" key (□|| icon) lists all open windows.
+- **Switching windows:** Alt+Tab shows your windows as previews; Tab moves
+  along, letting go of Alt switches (Esc stays). A quick three-finger swipe
+  sideways does the same: a flick moves one window, a slow slide several,
+  lifting your fingers switches.
+- **Task view:** the button beside Start, Search+W or a three-finger swipe up
+  or down shows every window at once over your wallpaper, with a search box:
+  click one to go to it, × closes it, a click on the background goes back.
 - **Pinned apps:** Brave, ONLYOFFICE, Files, Terminal, App Centre and Settings.
   Right-click an app to pin or unpin it.
 - Lock the screen with **Search + L**.

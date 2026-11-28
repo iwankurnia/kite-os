@@ -1,0 +1,19 @@
+#!/bin/sh
+# KiteOS window switcher: Alt+Tab (next), --previous (Alt+Shift+Tab),
+# --overview (Search+W, three-finger swipe up).
+#
+# The switcher itself (/usr/lib/kite/desktop/kite-switcher, Python and GTK)
+# starts hidden at login and stays in memory; this asks it over D-Bus (about
+# 10 ms) and starts it only when it is not running.
+app=${KITE_SWITCHER_APP:-/usr/lib/kite/desktop/kite-switcher}
+case "${1:-}" in
+    --previous) action=previous ;;
+    --overview) action=overview ;;
+    --background) exec "$app" "$@" ;;
+    *) action=next ;;
+esac
+if gdbus call --session --timeout 2 --dest org.kiteos.Switcher --object-path /org/kiteos/Switcher \
+        --method org.gtk.Actions.Activate "$action" '@av []' '@a{sv} {}' >/dev/null 2>&1; then
+    exit 0
+fi
+exec "$app" "$@"

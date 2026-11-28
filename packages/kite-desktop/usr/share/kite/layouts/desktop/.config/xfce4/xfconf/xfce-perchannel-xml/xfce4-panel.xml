@@ -28,6 +28,7 @@
       </property>
       <property name="plugin-ids" type="array">
         <value type="int" value="1"/>
+        <value type="int" value="21"/>
         <value type="int" value="2"/>
         <value type="int" value="20"/>
         <value type="int" value="8"/>
@@ -45,6 +46,13 @@
     <property name="plugin-1" type="string" value="launcher">
       <property name="items" type="array">
         <value type="string" value="start.desktop"/>
+      </property>
+      <property name="show-label" type="bool" value="false"/>
+    </property>
+    <!-- Task view: every open window (kite-switcher's overview) -->
+    <property name="plugin-21" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="taskview.desktop"/>
       </property>
       <property name="show-label" type="bool" value="false"/>
     </property>

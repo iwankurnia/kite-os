@@ -1,0 +1,939 @@
+#!/usr/bin/python3 -I
+"""KiteOS window switcher and overview.
+
+  Alt+Tab        a row of window previews in the middle of the screen; Tab
+                 (Shift+Tab, arrows) moves along it, letting go of Alt goes
+                 to the chosen window, Esc stays where you were.
+  Overview       every window as a large preview over the dimmed wallpaper,
+                 with a search box: click one to go to it, x closes it, Esc
+                 goes back. Search+W, or a three-finger swipe up
+                 (kite-gestures).
+
+It starts hidden at login (kite-switcher --background, from autostart) and
+stays in memory. /usr/bin/kite-switcher asks it over D-Bus:
+
+    kite-switcher               Alt+Tab: next window
+    kite-switcher --previous    Alt+Shift+Tab: previous window
+    kite-switcher --overview    the overview (again: closes it)
+    kite-switcher --background  start it hidden
+
+Previews are read from the windows themselves (picom keeps each window's
+picture); a minimised window shows the picture it had when it was last
+seen, else its icon.
+"""
+import os
+import sys
+
+APP_ID = "org.kiteos.Switcher"
+CARD_W, CARD_H = 236, 136          # a preview in the Alt+Tab row, at most
+MIN_CARD_W = 150                   # smallest preview before wrapping onto more rows
+SHADOW = 48                        # px round the card for its own shadow (it must fade out inside)
+OVERVIEW_GAP = 20                  # between tiles in the overview
+OVERVIEW_SIDE = 96                 # the overview's margin to the screen's sides
+OVERVIEW_COLS, OVERVIEW_ROWS = 4, 2   # at most this many at once; more scroll
+FADE = 36                          # px the scrolling area fades over at a cut-off edge
+BAR_ROOM = 20                      # px kept clear for the scroll bar right of the tiles
+OPEN_S = 0.36                      # the overview's opening zoom and fade
+BACKDROP_S = 0.55                  # its wallpaper and darker layer fade in more slowly
+BAR_HIDE_MS = 600                  # the scroll bar fades this long after scrolling stops (as in KiteOS Start)
+REOPEN_S = 0.4
+
+CSS = b"""
+/* the window is clear round the card (its shadow): stronger than the
+   theme's window.background */
+window.kite-switch, window.kite-switch.background { background: transparent; background-color: transparent; }
+.kite-switch .card { background: alpha(mix(#ffffff, @theme_selected_bg_color, 0.05), 0.96);
+                     border-radius: 16px; border: 1px solid rgba(0, 0, 0, 0.08); padding: 18px 18px 16px;
+                     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26), 0 1px 4px rgba(0, 0, 0, 0.14); }
+.kite-switch .item { border-radius: 12px; padding: 8px; }
+.kite-switch .item.chosen { background: alpha(@theme_selected_bg_color, 0.12);
+                            box-shadow: inset 0 0 0 2px @theme_selected_bg_color; }
+.kite-switch .title { font-size: 10pt; font-weight: 500; color: #1b1b1b; }
+.kite-switch .shot { border-radius: 4px; border: 1px solid rgba(0, 0, 0, 0.18); }
+.kite-over { background: #2a2622; }
+/* see-through with a compositor: the dim layer over the open windows first,
+   then the wallpaper fades in (overview_wallpaper_in) */
+window.kite-over.clear, window.kite-over.clear.background { background: transparent; background-color: transparent; }
+.kite-over .dim { background: rgba(30, 24, 20, 0.42); }
+.kite-over .search { border-radius: 19px; min-height: 36px; padding: 0 14px; background: rgba(255, 255, 255, 0.92);
+                     border: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+.kite-over .placeholder { color: alpha(#1b1b1b, 0.55); }
+.kite-over scrollbar, .kite-over scrollbar trough { background: transparent; border: none; }
+.kite-over scrollbar slider { min-width: 6px; border-radius: 3px; border: none; margin: 2px;
+                              background: rgba(255, 255, 255, 0.30); }
+.kite-over scrollbar slider:hover { background: rgba(255, 255, 255, 0.50); }
+.kite-over scrolledwindow, .kite-over viewport, .kite-over flowbox, .kite-over flowboxchild { background: transparent; border: none; }
+.kite-over .shot { border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.18); }
+/* each window as in Windows 11's Task View: no card at rest, its picture
+   with rounded corners and its icon and title above; on hover a soft
+   rounded highlight behind the whole item with the accent outline */
+.kite-over .tile { border-radius: 18px; padding: 9px; background: rgba(255, 255, 255, 0.16); border: 2px solid transparent;
+                   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12); }
+.kite-over .tile.hover { background: alpha(mix(#ffffff, @theme_selected_bg_color, 0.05), 0.30);
+                         border-color: @theme_selected_bg_color; }
+.kite-over .tile.minimised { opacity: 0.86; }
+.kite-over .name { font-size: 10pt; font-weight: 500; color: #ffffff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45); }
+.kite-over .close { min-width: 24px; min-height: 24px; padding: 0; border-radius: 12px; border: none;
+                    background: rgba(24, 24, 24, 0.78); color: #ffffff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); }
+.kite-over .close:hover { background: #c42b1c; }
+.kite-over .hint { color: rgba(255, 255, 255, 0.85); font-size: 9pt; }
+"""
+
+
+def ordered(windows, active_order):
+    """Windows most recently used first: ACTIVE_ORDER holds xids, latest
+    last; windows never seen active keep their stacking order after them."""
+    rank = {xid: i for i, xid in enumerate(active_order)}
+    return sorted(windows, key=lambda w: (-rank.get(w["xid"], -1), -w["stack"]))
+
+
+def next_index(n, current, step):
+    return (current + step) % n if n else 0
+
+
+def row_layout(n, screen_w, screen_h):
+    """(columns, preview width) for N previews in the Alt+Tab card on a
+    SCREEN_W x SCREEN_H screen: one row of full-size previews if they fit,
+    else smaller ones, else more rows; never wider or taller than the screen.
+    Also returns how many fit at all."""
+    room = screen_w - 2 * SHADOW - 36 - 40          # card padding, a margin
+    step = 12 + 16                                   # gap between, item padding
+    for width in range(CARD_W, MIN_CARD_W - 1, -2):
+        if n * (width + step) - 12 <= room:
+            return n, width, n
+    cols = max(1, (room + 12) // (MIN_CARD_W + step))
+    row_h = int(MIN_CARD_W * CARD_H / CARD_W) + 24 + 8 + 16 + 12
+    rows = max(1, (screen_h - 2 * SHADOW - 34 - 80) // row_h)
+    return cols, MIN_CARD_W, min(n, cols * rows)
+
+
+SHOT_ROOM = 4                          # px round an overview picture (no shadow now)
+TILE_W_EXTRA, TILE_H_EXTRA = 20 + 2 * SHOT_ROOM, 54 + 2 * SHOT_ROOM    # padding, title row, shadow room
+
+
+def overview_layout(n, width, height):
+    """(columns, picture width, picture height) for N windows in a WIDTH x
+    HEIGHT area: at most OVERVIEW_COLS x OVERVIEW_ROWS show at once (more
+    scroll), pictures 16:10 and at most 420 px wide."""
+    cols = max(1, min(OVERVIEW_COLS, n))
+    rows = max(1, min(OVERVIEW_ROWS, -(-n // cols)))
+    pw = (width - OVERVIEW_GAP * (cols - 1)) / cols - TILE_W_EXTRA
+    ph = (height - OVERVIEW_GAP * (rows - 1)) / rows - TILE_H_EXTRA
+    pw = min(pw, ph * 1.6, 420)
+    return cols, int(pw), int(pw / 1.6)
+
+
+def grid_columns(n, width, height):
+    """Columns for N previews in a WIDTH x HEIGHT area, previews 16:10,
+    each tile its picture plus TILE_W_EXTRA x TILE_H_EXTRA."""
+    best, best_size = 1, 0
+    for cols in range(1, max(1, n) + 1):
+        rows = -(-n // cols)
+        w = (width - OVERVIEW_GAP * (cols - 1)) / cols - TILE_W_EXTRA
+        h = (height - OVERVIEW_GAP * (rows - 1)) / rows - TILE_H_EXTRA
+        size = min(w, h * 1.6)
+        if size > best_size:
+            best, best_size = cols, size
+    return best
+
+
+def matches(win, query):
+    q = query.strip().lower()
+    return not q or q in win["title"].lower() or q in win["app"].lower()
+
+
+def main():
+    import time
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GdkX11", "3.0")
+    gi.require_version("Wnck", "3.0")
+    from gi.repository import Gdk, GdkPixbuf, GdkX11, Gio, GLib, Gtk, Wnck
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    class Switcher(Gtk.Application):
+        def __init__(self):
+            super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+            self.screen = None
+            self.shots = {}             # xid -> last preview (GdkPixbuf)
+            self.active_order = []      # xids, the latest active last
+            self.items = []
+            self.chosen = 0
+            self.mode = None            # "switch", "overview" or None
+            self.closed_at = 0.0
+            for name, handler in (("next", lambda *_: self.switch(1)),
+                                  ("previous", lambda *_: self.switch(-1)),
+                                  ("overview", lambda *_: self.toggle_overview())):
+                action = Gio.SimpleAction.new(name, None)
+                action.connect("activate", handler)
+                self.add_action(action)
+            swipe = Gio.SimpleAction.new("swipe", GLib.VariantType.new("s"))    # kite-gestures
+            swipe.connect("activate", lambda _a, v: self.on_swipe(v.get_string()))
+            self.add_action(swipe)
+
+        # ------------------------------------------------------- startup --
+        def do_command_line(self, cmdline):
+            args = cmdline.get_arguments()[1:]
+            if self.screen is None:
+                self.hold()
+                self.start()
+            if "--overview" in args:
+                self.toggle_overview()
+            elif "--previous" in args:
+                self.switch(-1)
+            elif "--background" not in args:
+                self.switch(1)
+            return 0
+
+        def start(self):
+            self.screen = Wnck.Screen.get_default()
+            self.screen.force_update()
+            self.screen.connect("active-window-changed", self.on_active_changed)
+            self.screen.connect("window-closed", lambda _s, w: self.shots.pop(w.get_xid(), None))
+            active = self.screen.get_active_window()
+            if active is not None:
+                self.active_order.append(active.get_xid())
+            self.build_switch()
+            self.build_overview()
+
+        def on_active_changed(self, screen, previous):
+            # Keep a picture of the window just left: it may be minimised next.
+            if previous is not None:
+                GLib.timeout_add(200, self.capture_later, previous.get_xid())
+            active = screen.get_active_window()
+            if active is not None and self.mode is None:
+                xid = active.get_xid()
+                if xid in self.active_order:
+                    self.active_order.remove(xid)
+                self.active_order.append(xid)
+                del self.active_order[:-64]
+
+        def capture_later(self, xid):
+            self.capture(xid)
+            return False
+
+        # ------------------------------------------------------ windows --
+        def windows(self):
+            self.screen.force_update()
+            ws = self.screen.get_active_workspace()
+            out = []
+            for stack, w in enumerate(self.screen.get_windows_stacked()):
+                if w.get_window_type() != Wnck.WindowType.NORMAL or w.is_skip_tasklist():
+                    continue
+                if ws is not None and not w.is_on_workspace(ws) and not w.is_pinned():
+                    continue
+                app = w.get_application()
+                out.append({"xid": w.get_xid(), "wnck": w, "stack": stack, "title": w.get_name() or "",
+                            "app": app.get_name() if app is not None else "",
+                            "minimised": w.is_minimized()})
+            return ordered(out, self.active_order)
+
+        def capture(self, xid):
+            """A picture of the window's contents, or None (unmapped)."""
+            try:
+                gdkwin = GdkX11.X11Window.foreign_new_for_display(Gdk.Display.get_default(), xid)
+                if gdkwin is None or not gdkwin.is_viewable():
+                    return None
+                w, h = gdkwin.get_width(), gdkwin.get_height()
+                if w < 8 or h < 8:
+                    return None
+                pb = Gdk.pixbuf_get_from_window(gdkwin, 0, 0, w, h)
+            except (GLib.Error, TypeError, ValueError):
+                return None
+            if pb is None:
+                return None
+            scale = min(1.0, 640.0 / w)         # keep a small copy only
+            pb = pb.scale_simple(max(1, int(w * scale)), max(1, int(h * scale)), GdkPixbuf.InterpType.BILINEAR)
+            self.shots[xid] = pb
+            return pb
+
+        def picture(self, win, width, height, live=True, top=False):
+            """WIN's preview in a WIDTH x HEIGHT space: the window's own
+            picture scaled to fit, in its own shape with a border round it
+            and nothing behind it (as in the taskbar pop-up), centred; or
+            its icon. The space is the same for every window, so tiles and
+            the chosen highlight keep one size."""
+            space = Gtk.Box()
+            space.set_size_request(width, height)
+            pb = None if (win["minimised"] or not live) else self.capture(win["xid"])
+            pb = pb or self.shots.get(win["xid"])
+            if pb is None:
+                icon = win["wnck"].get_icon()
+                img = Gtk.Image.new_from_pixbuf(icon.scale_simple(56, 56, GdkPixbuf.InterpType.BILINEAR)) if icon else \
+                    Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DIALOG)
+            else:
+                f = min(width / pb.get_width(), height / pb.get_height())
+                small = pb.scale_simple(max(1, int(pb.get_width() * f)), max(1, int(pb.get_height() * f)),
+                                        GdkPixbuf.InterpType.BILINEAR)
+                img = Gtk.Image.new_from_pixbuf(small)
+                img.get_style_context().add_class("shot")
+            img.set_halign(Gtk.Align.CENTER)
+            if top:
+                # the overview: right under the title, whatever its shape
+                img.set_valign(Gtk.Align.START)
+                space.set_orientation(Gtk.Orientation.VERTICAL)
+                space.pack_start(img, False, False, 0)
+            else:
+                img.set_valign(Gtk.Align.CENTER)
+                space.set_center_widget(img)
+            return space
+
+        def on_swipe(self, way):
+            """Three fingers: up or down toggles the overview; sideways drives
+            the Alt+Tab card (h-begin, h-next/h-prev, h-end/h-cancel)."""
+            if self.screen is None:
+                return
+            if way in ("up", "down"):
+                # either way toggles it: opens it when closed, closes it when open
+                if self.mode == "switch":
+                    self.cancel()
+                self.toggle_overview()
+            elif way == "h-begin":
+                # a sideways swipe: the Alt+Tab card, driven by the fingers
+                if self.mode is None:
+                    self.switch(0, gesture=True)
+            elif way in ("h-next", "h-prev") and self.mode == "switch":
+                self.move(1 if way == "h-next" else -1)
+            elif way == "h-end" and self.mode == "switch":
+                self.finish(self.chosen)
+            elif way == "h-cancel" and self.mode == "switch":
+                self.cancel()
+
+        def go(self, win):
+            w = win["wnck"]
+            t = Gtk.get_current_event_time() or GdkX11.x11_get_server_time(
+                Gdk.get_default_root_window())
+            if w.get_workspace() is not None and self.screen.get_active_workspace() is not None \
+                    and w.get_workspace() != self.screen.get_active_workspace():
+                w.get_workspace().activate(t)
+            w.activate(t)
+
+        # ----------------------------------------------------- Alt+Tab --
+        def build_switch(self):
+            # A normal undecorated window (as KiteOS Start's folders are): a
+            # pop-up window kept a grey band where its shadow should be clear.
+            win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL, decorated=False, skip_taskbar_hint=True,
+                             skip_pager_hint=True, resizable=False)
+            win.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            win.set_keep_above(True)
+            screen = win.get_screen()
+            if screen.get_rgba_visual() is not None and screen.is_composited():
+                win.set_visual(screen.get_rgba_visual())
+                win.set_app_paintable(True)
+            win.get_style_context().add_class("kite-switch")
+            win.set_title("kite-switcher")
+            self.card = Gtk.Grid(row_spacing=12, column_spacing=12)
+            self.card.get_style_context().add_class("card")
+            self.card.set_margin_start(SHADOW)
+            self.card.set_margin_end(SHADOW)
+            self.card.set_margin_top(SHADOW)
+            self.card.set_margin_bottom(SHADOW)
+            win.add(self.card)
+            win.connect("key-press-event", self.on_switch_key)
+            win.connect("key-release-event", self.on_switch_release)
+            self.switch_win = win
+
+        def switch(self, step, gesture=False):
+            if self.mode == "overview":
+                self.overview_step(step)
+                return
+            if self.mode == "switch":
+                self.move(step)
+                return
+            if time.monotonic() - self.closed_at < REOPEN_S and step == 0 and not gesture:
+                return
+            wins = self.windows()
+            if len(wins) < 2:
+                if wins:
+                    self.go(wins[0])
+                return
+            geo = self.monitor_geometry()
+            cols, width, fits = row_layout(len(wins), geo.width, geo.height)
+            height = int(width * CARD_H / CARD_W)
+            wins = wins[:fits]
+            self.items = wins
+            self.chosen = next_index(len(wins), 0, step)
+            for child in self.card.get_children():
+                self.card.remove(child)
+            self.tiles = []
+            self.spaces = []
+            for win in wins:
+                box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                box.get_style_context().add_class("item")
+                head = Gtk.Box(spacing=8)
+                icon = win["wnck"].get_mini_icon()
+                if icon is not None:
+                    head.pack_start(Gtk.Image.new_from_pixbuf(icon.scale_simple(20, 20, GdkPixbuf.InterpType.BILINEAR)),
+                                    False, False, 0)
+                title = Gtk.Label(label=win["title"], xalign=0, ellipsize=3, max_width_chars=1)
+                title.set_size_request(width - 28, -1)
+                title.get_style_context().add_class("title")
+                head.pack_start(title, True, True, 0)
+                box.pack_start(head, False, False, 0)
+                # last kept picture first: grabbing every window before
+                # showing made Alt+Tab slow to open (refresh_shots below)
+                space = self.picture(win, width, height, live=False)
+                box.pack_start(space, False, False, 0)
+                self.spaces.append((win, space, width, height))
+                ev = Gtk.EventBox()
+                ev.add(box)
+                ev.connect("button-release-event", lambda _w, _e, i=len(self.tiles): self.finish(i))
+                n = len(self.tiles)
+                self.card.attach(ev, n % cols, n // cols, 1, 1)
+                self.tiles.append(box)
+            self.mark()
+            # Size and place it from its new contents before showing: a
+            # window keeps its last size otherwise (8 windows after 2 ran
+            # off the screen).
+            self.card.show_all()
+            win = self.switch_win
+            size = win.get_preferred_size()[1]
+            win.resize(size.width, size.height)
+            geo = self.monitor_geometry()
+            win.move(geo.x + max(0, (geo.width - size.width) // 2),
+                     geo.y + max(0, int((geo.height - size.height) * 0.45)))
+            win.show()
+            self.mode = "switch"
+            self.grab(self.switch_win)
+            self.refresh_id = GLib.idle_add(self.refresh_shots, list(self.spaces))
+            # Alt let go already (a quick Alt+Tab): switch at once; a swipe
+            # holds no Alt and ends when the fingers lift (h-end)
+            if not gesture:
+                GLib.timeout_add(60, self.check_alt)
+
+        def refresh_overview(self, pending):
+            """Live pictures for the overview, one window per idle turn."""
+            if self.mode != "overview" or not pending:
+                return False
+            win, space, width, height = pending.pop(0)
+            if not win["minimised"]:
+                fresh = self.picture(win, width, height, top=True)
+                kids = fresh.get_children()
+                if kids:
+                    new = kids[0]
+                    fresh.remove(new)
+                    for old in space.get_children():
+                        space.remove(old)
+                    space.pack_start(new, False, False, 0)
+                    new.show()
+            return bool(pending)
+
+        def refresh_shots(self, pending):
+            """Live pictures, one window per idle turn, once the card shows."""
+            if self.mode != "switch" or not pending:
+                return False
+            win, space, width, height = pending.pop(0)
+            if not win["minimised"]:
+                fresh = self.picture(win, width, height)
+                old = space.get_center_widget()
+                new = fresh.get_center_widget()
+                if new is not None:
+                    fresh.remove(new)
+                    if old is not None:
+                        space.remove(old)
+                    space.set_center_widget(new)
+                    new.show()
+            return bool(pending)
+
+        def mark(self):
+            for i, box in enumerate(self.tiles):
+                ctx = box.get_style_context()
+                (ctx.add_class if i == self.chosen else ctx.remove_class)("chosen")
+
+        def move(self, step):
+            if self.items:
+                self.chosen = next_index(len(self.items), self.chosen, step)
+                self.mark()
+
+        def check_alt(self):
+            if self.mode != "switch":
+                return False
+            mods = Gdk.Keymap.get_for_display(Gdk.Display.get_default()).get_modifier_state()
+            if not mods & Gdk.ModifierType.MOD1_MASK:
+                self.finish(self.chosen)
+            return False
+
+        def on_switch_key(self, _w, event):
+            k = event.keyval
+            if k == Gdk.KEY_Escape:
+                self.cancel()
+            elif k in (Gdk.KEY_ISO_Left_Tab,) or (k == Gdk.KEY_Tab and event.state & Gdk.ModifierType.SHIFT_MASK):
+                self.move(-1)
+            elif k in (Gdk.KEY_Tab, Gdk.KEY_Right, Gdk.KEY_Down):
+                self.move(1)
+            elif k in (Gdk.KEY_Left, Gdk.KEY_Up):
+                self.move(-1)
+            elif k in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
+                self.finish(self.chosen)
+            return True
+
+        def on_switch_release(self, _w, event):
+            if event.keyval in (Gdk.KEY_Alt_L, Gdk.KEY_Alt_R, Gdk.KEY_Meta_L, Gdk.KEY_Meta_R):
+                self.finish(self.chosen)
+            return True
+
+        def finish(self, index):
+            if self.mode != "switch":
+                return False
+            win = self.items[index] if 0 <= index < len(self.items) else None
+            self.hide_switch()
+            if win is not None:
+                self.go(win)
+            return False
+
+        def cancel(self):
+            self.hide_switch()
+
+        def hide_switch(self):
+            self.ungrab()
+            self.switch_win.hide()
+            self.mode = None
+            self.closed_at = time.monotonic()
+
+        # ------------------------------------------------------ overview --
+        def build_overview(self):
+            win = Gtk.Window(type=Gtk.WindowType.TOPLEVEL, decorated=False, skip_taskbar_hint=True,
+                             skip_pager_hint=True, title="kite-overview")
+            win.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            # not "always on top": that put it over the taskbar too; it is
+            # raised when it opens, and the taskbar stays above it
+            win.get_style_context().add_class("kite-over")
+            screen = win.get_screen()
+            if screen.get_rgba_visual() is not None and screen.is_composited():
+                win.set_visual(screen.get_rgba_visual())
+                win.set_app_paintable(True)
+                win.get_style_context().add_class("clear")
+            over = Gtk.Overlay()
+            self.wall = Gtk.Image()
+            over.add(self.wall)
+            dim = Gtk.EventBox()
+            dim.get_style_context().add_class("dim")
+            self.dim = dim
+            dim.connect("button-release-event", lambda *_: self.hide_overview())
+            over.add_overlay(dim)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24, margin=28)
+            self.over_box = box
+            box.set_margin_start(OVERVIEW_SIDE)
+            box.set_margin_end(OVERVIEW_SIDE)
+            self.search = Gtk.SearchEntry(width_request=420)
+            self.search.get_style_context().add_class("search")
+            self.search.get_accessible().set_name("Find a window")
+            self.search.connect("search-changed", lambda *_: self.fill_overview())
+            self.search.connect("activate", lambda *_: self.overview_go(self.chosen))
+            # GTK 3 hides an entry's placeholder while it has the focus (it
+            # always has it here): the hint is a label over the empty box.
+            hint_lab = Gtk.Label(label="Type to find a window", halign=Gtk.Align.START)
+            hint_lab.get_style_context().add_class("placeholder")
+            search_box = Gtk.Overlay(halign=Gtk.Align.CENTER)
+            search_box.add(self.search)
+            search_box.add_overlay(hint_lab)
+            search_box.set_overlay_pass_through(hint_lab, True)
+            self.search.connect("changed", lambda e: hint_lab.set_visible(not e.get_text()))
+            self.search.connect("size-allocate", lambda e, _a: hint_lab.set_margin_start(e.get_text_area().x))
+            box.pack_start(search_box, False, False, 0)
+            # its clicks are its own: they also reached the backdrop, which
+            # closed the overview
+            for w in (self.search, search_box):
+                w.connect_after("button-release-event", lambda *_: True)
+                w.connect_after("button-press-event", lambda *_: True)
+            self.grid = Gtk.Grid(row_spacing=OVERVIEW_GAP, column_spacing=OVERVIEW_GAP,
+                                 valign=Gtk.Align.CENTER, halign=Gtk.Align.CENTER)
+            # the grid never makes the window larger than the screen: it
+            # scrolls if it ever must (it overflowed)
+            scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                        vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
+            scroll.set_propagate_natural_height(False)
+            scroll.set_overlay_scrolling(False)     # its own strip, never over a tile
+            self.quick_scrollbar(scroll)
+            self.grid.set_margin_end(BAR_ROOM - 8)
+            self.grid.set_margin_start(BAR_ROOM - 8)     # and the grid stays centred
+            scroll.add(self.grid)
+            # Tiles fade out where the scrolling area cuts them off (not at
+            # the very top or the very bottom): its drawing goes into a group
+            # that is painted back through a gradient mask.
+            scroll.connect("draw", self.fade_begin)
+            scroll.connect_after("draw", self.fade_end)
+            scroll.get_vadjustment().connect("value-changed", lambda *_: scroll.queue_draw())
+            scroll.get_vadjustment().connect("changed", lambda *_: scroll.queue_draw())
+            self.scroll = scroll
+            # Empty space between tiles is backdrop too. The scrolling area's
+            # inner window did not ask for clicks, so they went nowhere: it
+            # asks now (a tile stops its own click before it gets here).
+            viewport = scroll.get_child()
+            viewport.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK)
+            viewport.connect("button-release-event", lambda _w, e: e.button == 1 and self.hide_overview())
+            box.pack_start(scroll, True, True, 0)
+            hint = Gtk.Label(label="Swipe down or press Esc to go back")
+            hint.get_style_context().add_class("hint")
+            box.pack_end(hint, False, False, 0)
+            # a click on the backdrop (anywhere but a tile or the search box)
+            # goes back; tiles keep their own clicks
+            backdrop = Gtk.EventBox()
+            backdrop.set_visible_window(False)
+            backdrop.add(box)
+            # the opening zoom: search bar and tiles drawn scaled round the
+            # screen's centre (GTK 3 cannot scale widgets otherwise)
+            backdrop.connect("draw", self.zoom_content)
+            self.content = backdrop
+            self.zoom = 1.0
+            backdrop.connect("button-release-event", lambda _w, e: e.button == 1 and self.hide_overview())
+            over.add_overlay(backdrop)
+            over.set_overlay_pass_through(backdrop, False)
+            win.add(over)
+            win.connect("key-press-event", self.on_overview_key)
+            win.connect("delete-event", lambda *_: self.hide_overview())
+            # a click outside it (the taskbar, another window) goes back too
+            win.connect("focus-out-event", lambda *_: GLib.timeout_add(150, self.overview_focus_lost) and False)
+            self.over_win = win
+
+        def quick_scrollbar(self, scroll):
+            """As in KiteOS Start: the bar shows while the grid scrolls or the
+            pointer is on it and fades BAR_HIDE_MS after (GTK's own bar stays
+            about three seconds)."""
+            bar = scroll.get_vscrollbar()
+            bar.set_opacity(0)
+            state = {"wait": 0, "fade": 0, "over": False}
+
+            def stop(key):
+                if state[key]:
+                    GLib.source_remove(state[key])
+                    state[key] = 0
+
+            def fade():
+                left = max(bar.get_opacity() - 0.25, 0)
+                bar.set_opacity(left)
+                if left == 0:
+                    state["fade"] = 0
+                    return False
+                return True
+
+            def later():
+                state["wait"] = 0
+                if not state["over"]:
+                    state["fade"] = GLib.timeout_add(30, fade)
+                return False
+
+            def show(*_):
+                stop("wait")
+                stop("fade")
+                bar.set_opacity(1)
+                state["wait"] = GLib.timeout_add(BAR_HIDE_MS, later)
+
+            def over(on):
+                state["over"] = on
+                show()
+                return False
+
+            scroll.get_vadjustment().connect("value-changed", show)
+            bar.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+            bar.connect("enter-notify-event", lambda *_: over(True))
+            bar.connect("leave-notify-event", lambda *_: over(False))
+            self.hide_bar = lambda: (stop("wait"), stop("fade"), bar.set_opacity(0))
+
+        def fade_begin(self, _scroll, cr):
+            cr.push_group()
+            return False
+
+        def fade_end(self, scroll, cr):
+            import cairo
+            cr.pop_group_to_source()
+            adj = scroll.get_vadjustment()
+            h = scroll.get_allocated_height()
+            top = adj.get_value() > 0.5                                 # scrolled down: fade the top
+            bottom = adj.get_value() + adj.get_page_size() < adj.get_upper() - 0.5
+            if h <= 2 * FADE or not (top or bottom):
+                cr.paint()
+                return False
+            mask = cairo.LinearGradient(0, 0, 0, h)
+            mask.add_color_stop_rgba(0, 0, 0, 0, 0 if top else 1)
+            mask.add_color_stop_rgba(FADE / h, 0, 0, 0, 1)
+            mask.add_color_stop_rgba(1 - FADE / h, 0, 0, 0, 1)
+            mask.add_color_stop_rgba(1, 0, 0, 0, 0 if bottom else 1)
+            cr.mask(mask)
+            return False
+
+        def zoom_content(self, widget, cr):
+            if self.zoom < 1.0:
+                a = widget.get_allocation()
+                cx, cy = a.width / 2, a.height / 2
+                cr.translate(cx, cy)
+                cr.scale(self.zoom, self.zoom)
+                cr.translate(-cx, -cy)
+            return False
+
+        def overview_wallpaper_in(self):
+            """The opening, by time on an ease-out curve (every frame): the
+            search bar and tiles zoom from 60 % as they fade in, and the
+            wallpaper and its darker layer fade in with them."""
+            if self.mode != "overview":
+                self.zoom = 1.0
+                return False
+            since = time.monotonic() - self.wall_start
+            t = min(1.0, max(0.0, since / OPEN_S))
+            eased = 1 - (1 - t) ** 3
+            self.zoom = 0.6 + 0.4 * eased
+            self.content.set_opacity(eased)
+            tb = min(1.0, max(0.0, since / BACKDROP_S))
+            back = 1 - (1 - tb) ** 3
+            self.wall.set_opacity(back)
+            self.dim.set_opacity(back)
+            self.content.queue_draw()
+            return t < 1.0 or tb < 1.0
+
+        def overview_focus_lost(self):
+            if self.mode == "overview" and not self.over_win.is_active():
+                self.hide_overview()
+            return False
+
+        def toggle_overview(self):
+            # by what is on screen: a hidden overview with mode "overview"
+            # left behind made the next call close instead of open
+            if self.mode == "overview" and self.over_win.get_visible():
+                self.hide_overview()
+                return
+            if self.mode == "switch":
+                self.hide_switch()
+            display = Gdk.Display.get_default()
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+            # The whole monitor, under the taskbar (xfwm4 keeps docks above
+            # "above" windows), so the taskbar sits on top of it; the content
+            # stays inside the work area, clear of the taskbar.
+            geo, area = monitor.get_geometry(), monitor.get_workarea()
+            self.area = area
+            self.over_box.set_margin_top(28 + area.y - geo.y)
+            self.over_box.set_margin_bottom(28 + (geo.y + geo.height) - (area.y + area.height))
+            self.over_win.move(geo.x, geo.y)
+            self.over_win.resize(geo.width, geo.height)
+            self.set_wallpaper(geo.width, geo.height)
+            self.all = self.windows()
+            self.search.set_text("")
+            self.chosen = 0
+            self.fill_overview()
+            self.mode = "overview"
+            self.wall.set_opacity(0)
+            self.dim.set_opacity(0)
+            self.content.set_opacity(0)
+            self.zoom = 0.6
+            Gtk.Widget.set_opacity(self.over_win, 1.0)
+            self.over_win.show_all()
+            self.hide_bar()                        # hidden until it scrolls
+            # the tiles zoom in (picom); the wallpaper and its darker layer
+            # fade in together behind them
+            # the window shows see-through at once; everything in it fades
+            # and zooms in together (overview_wallpaper_in)
+            self.wall_start = time.monotonic()
+            GLib.timeout_add(16, self.overview_wallpaper_in)
+            GLib.timeout_add(180, lambda: GLib.idle_add(self.refresh_overview, list(self.over_spaces)) and False)
+            self.over_win.present_with_time(GdkX11.x11_get_server_time(self.over_win.get_window()))
+            self.search.grab_focus()
+
+        def set_wallpaper(self, width, height):
+            path = None
+            try:
+                import subprocess
+                props = subprocess.run(["xfconf-query", "-c", "xfce4-desktop", "-l"], capture_output=True,
+                                       text=True, timeout=3).stdout.split()
+                for p in props:
+                    if p.endswith("/workspace0/last-image"):
+                        v = subprocess.run(["xfconf-query", "-c", "xfce4-desktop", "-p", p], capture_output=True,
+                                           text=True, timeout=3).stdout.strip()
+                        if os.path.isfile(v):
+                            path = v
+                            break
+            except (OSError, Exception):
+                path = None
+            if path is None:
+                self.wall.clear()
+                return
+            key = (path, os.path.getmtime(path), width, height)
+            if getattr(self, "wall_key", None) == key:
+                return                              # scaled already: loading it each time was slow
+            self.wall_key = key
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file(path)
+                f = max(width / pb.get_width(), height / pb.get_height())
+                pb = pb.scale_simple(int(pb.get_width() * f) + 1, int(pb.get_height() * f) + 1,
+                                     GdkPixbuf.InterpType.BILINEAR)
+                pb = pb.new_subpixbuf((pb.get_width() - width) // 2, (pb.get_height() - height) // 2, width, height)
+                self.wall.set_from_pixbuf(pb)
+            except GLib.Error:
+                self.wall.clear()
+
+        def fill_overview(self):
+            for child in self.grid.get_children():
+                self.grid.remove(child)
+            self.items = [w for w in self.all if matches(w, self.search.get_text())]
+            n = len(self.items)
+            if not n:
+                return
+            width = self.area.width - 2 * OVERVIEW_SIDE - 2 * (BAR_ROOM - 8) - 12   # the scroll bar's strip
+            height = self.area.height - 56 - 36 - 48 - 20         # margins, search, gaps, hint
+            cols, pw, ph = overview_layout(n, width, height)
+            self.tiles = []
+            self.over_spaces = []
+            for i, win in enumerate(self.items):
+                tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+                tile.get_style_context().add_class("tile")
+                if win["minimised"]:
+                    tile.get_style_context().add_class("minimised")
+                # as in Alt+Tab: the app's icon and title above the preview
+                name = Gtk.Box(spacing=8)
+                icon = win["wnck"].get_mini_icon()
+                if icon is not None:
+                    name.pack_start(Gtk.Image.new_from_pixbuf(icon.scale_simple(20, 20, GdkPixbuf.InterpType.BILINEAR)),
+                                    False, False, 0)
+                lab = Gtk.Label(label=win["title"], xalign=0, ellipsize=3, max_width_chars=1)
+                lab.get_style_context().add_class("name")
+                name.pack_start(lab, True, True, 0)
+                name.set_margin_end(30)             # clear of the x in the corner
+                tile.pack_start(name, False, False, 0)
+                # room round the picture for its shadow: GTK cuts a shadow off
+                # at the edge of its box, which showed as grey boxes
+                # kept picture first (live ones follow: refresh_overview);
+                # grabbing every window first made it slow to open
+                room = self.picture(win, pw, ph, live=False, top=True)
+                self.over_spaces.append((win, room, pw, ph))
+                room.set_margin_start(SHOT_ROOM)
+                room.set_margin_end(SHOT_ROOM)
+                room.set_margin_top(SHOT_ROOM)
+                room.set_margin_bottom(SHOT_ROOM)
+                holder = Gtk.Box()
+                holder.pack_start(room, True, True, 0)
+                tile.pack_start(holder, False, False, 0)
+                # x always shown, on the tile's top-right corner
+                over = Gtk.Overlay()
+                over.add(tile)
+                close = Gtk.Button(halign=Gtk.Align.END, valign=Gtk.Align.START, margin=4)
+                close.add(Gtk.Image.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU))
+                close.get_style_context().add_class("close")
+                close.set_tooltip_text(None)
+                close.get_accessible().set_name("Close " + win["title"])
+                close.connect("clicked", lambda _b, w=win: self.close_window(w))
+                # its own click only: it also counted as a click on the tile
+                # ("go to this window"), which closed the overview
+                close.connect("button-release-event", lambda b, e: (b.clicked(), True)[1] if e.button == 1 else True)
+                close.connect("button-press-event", lambda *_: True)
+                over.add_overlay(close)
+                ev = Gtk.EventBox()
+                ev.set_visible_window(False)        # no background of its own (grey boxes)
+                ev.add(over)
+                ev.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+                ev.connect("enter-notify-event", lambda w, _e, t=tile: self.hover(w, t, True))
+                ev.connect("leave-notify-event", lambda w, _e, t=tile: self.hover(w, t, False))
+                ev.connect("button-release-event", lambda _w, e, i=i: (e.button != 1) or self.overview_go(i))
+                self.grid.attach(ev, i % cols, i // cols, 1, 1)
+                self.tiles.append(tile)
+            self.chosen = min(self.chosen, n - 1)
+            self.mark()
+            self.grid.show_all()
+
+        def hover(self, ev, tile, on):
+            """Light up the tile under the pointer. On leaving, ask where the
+            pointer is: leaving through the x (a window of its own) left the
+            highlight on before."""
+            if not on:
+                alloc = ev.get_allocation()
+                _win, x, y, _mask = ev.get_window().get_device_position(
+                    Gdk.Display.get_default().get_default_seat().get_pointer())
+                inside = alloc.x <= x < alloc.x + alloc.width and alloc.y <= y < alloc.y + alloc.height
+                if inside:
+                    return False
+            for t in self.tiles:
+                if t is not tile:
+                    t.get_style_context().remove_class("hover")
+            (tile.get_style_context().add_class if on else tile.get_style_context().remove_class)("hover")
+            return False
+
+        def close_window(self, win):
+            win["wnck"].close(GdkX11.x11_get_server_time(self.over_win.get_window()))
+            self.all = [w for w in self.all if w["xid"] != win["xid"]]
+            GLib.timeout_add(150, lambda: self.fill_overview() or False)
+
+        def overview_step(self, step):
+            if self.items:
+                self.chosen = next_index(len(self.items), self.chosen, step)
+                self.mark()
+
+        def overview_go(self, index):
+            win = self.items[index] if 0 <= index < len(self.items) else None
+            self.hide_overview()
+            if win is not None:
+                self.go(win)
+            return True
+
+        def on_overview_key(self, _w, event):
+            k = event.keyval
+            if k == Gdk.KEY_Escape:
+                if self.search.get_text():
+                    self.search.set_text("")
+                else:
+                    self.hide_overview()
+                return True
+            if k in (Gdk.KEY_Right, Gdk.KEY_Tab):
+                self.overview_step(1)
+                return True
+            if k in (Gdk.KEY_Left, Gdk.KEY_ISO_Left_Tab):
+                self.overview_step(-1)
+                return True
+            if k in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                self.overview_go(self.chosen)
+                return True
+            return False
+
+        def hide_overview(self):
+            """Fade the whole overview out (tiles, backdrop, wallpaper) over
+            about 0.15 s, then hide it: picom's own fade did not show."""
+            if self.mode != "overview":
+                self.over_win.hide()
+                return True
+            self.mode = None
+            self.closed_at = time.monotonic()
+            win = self.over_win
+            steps = [0.82, 0.64, 0.46, 0.3, 0.16, 0.05]
+
+            def step():
+                if self.mode == "overview":            # opened again meanwhile
+                    Gtk.Widget.set_opacity(win, 1.0)
+                    return False
+                if steps:
+                    Gtk.Widget.set_opacity(win, steps.pop(0))
+                    return True
+                win.hide()
+                Gtk.Widget.set_opacity(win, 1.0)
+                return False
+            GLib.timeout_add(24, step)
+            return True
+
+        # -------------------------------------------------------- helpers --
+        def monitor_geometry(self):
+            display = Gdk.Display.get_default()
+            monitor = display.get_primary_monitor() or display.get_monitor(0)
+            return monitor.get_geometry()
+
+        def place_centre(self, win):
+            geo = self.monitor_geometry()
+            w, h = win.get_preferred_size()[1].width, win.get_preferred_size()[1].height
+            win.move(geo.x + (geo.width - w) // 2, geo.y + int((geo.height - h) * 0.45))
+
+        def grab(self, win):
+            seat = Gdk.Display.get_default().get_default_seat()
+            for _ in range(20):         # the shortcut's own grab may still be held
+                if seat.grab(win.get_window(), Gdk.SeatCapabilities.KEYBOARD, False, None, None,
+                             None, None) == Gdk.GrabStatus.SUCCESS:
+                    return True
+                time.sleep(0.01)
+            return False
+
+        def ungrab(self):
+            Gdk.Display.get_default().get_default_seat().ungrab()
+
+    return Switcher().run(sys.argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

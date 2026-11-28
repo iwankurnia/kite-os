@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KiteOS window switcher
+Comment=Keeps Alt+Tab and the overview ready, so they open at once
+Exec=kite-switcher --background
+NoDisplay=true
+OnlyShowIn=XFCE;
+X-XFCE-Autostart-Override=true

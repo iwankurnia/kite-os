@@ -246,7 +246,7 @@ check "keys (standard): Alt+F4 still closes" test "$(wk close_window_key)" = "<A
 echo "Google" > "$LH/dmi/sys_vendor"
 klk desktop >/dev/null
 check "keys (Chromebook detected): ChromeOS close key, one key only" test "$(wk close_window_key)" = "<Primary><Shift>w"
-check "keys (Chromebook): Alt+Tab switches windows" test "$(wk cycle_windows_key)" = "<Alt>Tab"
+check "Alt+Tab is KiteOS's switcher: xfwm4's own has no key left" bash -c "[ -z \"\$(wk cycle_windows_key)\" ] && [ -z \"\$(wk cycle_reverse_windows_key)\" ]"
 check "keys (Chromebook): Alt+[ docks left" test "$(wk tile_left_key)" = "<Alt>bracketleft"
 klk keys standard >/dev/null
 check "keys: choosing standard on a Chromebook is kept" bash -c "grep -qx standard '$LH/home/.config/kite/keys'"
@@ -1156,6 +1156,53 @@ check "KiteOS Start and the calendar use the theme's accent, not a fixed blue" b
 check "taskbar: the active app's mark in the accent (docklike patch 05, colour from theme on)" bash -c \
     "grep -q 'theme_selected_bg_color' '$REPO/patches/xfce4-docklike-plugin/05-kite-accent-indicator.patch' && grep -qx 'indicatorColorFromTheme=true' '$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/xfce4/panel/docklike-20.rc'"
 check "kite-layout desktop puts the accent back after resetting the theme" grep -q 'kite-accent' "$REPO/packages/kite-desktop/usr/bin/kite-layout"
+
+echo "== kite-switcher (Alt+Tab, overview) and kite-gestures (three-finger swipes)"
+KW=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-switcher
+KGE=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-gestures
+mod_py() { python3 -I -B - "$1" <<MODEOF
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("m", sys.argv[1])
+spec = importlib.util.spec_from_loader("m", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+def swipe(dx, dy, secs, n=10, fingers=3, end=""):
+    return [" event11  GESTURE_SWIPE_BEGIN  +1.000s\t%d" % fingers] + [" event11  GESTURE_SWIPE_UPDATE  %d  +%.3fs\t%d  %.2f/%.2f ( 0/0 unaccelerated)" % (i, 1 + secs * i / n, fingers, dx / n, dy / n) for i in range(1, n + 1)] + [" event11  GESTURE_SWIPE_END  +%.3fs\t%d%s" % (1 + secs, fingers, end)]
+$2
+MODEOF
+}
+check "Alt+Tab: one row of full-size previews when they fit" mod_py "$KW" 'assert m.row_layout(4, 1366, 768) == (4, 236, 4)'
+check "Alt+Tab: smaller previews, then more rows, never past the screen" mod_py "$KW" 'c, w, n = m.row_layout(12, 1366, 768); assert c == 6 and w == m.MIN_CARD_W and n == 12; assert m.row_layout(40, 1366, 768)[2] < 40'
+check "Alt+Tab: most recently used first" mod_py "$KW" 'w = [{"xid": 1, "stack": 0}, {"xid": 2, "stack": 1}, {"xid": 3, "stack": 2}]; assert [x["xid"] for x in m.ordered(w, [3, 1])] == [1, 3, 2]'
+check "overview: at most 4 x 2 at once (more scroll), bigger when few" mod_py "$KW" 'assert m.overview_layout(12, 1100, 520)[0] == 4 and m.overview_layout(2, 1100, 520)[1] > m.overview_layout(8, 1100, 520)[1]'
+check "overview search: title or app name" mod_py "$KW" 'w = {"title": "notes.txt - Mousepad", "app": "Mousepad"}; assert m.matches(w, "mouse") and m.matches(w, "") and not m.matches(w, "brave")'
+check "gestures: libinput lines with a repeat count are read (the device prints them)" mod_py "$KGE" 'assert list(m.parse(swipe(0, -300, 0.5))) == ["up"]'
+check "gestures: up or down at once, a quick short flick too" mod_py "$KGE" 'assert list(m.parse(swipe(0, -40, 0.08))) == ["up"] and list(m.parse(swipe(0, 300, 0.6))) == ["down"]'
+check "gestures: a quick sideways flick moves one window, a slow slide several" mod_py "$KGE" 'assert list(m.parse(swipe(450, 0, 0.15))) == ["h-begin", "h-next", "h-end"]; r = list(m.parse(swipe(300, 5, 0.8))); assert r[0] == "h-begin" and r.count("h-next") >= 3 and r[-1] == "h-end"'
+check "gestures: other finger counts ignored, a cancelled sideways swipe cancels" mod_py "$KGE" 'assert list(m.parse(swipe(0, 300, 0.5, fingers=4))) == [] and list(m.parse(swipe(300, 0, 0.8, end=" cancelled")))[-1] == "h-cancel"'
+check "gestures run as a system service (libinput needs root), enabled at install" bash -c \
+    "grep -qx 'ExecStart=/usr/lib/kite/desktop/kite-gestures' '$REPO/packages/kite-desktop/usr/lib/systemd/system/kite-gestures.service' && grep -q 'systemctl enable kite-gestures.service' '$REPO/packages/kite-desktop/DEBIAN/postinst' && grep -q 'libinput-tools' '$REPO/packages/kite-desktop/DEBIAN/control'"
+check "kite-switcher: started hidden at login, the command asks it over D-Bus" bash -c \
+    "grep -qx 'Exec=kite-switcher --background' '$REPO/packages/kite-desktop/etc/xdg/autostart/kite-switcher.desktop' && grep -q 'org.gtk.Actions.Activate' '$REPO/packages/kite-desktop/usr/bin/kite-switcher' && sh -n '$REPO/packages/kite-desktop/usr/bin/kite-switcher'"
+check "Task view button beside Start on the taskbar" bash -c \
+    "xmllint --xpath \"//property[@name='plugin-ids']/value[2]/@value\" '$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml' | grep -q '\"21\"' && grep -qx 'Exec=kite-switcher --overview' '$REPO/packages/kite-desktop/usr/share/kite/layouts/desktop/.config/xfce4/panel/launcher-21/taskview.desktop' && test -f '$REPO/packages/kite-desktop/usr/share/icons/hicolor/scalable/actions/kite-taskview-symbolic.svg'"
+check "picom: the switcher and overview draw their own shadow; the overview stays composited" bash -c \
+    "grep -A3 \"name = 'kite-overview'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'unredir = false' && grep -A2 \"name = 'kite-switcher'\" '$REPO/packages/kite-desktop/etc/kite/picom.conf' | grep -q 'shadow = false'"
+SW=$(mktemp -d); mkdir -p "$SW/cfg/xfce4/xfconf/xfce-perchannel-xml" "$SW/cfg/xfce4/panel"
+cat > "$SW/cfg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml" <<'XML'
+<channel name="xfce4-keyboard-shortcuts" version="1.0"><property name="commands" type="empty"><property name="custom" type="empty"><property name="&lt;Super&gt;w" type="string" value="xfdesktop --windowlist"/></property></property><property name="xfwm4" type="empty"><property name="custom" type="empty"><property name="&lt;Alt&gt;Tab" type="string" value="cycle_windows_key"/><property name="&lt;Super&gt;Left" type="string" value="tile_left_key"/></property></property></channel>
+XML
+cat > "$SW/cfg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" <<'XML'
+<channel name="xfce4-panel" version="1.0"><property name="panels" type="array"><value type="int" value="1"/><property name="panel-1" type="empty"><property name="plugin-ids" type="array"><value type="int" value="1"/><value type="int" value="2"/></property></property></property><property name="plugins" type="empty"><property name="plugin-1" type="string" value="launcher"/><property name="plugin-2" type="string" value="launcher"/></property></channel>
+XML
+XDG_CONFIG_HOME="$SW/cfg" KITE_LAYOUT_DATA="$REPO/packages/kite-desktop/usr/share/kite/layouts" python3 -I -c '
+import importlib.machinery, importlib.util, sys
+l = importlib.machinery.SourceFileLoader("kui", sys.argv[1]); sp = importlib.util.spec_from_loader("kui", l); m = importlib.util.module_from_spec(sp); l.exec_module(m)
+m.setup_switcher(); m.setup_switcher()' "$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-user-init"
+SK=$SW/cfg/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml; SP=$SW/cfg/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml
+check "once at login: Alt+Tab and Search+W go to kite-switcher, xfwm4's switcher loses Alt+Tab" bash -c \
+    "grep -q 'value=\"kite-switcher\"' '$SK' && grep -q 'kite-switcher --overview' '$SK' && ! grep -q cycle_windows_key '$SK' && grep -q tile_left_key '$SK'"
+check "once at login: Task view goes beside Start, only once" bash -c \
+    "[ \"\$(xmllint --xpath \"//property[@name='plugin-ids']/value[2]/@value\" '$SP')\" = ' value=\"21\"' ] && [ \"\$(grep -c taskview.desktop '$SP')\" = 1 ] && test -f '$SW/cfg/xfce4/panel/launcher-21/taskview.desktop'"
+rm -rf "$SW"
 
 echo "== window guard (title bars kept on screen)"
 WG=$REPO/packages/kite-desktop/usr/lib/kite/desktop/kite-window-guard

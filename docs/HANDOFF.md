@@ -636,6 +636,27 @@ mac layout's GTK theme) left kite-desktop's Depends and the ISO; the
 fallback when Fluent is missing is Adwaita. Installed systems keep Orchis
 until `sudo apt purge orchis-gtk-theme`.
 
+**Window switcher, Task view and gestures (kite-desktop 1.4.8,
+2026-11-28, tried on the device).** /usr/lib/kite/desktop/kite-switcher
+(Python/GTK, resident from autostart, D-Bus client /usr/bin/kite-switcher like
+kite-start) replaces xfwm4's Alt+Tab (whose cycle keys are removed: xfwm4
+draws no previews while picom composites, and its blue frame round the real
+window) and Search+W. Alt+Tab: a card of window previews (kept pictures
+first, live ones in idle time: 0.5 s -> 0.13 s to open), shrinks then wraps,
+own soft shadow in a clear 48 px margin (a 32 px margin cut it into a band),
+Alt release via a keyboard grab. Task view: full-screen RGBA window under the
+taskbar (not "above": that covered the taskbar), 4 x 2 tiles then scroll
+with a faded top/bottom (cairo mask), Windows 11 Task View look; it animates
+its own opening (content zoom from 60 % by cairo scale in draw, backdrop and
+wallpaper fade slower) and fades itself out (picom's fade did not show:
+unredir; the rule sets unredir = false). kite-gestures.service (root, reads
+`stdbuf -oL libinput debug-events`: the pipe held output back; the device
+prints a repeat count before the time) sends swipes to the session over
+D-Bus via setpriv: up/down toggles Task view, sideways drives Alt+Tab (a flick
+under 0.25 s moves one window, a slow slide one per 50 units). Task view
+button = launcher plugin 21 beside Start. Existing accounts: kite-user-init
+setup_switcher once (~/.config/kite/switcher-setup).
+
 ## Open to-do list
 
 0. **Next session:** release the 2026-11-25 changes (picom animations, VLC;

@@ -73,7 +73,9 @@ SHORTCUTS = {
     "common": {
         "commands": {
             "<Super>space": "kite-start",
-            "<Super>w": "xfdesktop --windowlist",
+            "<Super>w": "kite-switcher --overview",      # every window (also a three-finger swipe)
+            "<Alt>Tab": "kite-switcher",                 # KiteOS's window switcher, not xfwm4's
+            "<Alt><Shift>Tab": "kite-switcher --previous",
             "<Super>l": "xflock4",
             "<Super>e": "thunar",
             "<Super>r": "xfce4-appfinder --collapsed",
@@ -91,7 +93,7 @@ SHORTCUTS = {
 #   standard:   Windows keys.
 WINDOW_KEYS = {
     "chromebook": {
-        "common": {"<Alt>Tab": "cycle_windows_key", "<Primary><Shift>w": "close_window_key",
+        "common": {"<Primary><Shift>w": "close_window_key",
                    "<Alt>minus": "hide_window_key", "<Alt>equal": "maximize_window_key",
                    "<Alt>bracketleft": "tile_left_key", "<Alt>bracketright": "tile_right_key",
                    "<Super>d": "show_desktop_key"},
@@ -126,6 +128,9 @@ def key_style():
     except OSError:
         pass
     return "chromebook" if is_chromebook() else "standard"
+
+
+XFWM4_SWITCHER = ("cycle_windows_key", "cycle_reverse_windows_key")
 
 
 def window_keys(layout, style):
@@ -191,6 +196,12 @@ def write_shortcuts(layout):
             extra.update(SHORTCUTS[layout]["commands"])
         else:
             extra = window_keys(layout, key_style())
+        if section == "xfwm4":
+            # Alt+Tab is kite-switcher's (a command above): xfwm4's own
+            # switcher keeps no key, or it would take Alt+Tab first
+            for p in custom.findall("./property"):
+                if p.get("value") in XFWM4_SWITCHER:
+                    custom.remove(p)
         for key, cmd in extra.items():
             for p in custom.findall("./property"):
                 # the same key, or (window keys) another key for the same action

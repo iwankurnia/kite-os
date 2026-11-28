@@ -1,0 +1,16 @@
+[Unit]
+Description=KiteOS three-finger touchpad gestures (overview, switching windows)
+After=systemd-logind.service
+
+[Service]
+ExecStart=/usr/lib/kite/desktop/kite-gestures
+Restart=always
+RestartSec=3
+# reads touchpads (libinput) and only hands swipes to the desktop
+ProtectHome=read-only
+ProtectSystem=strict
+PrivateTmp=true
+NoNewPrivileges=false
+
+[Install]
+WantedBy=graphical.target

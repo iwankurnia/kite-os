@@ -42,6 +42,11 @@ if [ "$1" = configure ]; then
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload >/dev/null 2>&1 || true
     fi
+    # three-finger touchpad gestures (overview, switching windows)
+    systemctl enable kite-gestures.service >/dev/null 2>&1 || true
+    if [ -d /run/systemd/system ]; then
+        systemctl restart kite-gestures.service >/dev/null 2>&1 || true
+    fi
     # The installer (Calamares) wrote the greeter it found into lightdm.conf,
     # which LightDM reads after lightdm.conf.d: until kite-desktop 1.3.0 that
     # was slick-greeter. Point that line at the KiteOS login screen, or the
